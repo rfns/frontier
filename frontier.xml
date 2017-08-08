@@ -1,0 +1,1419 @@
+<?xml version="1.0" encoding="UTF8"?>
+<Export generator="Cache" version="25">
+<Class name="Frontier.ArgumentDescription">
+<Super>%RegisteredObject</Super>
+<TimeCreated>64492,37806.502663</TimeCreated>
+
+<Property name="Name">
+<Type>%String</Type>
+</Property>
+
+<Property name="DefaultValue">
+<Type>%String</Type>
+</Property>
+
+<Property name="Type">
+<Type>%String</Type>
+</Property>
+
+<Property name="Arity">
+<Type>%Boolean</Type>
+<InitialExpression>0</InitialExpression>
+</Property>
+</Class>
+
+
+<Class name="Frontier.Authentication.Common">
+<Abstract>1</Abstract>
+<TimeCreated>64502,50858.16525</TimeCreated>
+
+<Method name="SetUser">
+<ClassMethod>1</ClassMethod>
+<ReturnType>%Status</ReturnType>
+<Implementation><![CDATA[  return $$$OK
+]]></Implementation>
+</Method>
+
+<Method name="GetUser">
+<ClassMethod>1</ClassMethod>
+<ReturnType>%Status</ReturnType>
+<Implementation><![CDATA[  return $$$OK
+]]></Implementation>
+</Method>
+
+<Method name="ValidateAccess">
+<ClassMethod>1</ClassMethod>
+<FormalSpec>session:%CSP.Session,request:%CSP.Request</FormalSpec>
+<ReturnType>%Status</ReturnType>
+</Method>
+</Class>
+
+
+<Class name="Frontier.Context">
+<Super>%RegisteredObject</Super>
+<TimeCreated>64502,31617.993909</TimeCreated>
+
+<Property name="Session">
+<Type>%CSP.Session</Type>
+<ReadOnly>1</ReadOnly>
+</Property>
+
+<Property name="Request">
+<Type>%CSP.Request</Type>
+<ReadOnly>1</ReadOnly>
+</Property>
+
+<Method name="%OnNew">
+<FormalSpec>session:%CSP.Session,request:%CSP.Request</FormalSpec>
+<ReturnType>%Status</ReturnType>
+<Implementation><![CDATA[
+  set i%Session = session
+  set i%Request = request
+  return $$$OK
+]]></Implementation>
+</Method>
+</Class>
+
+
+<Class name="Frontier.Dynamic.Marshaller">
+<Super>%RegisteredObject</Super>
+<TimeCreated>64502,32993.705412</TimeCreated>
+
+<Property name="Cache">
+<Type>%DynamicObject</Type>
+<MultiDimensional>1</MultiDimensional>
+<Private>1</Private>
+</Property>
+
+<Property name="Properties">
+<Type>%List</Type>
+<Private>1</Private>
+</Property>
+
+<Property name="DropCyclicReferences">
+<InitialExpression>1</InitialExpression>
+</Property>
+
+<Method name="%OnNew">
+<Private>1</Private>
+<ReturnType>%Status</ReturnType>
+<Implementation><![CDATA[  quit $$$OK
+]]></Implementation>
+</Method>
+
+<Method name="PropertiesSet">
+<FormalSpec>value:%String=""</FormalSpec>
+<ReturnType>%Status</ReturnType>
+<Implementation><![CDATA[
+  set i%Properties = $lfs(value)
+  quit $$$OK
+]]></Implementation>
+</Method>
+
+<Method name="Marshall">
+<ClassMethod>1</ClassMethod>
+<FormalSpec>object:%RegisteredObject,*dynamicObject:%DynamicAbstractObject,properties:%String=""</FormalSpec>
+<ReturnType>%Status</ReturnType>
+<Implementation><![CDATA[
+  set marshaller = ..%New()
+  set marshaller.Properties = properties
+  if $isobject(object) {
+    set type = $classname(object)
+    if ##class(Frontier.Types).IsCollection(type) return marshaller.MakeDynamicCollection(object, .dynamicObject)
+    if ##class(Frontier.Types).IsDynamic(type) return marshaller.MarshallPartial(object, .dynamicObject)
+    if ##class(Frontier.Types).IsInstantiable(type) return marshaller.MakeDynamicObject(object, .dynamicObject)
+  }
+  return $$$OK
+]]></Implementation>
+</Method>
+
+<Method name="MarshallPartial">
+<FormalSpec>dynamicInstance:%DynamicAbstractObject,marshalledObject:%DynamicAbstractObject=""</FormalSpec>
+<ReturnType>%Status</ReturnType>
+<Implementation><![CDATA[
+  set sc = $$$OK
+  set iterator = dynamicInstance.%GetIterator()
+  set marshalledObject = $System.OBJ.New($classname(dynamicInstance))
+  set dynamicValueResult = ""
+  
+  while iterator.%GetNext(.key, .value) {
+    set dynamicValueResult = value
+    if $isobject(value) {
+      set valueType = $classname(value)
+      if ##class(Frontier.Types).IsDynamic(valueType) {
+        set sc = ..MarshallPartial(value, .dynamicValueResult)       
+      } else {
+        set sc = ..Marshall(value, .dynamicValueResult)
+      }
+      if $$$ISERR(sc) return sc
+    }
+    do marshalledObject.%Set(key, dynamicValueResult)
+  }
+  return sc
+]]></Implementation>
+</Method>
+
+<Method name="MarshallCollection">
+<ClassMethod>1</ClassMethod>
+<FormalSpec>collection:%RegisteredObject,*dynamicCollection:%DynamicObject,properties:%String=""</FormalSpec>
+<ReturnType>%Status</ReturnType>
+<Implementation><![CDATA[
+  set marshaller = ..%New()
+  set marshaller.Properties = properties
+  quit marshaller.MakeDynamicCollection(collection, .dynamicCollection)
+]]></Implementation>
+</Method>
+
+<Method name="MakeDynamicObject">
+<FormalSpec>object:%RegisteredObject,*dynamicObject:%DynamicObject="",parentKey:%String="",parentObject:%RegisteredObject=""</FormalSpec>
+<Private>1</Private>
+<ReturnType>%Status</ReturnType>
+<Implementation><![CDATA[
+  set sc = $$$OK     
+  
+  // Temporary table to reuse processed instances.
+  if $data(i%Cache(object)) {
+    quit $$$OK
+  } else {
+    set dynamicObject = ##class(%DynamicObject).%New()
+    set i%Cache(object) = dynamicObject
+  }
+    
+  set isSameObject = 0
+  set affectedProperties = ""
+  set classDescriptors = ##class(%Dictionary.CompiledClass).%OpenId($classname(object))
+  
+  if $lv(..Properties) && (..Properties '= "") {
+    set affectedProperties = ##class(%ListOfObjects).%New()
+    for i=1:1:classDescriptors.Properties.Count() {
+      set propertyDescriptors = classDescriptors.Properties.GetAt(i)
+      if $lf(..Properties, propertyDescriptors.Name) {
+        set sc = affectedProperties.Insert(propertyDescriptors)
+      }
+    }
+  } else {
+    set affectedProperties = classDescriptors.Properties
+  }
+  
+  break:parentKey'=""
+    
+  for i=1:1:affectedProperties.Count() {    
+    set propertyDescriptors = affectedProperties.GetAt(i)    
+    if '$isobject(propertyDescriptors) continue    
+    if propertyDescriptors.Private || propertyDescriptors.Calculated || ($extract(propertyDescriptors.Name) = "%") continue
+    if $isobject(parentObject) && ($classname(parentObject) = propertyDescriptors.Type) && 
+      (parentKey = propertyDescriptors.Name) && (propertyDescriptors.Cardinality '= "") {
+      // Prevents the buffer from overflowing by skipping parent relationship serialization.
+      // DO NOT DISABLE THIS FLAG WHEN SERIALIZING TO JSON!
+      if '..DropCyclicReferences set $property(dynamicObject, parentKey) = i%Cache(parentObject)
+      continue
+    }
+    set value = $property(object, propertyDescriptors.Name)
+    if $isobject(value) {
+      if value.%IsA("%RelationshipObject") {
+        set parentObject = object               
+        set parentKey = propertyDescriptors.Inverse
+      }
+      if propertyDescriptors.Collection = "" {        
+        if value.%Extends("%Stream.Object") {
+          set proxifiedChild = $System.OBJ.New($classname(value))
+          set sc = proxifiedChild.CopyFrom(value)
+          if $$$ISERR(sc) quit
+        } else {          
+          set sc = ..MakeDynamicObject(value, .proxifiedChild)
+        }        
+      } else {
+        set sc = ..MakeDynamicCollection(value, .proxifiedChild, parentKey, parentObject)          
+      }
+      if $$$ISERR(sc) quit
+      set $property(dynamicObject, propertyDescriptors.Name) = proxifiedChild                  
+    } else {
+      set $property(dynamicObject, propertyDescriptors.Name) = $property(object, propertyDescriptors.Name)
+    }      
+  }  
+  if object.%Extends("%Persistent") {
+    if $lf(..Properties, "__id__") || (..Properties = "") {
+      set id = object.%Id()
+      if id '= "" set $property(dynamicObject, "__id__") = object.%Id()
+    }
+  }      
+  quit sc
+]]></Implementation>
+</Method>
+
+<Method name="MakeDynamicCollection">
+<FormalSpec>collection:%Collection.Super,*dynamicCollection:%String,parentKey:%String="",parentObject:%RegisteredObject=""</FormalSpec>
+<Private>1</Private>
+<ReturnType>%Status</ReturnType>
+<Implementation><![CDATA[
+  set sc = $$$OK   
+  set startOffset = 0
+      
+  if collection.%IsA("%Collection.AbstractList") || collection.%IsA("%RelationshipObject") {
+    set startOffset = 1
+    set dynamicCollection = []
+  } else {
+    set dynamicCollection = {}
+  }
+   
+  set key = ""
+  
+  while collection.GetNext(.key) {
+    set item = collection.GetAt(key)
+    
+    if $isobject(item) {
+      if item.%IsA("%Collection.AbstractIterator") {
+        set sc = ..MakeDynamicCollection(item , .value)
+      } else {
+        set sc = ..MakeDynamicObject(item, .value, parentKey, parentObject)
+      }
+    } else {
+      set value = item
+    }
+    
+    do dynamicCollection.%Set(key - startOffset, value)    
+    if $$$ISERR(sc) quit
+  }
+  quit sc
+]]></Implementation>
+</Method>
+</Class>
+
+
+<Class name="Frontier.Method">
+<Abstract>1</Abstract>
+<TimeCreated>64502,35961.209604</TimeCreated>
+
+<Method name="DescribeArguments">
+<ClassMethod>1</ClassMethod>
+<FormalSpec>className:%String,methodName:%String,*describedArguments:%ListOfObjects=""</FormalSpec>
+<ReturnType>%Status</ReturnType>
+<Implementation><![CDATA[
+  $$$QuitOnError(..AssertMethodExists(className, methodName))
+   
+  set id = className_"||"_methodName  
+  set describedArguments = ##class(%ListOfObjects).%New()
+  set formalSpec = ##class(%Dictionary.CompiledMethod).%OpenId(id).FormalSpec
+  set currentIndex = 0
+  
+  while $$ParseArgument(.parsedArgument) {
+    set sc = describedArguments.Insert(parsedArgument)
+    if $$$ISERR(sc) return sc
+  }
+  
+  return sc 
+ 
+ParseArgument(parsedArgument)
+  set currentIndex = currentIndex + 1
+  set argument = $piece(formalSpec, ",", currentIndex)
+  
+  if argument '= "" {
+    set parsedArgument = ##class(Frontier.ArgumentDescription).%New()
+    if argument [ "..." set parsedArgument.Arity = 1
+    set parsedArgument.Name = $replace($piece(argument, ":", 1), "...", "")
+    set parsedArgument.DefaultValue = $piece(argument, "=", 2)
+    set parsedArgument.Type = $piece($piece(argument, ":", 2), "=")
+    quit 1
+  }    
+  quit 0
+]]></Implementation>
+</Method>
+
+<Method name="GetReturnTypeParameters">
+<ClassMethod>1</ClassMethod>
+<FormalSpec>className:%String,method:%String,*parameters:%String=""</FormalSpec>
+<ReturnType>%Status</ReturnType>
+<Implementation><![CDATA[
+  $$$ThrowOnError(..AssertMethodExists(className, method))
+  
+  set serializedParameters = ##class(%Dictionary.CompiledMethod).%OpenId(className_"||"_method).ReturnTypeParams
+  if serializedParameters = "" return $$$OK
+  
+  set parametersCount = $length(serializedParameters, ",")
+  
+  for i=1:1:parametersCount {
+    set part = $piece(serializedParameters, ",", i)
+    set parameterKey = $piece(part, "=", 1)
+    set parameterValue = $piece(part, "=", 2)
+    set parameters(parameterKey) = parameterValue
+  }
+  return $$$OK
+]]></Implementation>
+</Method>
+
+<Method name="AssertMethodExists">
+<Internal>1</Internal>
+<ClassMethod>1</ClassMethod>
+<FormalSpec>className:%String,methodName:%String</FormalSpec>
+<Private>1</Private>
+<ReturnType>%Status</ReturnType>
+<Implementation><![CDATA[
+  set id = className_"||"_methodName
+  
+  if '##class(%Dictionary.CompiledClass).%ExistsId(className) {
+    return $$$ERROR($$$ClassDoesNotExist, className)   
+  }    
+  
+  if '##class(%Dictionary.CompiledMethod).%ExistsId(id) {
+    return $$$ERROR($$$MethodDoesNotExist, methodName)
+  }
+  return $$$OK
+]]></Implementation>
+</Method>
+
+<Method name="PrepareArguments">
+<ClassMethod>1</ClassMethod>
+<FormalSpec><![CDATA[className:%String,methodName:%String,httpMethod:%String,&routeArgs:%String=0,&requestArgs:%String=0,content:%Stream.Object="",*args=0]]></FormalSpec>
+<ReturnType>%Status</ReturnType>
+<Implementation><![CDATA[
+  #define TriggerPayloadFlag if httpMethod = "POST" || (httpMethod = "PUT") || (httpMethod = "PATCH") set payloadFound = 1
+  #define AssertSinglePayloadParameter throw:payloadFound=1 ##class(%Exception.StatusException).CreateFromStatus($$$ERROR($$$GeneralError, "Cannot have more than one payload for POST/PUT/PATCH request."))
+  
+  if requestArgs = "" || (requestArgs < 0) return $$$ERROR($$$GeneralError, "request arguments list must have length.")
+  $$$QuitOnError(..DescribeArguments(className, methodName, .methodArguments))  
+  
+  set args = 0
+  set argsProcessed = 0
+  set argsIndex = 0
+  set argKey = ""
+  set argValue = ""
+  set output = ""
+  set sc = $$$OK
+  set payloadFound = 0
+    
+  set methodArgumentsLength = methodArguments.Count()
+  if methodArgumentsLength = 0 return $$$OK
+  
+  set jsonErrorMessage = "Invalid JSON format, expected a %1 compatible notation."
+  
+  do MergeArguments(.mergedArguments, .sc)
+  if $$$ISERR(sc) return sc  
+  
+  set maxLength = methodArgumentsLength
+  if maxLength < mergedArguments set maxLength = mergedArguments
+  
+  for argsProcessed=1:1:maxLength {    
+    set argKey = $order(mergedArguments(argKey), 1, argValue)
+    if argKey = "" set argValue = ""    
+    set methodArgument = $select(argsProcessed > methodArgumentsLength : methodArguments.GetAt(methodArgumentsLength), 1: methodArguments.GetAt(argsProcessed))
+    set value = $select(argValue '= "" : argValue, 1: methodArgument.DefaultValue)
+    set output = value 
+    
+    if ##class(Frontier.Types).IsDynamic(methodArgument.Type) {
+      $$$AssertSinglePayloadParameter
+      $$$TriggerPayloadFlag      
+      set output = $classmethod(methodArgument.Type, "%FromJSON", content)
+      if output = "" return $$$ERROR($$$GeneralError, $$$FormatText(jsonErrorMessage, methodArgument.Type))
+    } elseif ##class(Frontier.Types).IsZENProxyObject(methodArgument.Type) {
+      $$$AssertSinglePayloadParameter
+      $$$TriggerPayloadFlag
+      set sc = ##class(%ZEN.Auxiliary.altJSONProvider).%ConvertJSONToObject(content,,.output)
+      if $$$ISERR(sc) return $$$ERROR($$$GeneralError, $$$FormatText(jsonErrorMessage, methodArgument.Type))
+    } elseif ##class(Frontier.Types).IsPersistent(methodArgument.Type) {
+      set output = $System.OBJ.OpenId(methodArgument.Type, value)
+      if '$isobject(output) set output = ""
+    }
+    set argsIndex = argsIndex + 1
+    set args(argsIndex) = output
+  }
+  set args = argsProcessed
+  zw args
+  return sc
+  
+MergeArguments(mergedArgs, sc)
+  #define KeyGroup(%requestKey)  $zstrip($zstrip(%requestKey, "<=N"), "=>N")
+  #define KeyIndex(%requestKey)  $zstrip($zstrip(requestKey, "<=N"), "<=A") 
+    
+  // We need to fix the request parameters first.
+  set mergedArgsLength = 0
+  set nextKeyIndex = 0
+  set lastKeyGroup = ""
+  set k = ""    
+  set requestKey = ""
+  set queryParams = 0
+  for {
+    set k = $order(requestArgs(k))
+    quit:k="" 
+    
+    set requestKey = k
+    
+    // Don't depend on query parameter repeatance, because JavaScript cannot repeat object keys.
+    // Instead the parameter should follow the pattern "paramN".    
+    set value = requestArgs(k, 1)
+    
+    if k?.A1.2N = 1 {
+      set currentKeyGroup = $$$KeyGroup(requestKey)      
+      // Removes anything that is not the index located at the end of the key.
+      if lastKeyGroup = "" {
+        set lastKeyGroup = $$$KeyGroup(requestKey)
+      } elseif lastKeyGroup '= currentKeyGroup {      
+        set currentKeyGroup = currentKeyGroup
+        set nextKeyIndex = 0
+      }
+      
+      set requestKeyIndex = $$$KeyIndex(requestKey)
+      set nextKeyIndex = nextKeyIndex + 1
+      
+      if nextKeyIndex '= requestKeyIndex {
+        set sc = $$$ERROR($$$GeneralError, "Rest parameters must be sequential.")
+        quit
+      }
+      set requestKey = currentKeyGroup_requestKeyIndex
+    }        
+        
+    set queryParams(requestKey) = value
+    set queryParams = queryParams
+  }
+  // Now we merge the parameters back, route args always take priority.
+  if $$$ISOK(sc) {
+    merge mergedArgs = queryParams
+    merge mergedArgs = routeArgs
+    set k = ""
+    for  set k = $order(mergedArgs(k)) quit:k=""  set mergedArgs = mergedArgs + 1    
+  }
+  quit
+]]></Implementation>
+</Method>
+</Class>
+
+
+<Class name="Frontier.Router">
+<Super>%CSP.REST</Super>
+<TimeCreated>64492,32085.189445</TimeCreated>
+
+<Method name="DispatchRequest">
+<ClassMethod>1</ClassMethod>
+<FormalSpec>pUrl:%String,pMethod:%String,pForwarded:%Boolean=0</FormalSpec>
+<ReturnType>%Status</ReturnType>
+<Implementation><![CDATA[
+  #dim tSC As %Status = $$$OK
+  #dim e As %Exception.AbstractException
+  
+  #dim tMatcher As %Regex.Matcher
+  
+  #dim tArgs,tClass,tMatchUrl,tMapEntry,tRegEx,tCall,tForward,tAccess,tSupportedVerbs,tTarget,tType As %String
+  #dim tI,tIndex As %Integer
+  #dim tResourceMatched,tContinue As %Boolean
+  #dim tMethodMatched As %Boolean
+  
+  new %frontier
+  set %frontier = ##class(Frontier.Context).%New(%session, %request)      
+    
+   try {       
+    set (tResourceMatched,tMethodMatched) = 0    
+                
+    #; Extract the match url from the application name
+    if (0=pForwarded) set tMatchUrl="/"_$extract(pUrl, $length(%request.Application)+1,*)
+    else  set tMatchUrl=pUrl        
+      
+    #; Uppercase the method
+    set pMethod=$ZCVT(pMethod,"U")
+    set tHttpStatus = $case(pMethod, "POST": ..#HTTP201CREATED, : ..#HTTP200OK)
+          
+    #; Pre-Dispatch
+    set tContinue = 1
+    $$$ThrowOnError(..OnPreDispatch(tMatchUrl, pMethod, 1))        
+            
+    #; Walk the dispatch map in collation order of defintion
+    for tIndex=1:1 {           
+      
+      #; Get the next map entry
+      set tMapEntry = ..DispatchMap(tIndex) if tMapEntry="" quit
+             
+      #; Pick out the RegEx
+      set tRegEx = $list(tMapEntry,2)
+            
+      #; Create a matcher
+      set tMatcher = ##class(%Regex.Matcher).%New(tRegEx)
+            
+      #; Test each regular expression in turn, extracting the arguments,
+      #; dispatching to the named method  
+      if tMatcher.Match(tMatchUrl) {
+                
+        #; We have matched the resource
+        set tResourceMatched = 1
+                
+        set tType = $list(tMapEntry,1)
+                
+        #; If we are a simple route
+        if tType = "R" {
+                   
+          #; Support OPTIONS VERB (cannot be overriden)
+          if pMethod="OPTIONS" {                       
+            set tMethodMatched = 1                      
+            $$$ThrowOnError(..OnHandleOptionsRequest(tMatchUrl))                        
+                        
+            #; Dispatch CORS
+            $$$ThrowOnError(..ProcessCorsRequest(pUrl,$list(tMapEntry,5)))                       
+            return $$$OK
+          }        
+                    
+          #; comparison is case-insensitive now
+          If pMethod '= $ZCVT($list(tMapEntry,3),"U") continue                   
+          set tTarget = $list(tMapEntry,4)
+                      
+          #; We have matched a method
+          set tMethodMatched = 1
+                      
+          #; Dispatch CORS
+          $$$ThrowOnError(..ProcessCorsRequest(pUrl,$list(tMapEntry,5)))
+                   
+          #; Got a match, marshall the arguments can call directly
+          if tMatcher.GroupCount {
+            #; Modified for Frontier compatibility: store key instead of index. We need this info to correlate the arguments.
+            for tI=1:1:tMatcher.GroupCount set tArgs(tMatcher.Text)=tMatcher.Group(tI)
+            set tArgs = tI
+          } else {
+            set tArgs=0
+          }
+                    
+          #; Check for optional ClassName prefix
+          set tClass = $classname()
+          If tTarget [ ":" set tClass = $piece(tTarget,":"), tTarget = $Piece(tTarget,":",2)
+                              
+          #; Dispatch
+          #; Modified to add support for type resolution and query parameters
+          
+          #; Must check if class method is available for HTTP.
+          $$$ThrowOnError(##class(Method).GetReturnTypeParameters(tClass, tTarget, .tReturnParameters))
+          
+          #; PUBLIC parameter must be defined, otherwise response should be 404.
+          #; We defer the dispatch to the end of this call.
+          if $get(tReturnParameters("PUBLIC")) '= 1 {
+            set tResourceMatched = 0
+            quit
+          }
+          
+          merge tRequestArgs = %request.Data                                                          
+          $$$ThrowOnError(##class(Method).PrepareArguments(tClass, tTarget, pMethod, .tArgs, .tRequestArgs, %request.Content, .tMergedArgs))
+          
+          if tMergedArgs > 0 {
+            set return = $classmethod(tClass, tTarget, tMergedArgs...)
+          } else {
+            set return = $classmethod(tClass, tTarget)
+          }
+          $$$ThrowOnError(..DispatchResponse(return))
+          return $$$OK
+        } else {                    
+          #; We are a map, massage the URL and forward the request
+          set tMatchUrl = $piece(tMatchUrl,tMatcher.Group(1),"2",*), tForward = $listget(tMapEntry,3)
+          set (tResourceMatched, tMethodMatched) = 1
+                   
+          #; Dispatch with modified URL 
+          $$$ThrowOnError($classmethod(tForward,"DispatchRequest",tMatchUrl,pMethod,1))
+        }                        
+        return $$$OK
+      }              
+    }
+        
+    #; Didn't have a match for the resource, report not found
+    if tResourceMatched = 0 {
+      set tHttpStatus = ..#HTTP404NOTFOUND
+      $$$ThrowOnError($$$ERROR($$$GeneralError, ..#HTTP404NOTFOUND))
+    }
+                  
+    #; Had a match for resource but method not matched
+    if tMethodMatched = 0 {      
+      set tSC = ..SupportedVerbs(tMatchUrl,.tSupportedVerbs)            
+      return ..Http405(tSupportedVerbs) Quit
+    }
+  } catch (e) {
+    do ..CaptureStack(.stack)
+    if tHttpStatus < 300 set tHttpStatus = ..#HTTP500INTERNALSERVERERROR
+    
+    do ..ReportHttpStatusCode(tHttpStatus, e.AsStatus(), .json)
+    set json.stack = stack.Read()
+    
+    do json.%ToJSON()
+  }   
+  return $$$OK
+]]></Implementation>
+</Method>
+
+<Method name="DispatchResponse">
+<ClassMethod>1</ClassMethod>
+<FormalSpec>returnedData:%CacheString</FormalSpec>
+<ReturnType>%Status</ReturnType>
+<Implementation><![CDATA[
+  // Enables device writing.
+  write ""
+  set isDeviceWrite = 0
+  set response = {}
+  set response.result = returnedData
+  if $isobject(returnedData) {
+    set type = $classname(returnedData)    
+    set isCollection = ##class(Types).IsDynamicArray(type) || (type [ "List")
+    set isMarshallable = isCollection || ##class(Types).IsDynamicObject(type) || ##class(Types).IsPersistent(type)
+    set isSerializable = (isCollection || isMarshallable || ##class(Types).IsZENProxyObject(type)) && ($extract(type '= "%"))
+    if 'isSerializable {
+      return $$$ERROR($$$GeneralError, "Cannot serialize system class instances.")
+    }
+    if isMarshallable {
+      $$$QuitOnError(##class(Frontier.Dynamic.Marshaller).Marshall(returnedData, .marshalledData))
+      if isCollection set response.result = marshalledData
+      else  set response = marshalledData
+      do response.%ToJSON()
+      return $$$OK
+    } else {      
+      $$$QuitOnError(##class(%ZEN.Auxiliary.altJSONProvider).%ObjectToJSON(returnedData,,,"aelo"))      
+    }
+  } else {
+    do response.%ToJSON()
+  }  
+  return $$$OK
+  
+CollectionToDynamic(collection)
+  if collection.%IsA("%Collection.AbstractList") {    
+    #dim dynamicArray As %DynamicArray = []
+    #dim list As %Collection.AbstractList = collection
+    
+    for i=1:1:list.Count() do dynamicArray.%Push(list.GetAt(i))    
+    return dynamicArray
+  } elseif collection.%IsA("%Collection.AbstractArray") {
+     #dim dynamicObject As %DynamicObject = {}
+     #dim array As %Collection.AbstractArray = collection
+     
+     while array.GetNext(.key) {
+      set arrayValue = array.GetAt(key)
+      do dynamicObject.%Set(key, arrayValue)
+     }
+     return dynamicObject
+  }
+  return ""
+]]></Implementation>
+</Method>
+
+<Method name="outputStatus">
+<Description>
+This method takes a status, renders it as json (if requested) and outputs the result</Description>
+<Internal>1</Internal>
+<ClassMethod>1</ClassMethod>
+<FormalSpec>pSC:%Status,*tJSON:%ZEN.proxyObject=""</FormalSpec>
+<ReturnType>%Status</ReturnType>
+<Implementation><![CDATA[
+  #dim tSC As %Status = $$$OK
+  #dim e As %Exception.AbstractException   
+   
+  try {      
+    if ..AcceptsContentType("application/json") {
+      Set %response.ContentType = ..#CONTENTTYPEJSON        
+      #; Convert the exception to a status and render to JSON
+      
+      set tSC = ..StatusToProxyObject(pSC, .tJSON)
+      if $$$ISERR(tSC) return tSC
+      #; Write the JSON to the output device
+      //set tSC = tJSON.%ToJSON(, "aelo")
+      if $$$ISERR(tSC) return tSC            
+    } else {            
+      #; Set plain text
+      set %response.ContentType = ..#CONTENTTYPETEXT
+      
+      #; Write out a simple text message
+      do ##class(%Exception.StatusException).CreateFromStatus(pSC).OutputToDevice()
+    }        
+  } catch (e) {        
+    #; Oops
+    set tSC = e.AsStatus()
+  }
+  return $$$OK
+]]></Implementation>
+</Method>
+
+<Method name="ReportHttpStatusCode">
+<Description>
+Issue an 'Http' error</Description>
+<ClassMethod>1</ClassMethod>
+<FormalSpec>pHttpStatus,pSC:%Status=$$$OK,*pData:%ZEN.proxyObject=""</FormalSpec>
+<ReturnType>%Status</ReturnType>
+<Implementation><![CDATA[
+    Set %response.Status=pHttpStatus
+    
+    If $$$ISERR(pSC) Do ..outputStatus(pSC, .pData)
+        
+    Quit $$$OK
+]]></Implementation>
+</Method>
+
+<Method name="CaptureStack">
+<ClassMethod>1</ClassMethod>
+<FormalSpec>*stackText:%Stream.GlobalCharacter=""</FormalSpec>
+<ReturnType>%Status</ReturnType>
+<Implementation><![CDATA[
+  set stackText = ##class(%Stream.GlobalCharacter).%New()
+    
+  do stackText.WriteLine("Runtime exception ")
+  set max = $stack(-1)
+  for loop=max:-1:1 {
+    set sc  = stackText.WriteLine($char(9)_"     at "_$stack(loop, "PLACE")_$stack(loop, "MCODE")_" (Level: "_loop_")")
+    if $$$ISERR(sc) return sc
+  }   
+  return $$$OK
+]]></Implementation>
+</Method>
+</Class>
+
+
+<Class name="Frontier.Types">
+<Abstract>1</Abstract>
+<TimeCreated>64502,35492.335596</TimeCreated>
+
+<Method name="IsInstantiable">
+<ClassMethod>1</ClassMethod>
+<FormalSpec>className:%String</FormalSpec>
+<ReturnType>%Boolean</ReturnType>
+<Implementation><![CDATA[  quit ..IsTypeOf(className, "%RegisteredObject", 0, "")
+]]></Implementation>
+</Method>
+
+<Method name="IsPersistent">
+<ClassMethod>1</ClassMethod>
+<FormalSpec>className:%String</FormalSpec>
+<ReturnType>%Boolean</ReturnType>
+<Implementation><![CDATA[  quit ..IsTypeOf(className, "%Persistent", 0, "")
+]]></Implementation>
+</Method>
+
+<Method name="IsDataType">
+<ClassMethod>1</ClassMethod>
+<FormalSpec>className:%String</FormalSpec>
+<ReturnType>%Boolean</ReturnType>
+<Implementation><![CDATA[  quit ..IsTypeOf(className, "%DataType", 0, "datatype")
+]]></Implementation>
+</Method>
+
+<Method name="IsStream">
+<ClassMethod>1</ClassMethod>
+<FormalSpec>className:%String</FormalSpec>
+<ReturnType>%Boolean</ReturnType>
+<Implementation><![CDATA[  quit ..IsTypeOf(className, "%Stream.Object", 0, "")
+]]></Implementation>
+</Method>
+
+<Method name="IsCollection">
+<ClassMethod>1</ClassMethod>
+<FormalSpec>className:%String</FormalSpec>
+<ReturnType>%Boolean</ReturnType>
+<Implementation><![CDATA[  quit ..IsTypeOf(className, "%Collection.AbstractIterator", 0, "")
+]]></Implementation>
+</Method>
+
+<Method name="IsSerial">
+<ClassMethod>1</ClassMethod>
+<FormalSpec>className:%String</FormalSpec>
+<ReturnType>%Boolean</ReturnType>
+<Implementation><![CDATA[  quit ..IsTypeOf(className, "%Serial", 0, "serial")
+]]></Implementation>
+</Method>
+
+<Method name="IsDynamic">
+<ClassMethod>1</ClassMethod>
+<FormalSpec>className:%String</FormalSpec>
+<ReturnType>%Boolean</ReturnType>
+<Implementation><![CDATA[  return ..IsTypeOf(className, "%DynamicAbstractObject", 0)
+]]></Implementation>
+</Method>
+
+<Method name="IsDynamicArray">
+<ClassMethod>1</ClassMethod>
+<FormalSpec>className:%String</FormalSpec>
+<ReturnType>%Boolean</ReturnType>
+<Implementation><![CDATA[  return ..IsTypeOf(className, "%DynamicArray", 0)
+]]></Implementation>
+</Method>
+
+<Method name="IsDynamicObject">
+<ClassMethod>1</ClassMethod>
+<FormalSpec>className:%String</FormalSpec>
+<ReturnType>%Boolean</ReturnType>
+<Implementation><![CDATA[  return ..IsTypeOf(className, "%DynamicObject", 0)
+]]></Implementation>
+</Method>
+
+<Method name="IsZENProxyObject">
+<ClassMethod>1</ClassMethod>
+<FormalSpec>className:%String</FormalSpec>
+<ReturnType>%Boolean</ReturnType>
+<Implementation><![CDATA[  return ..IsTypeOf(className, "%ZEN.proxyObject", 0)
+]]></Implementation>
+</Method>
+
+<Method name="IsTypeOf">
+<ClassMethod>1</ClassMethod>
+<FormalSpec>className:%String,expectedType:%String,whenNull:%String=0,expectedClassType:%String=""</FormalSpec>
+<ReturnType>%Boolean</ReturnType>
+<Implementation><![CDATA[
+  #define NormalizeClassName(%cn) if $l(%cn, ".") = 1 && ($e(%cn) = "%") set %cn = "%Library."_$e(%cn, 2, *)
+  
+  set isExpectedType = whenNull
+  if className = "" quit isExpectedType
+  
+  $$$NormalizeClassName(className)
+  $$$NormalizeClassName(expectedType)  
+  
+  if className = expectedType return 1
+  
+  set definition = ##class(%Dictionary.CompiledClass).%OpenId(className)
+  if $isobject(definition) {
+    // Checks if current is truly an expectedType.
+    set isExpectedType = (definition.Super [ expectedType || (expectedClassType '= "" && (definition.ClassType = expectedClassType)))
+    if 'isExpectedType {
+      if definition.Super [ "," {
+        if definition.Inheritance '= "right" {
+          for i=1:1:$length(definition.Super, ",") {     
+            set superClass = $piece(definition.Super, ",", i)
+            set isExpectedType = ..IsTypeOf(superClass, expectedType, whenNull, expectedClassType)
+            if isExpectedType return isExpectedType
+          }
+        } else {
+          for i=$length(definition.Super, ","):-1:1 {     
+            set superClass = $piece(definition.Super, ",", i)
+            set isExpectedType = ..IsTypeOf(superClass, expectedType, whenNull, expectedClassType)            
+            if isExpectedType return isExpectedType
+          }          
+        }
+      } else {
+        set isExpectedType = ..IsTypeOf(definition.Super, expectedType, whenNull, expectedClassType)
+      }
+    }       
+  }  
+  return isExpectedType
+]]></Implementation>
+</Method>
+</Class>
+
+
+<Class name="Frontier.UnitTest.Fixtures.Class">
+<Super>%Persistent,%Populate</Super>
+<TimeCreated>64502,34585.6306</TimeCreated>
+
+<Property name="Plate">
+<Type>%String</Type>
+</Property>
+
+<Property name="Students">
+<Type>Student</Type>
+<Cardinality>many</Cardinality>
+<Inverse>Class</Inverse>
+<Relationship>1</Relationship>
+</Property>
+
+<Storage name="Default">
+<Type>%Library.CacheStorage</Type>
+<DataLocation>^Frontier.UnitTest.Fix50C.ClassD</DataLocation>
+<DefaultData>ClassDefaultData</DefaultData>
+<IdLocation>^Frontier.UnitTest.Fix50C.ClassD</IdLocation>
+<IndexLocation>^Frontier.UnitTest.Fix50C.ClassI</IndexLocation>
+<StreamLocation>^Frontier.UnitTest.Fix50C.ClassS</StreamLocation>
+<ExtentSize>10</ExtentSize>
+<Data name="ClassDefaultData">
+<Structure>listnode</Structure>
+<Subscript/>
+<Value name="1">
+<Value>%%CLASSNAME</Value>
+</Value>
+<Value name="2">
+<Value>Plate</Value>
+</Value>
+</Data>
+<Property name="%%CLASSNAME">
+<Selectivity>100.0000%</Selectivity>
+<AverageFieldSize>1</AverageFieldSize>
+</Property>
+<Property name="%%ID">
+<Selectivity>1</Selectivity>
+<AverageFieldSize>1.1</AverageFieldSize>
+</Property>
+<Property name="Plate">
+<Selectivity>10.0000%</Selectivity>
+<AverageFieldSize>4.9</AverageFieldSize>
+</Property>
+</Storage>
+</Class>
+
+
+<Class name="Frontier.UnitTest.Fixtures.Student">
+<Super>%Persistent,%Populate</Super>
+<TimeCreated>64502,34683.761379</TimeCreated>
+
+<Property name="Name">
+<Type>%String</Type>
+</Property>
+
+<Property name="Class">
+<Type>Class</Type>
+<Cardinality>one</Cardinality>
+<Inverse>Student</Inverse>
+<Relationship>1</Relationship>
+</Property>
+
+<Storage name="Default">
+<Type>%Library.CacheStorage</Type>
+<DataLocation>^Frontier.UnitTest.F50C.StudentD</DataLocation>
+<DefaultData>StudentDefaultData</DefaultData>
+<IdLocation>^Frontier.UnitTest.F50C.StudentD</IdLocation>
+<IndexLocation>^Frontier.UnitTest.F50C.StudentI</IndexLocation>
+<StreamLocation>^Frontier.UnitTest.F50C.StudentS</StreamLocation>
+<ExtentSize>10</ExtentSize>
+<Data name="StudentDefaultData">
+<Structure>listnode</Structure>
+<Subscript/>
+<Value name="1">
+<Value>%%CLASSNAME</Value>
+</Value>
+<Value name="2">
+<Value>Name</Value>
+</Value>
+<Value name="3">
+<Value>Class</Value>
+</Value>
+</Data>
+<Property name="%%CLASSNAME">
+<Selectivity>100.0000%</Selectivity>
+<AverageFieldSize>1</AverageFieldSize>
+</Property>
+<Property name="%%ID">
+<Selectivity>1</Selectivity>
+<AverageFieldSize>1.1</AverageFieldSize>
+</Property>
+<Property name="Class">
+<Selectivity>16.6667%</Selectivity>
+<AverageFieldSize>1.1</AverageFieldSize>
+</Property>
+<Property name="Name">
+<Selectivity>10.0000%</Selectivity>
+<AverageFieldSize>16.8</AverageFieldSize>
+</Property>
+</Storage>
+</Class>
+
+
+<Class name="Frontier.UnitTest.Router">
+<Super>Frontier.Router</Super>
+<TimeCreated>64503,35090.481271</TimeCreated>
+
+<XData name="UrlMap">
+<XMLNamespace>http://github.com/rfns/frontier</XMLNamespace>
+<Data><![CDATA[
+<Routes>
+  <Route Url="/route_params/:class" Method="GET" Call="TestGETRouteParams"/>
+  <Route Url="/query_params" Method="GET" Call="TestGETOneQueryParameter"/>
+  <Route Url="/rest_params" Method="GET" Call="TestGETRestParametersSum"/>
+  <Route Url="/unpublished" Method="GET" Call="TestGETUnpublishedMethod"/>
+  <Route Url="/payload/single_object" Method="POST" Call="TestPOSTObjectPayloadSingle"/>
+  <Route Url="/payload/object_with_query_params" Method="POST" Call="TestPOSTObjectPayloadQueryParams"/>
+  <Route Url="/payload/array_with_query_params" Method="POST" Call="TestPOSTArrayPayloadQueryParams"/>
+  <Route Url="/payload/single_array" Method="POST" Call="TestPOSTArrayPayloadSingle"/>
+  <Route Url="/payload/invalid" Method="POST" Call="TestPOSTInvalidPayload"/>
+  <Route Url="/mixed/object" Method="GET" Call="TestPOSTMixedDynamicObject"/>
+  <Route Url="/mixed/array" Method="GET" Call="TestPOSTMixedDynamicArray"/>
+ </Routes>
+]]></Data>
+</XData>
+
+<Method name="TestGETRouteParams">
+<Description>
+curl -H "Content-Type: application/json" -X GET localhost:57772/api/frontier/test/route_params/6 </Description>
+<ClassMethod>1</ClassMethod>
+<FormalSpec>class:Frontier.UnitTest.Fixtures.Class</FormalSpec>
+<ReturnType>%Status</ReturnType>
+<ReturnTypeParams>PUBLIC=1</ReturnTypeParams>
+<Implementation><![CDATA[  return class
+]]></Implementation>
+</Method>
+
+<Method name="TestGETOneQueryParameter">
+<ClassMethod>1</ClassMethod>
+<FormalSpec>msg:%String</FormalSpec>
+<ReturnType>%String</ReturnType>
+<ReturnTypeParams>PUBLIC=1</ReturnTypeParams>
+<Implementation><![CDATA[  return msg
+]]></Implementation>
+</Method>
+
+<Method name="TestGETRestParametersSum">
+<ClassMethod>1</ClassMethod>
+<FormalSpec>n...:%String</FormalSpec>
+<ReturnType>%Integer</ReturnType>
+<ReturnTypeParams>PUBLIC=1</ReturnTypeParams>
+<Implementation><![CDATA[
+  set sum = 0
+  for i=1:1:n  set sum = sum + n(i)
+  return sum
+]]></Implementation>
+</Method>
+
+<Method name="TestGETUnpublishedMethod">
+<ClassMethod>1</ClassMethod>
+<FormalSpec>namespace:%String</FormalSpec>
+<ReturnType>%Status</ReturnType>
+<Implementation><![CDATA[
+  // Whatever would you expect to happen here, it actually shouldn't.
+  return $$$OK
+]]></Implementation>
+</Method>
+
+<Method name="TestPOSTObjectPayloadSingle">
+<ClassMethod>1</ClassMethod>
+<FormalSpec>payload:%DynamicObject,msg:%String</FormalSpec>
+<ReturnType>%DynamicObject</ReturnType>
+<ReturnTypeParams>PUBLIC=1</ReturnTypeParams>
+<Implementation><![CDATA[
+  return {
+    "payload": (payload),
+    "message": (msg)
+  }
+]]></Implementation>
+</Method>
+
+<Method name="TestPOSTObjectPayloadQueryParams">
+<ClassMethod>1</ClassMethod>
+<FormalSpec>payload:%DynamicObject,msg:%String=""</FormalSpec>
+<Implementation><![CDATA[
+  return {
+    "msg": (msg),
+    "payload": (payload)
+  }
+]]></Implementation>
+</Method>
+
+<Method name="TestPOSTArrayPayloadSingle">
+<ClassMethod>1</ClassMethod>
+<FormalSpec>payload:%DynamicArray</FormalSpec>
+<ReturnType>%DynamicObject</ReturnType>
+<ReturnTypeParams>PUBLIC=1</ReturnTypeParams>
+<Implementation><![CDATA[  return payload
+]]></Implementation>
+</Method>
+
+<Method name="TestPOSTArrayPayloadQueryParams">
+<ClassMethod>1</ClassMethod>
+<FormalSpec>payload:%DynamicObject,msg:%String=""</FormalSpec>
+<Implementation><![CDATA[  return [ (msg), (payload) ]
+]]></Implementation>
+</Method>
+
+<Method name="TestPOSTInvalidPayload">
+<ClassMethod>1</ClassMethod>
+<FormalSpec>payload:%DynamicArray</FormalSpec>
+<ReturnType>%DynamicArray</ReturnType>
+<ReturnTypeParams>PUBLIC=1</ReturnTypeParams>
+<Implementation><![CDATA[  return payload
+]]></Implementation>
+</Method>
+
+<Method name="TestPOSTMixedDynamicObject">
+<ClassMethod>1</ClassMethod>
+<FormalSpec>namespace:%String</FormalSpec>
+<ReturnType>%DynamicObject</ReturnType>
+<ReturnTypeParams>PUBLIC=1</ReturnTypeParams>
+<Implementation><![CDATA[
+  return {
+    "class": (##class(Frontier.UnitTest.Fixtures.Class).%OpenId(1))
+  }
+]]></Implementation>
+</Method>
+
+<Method name="TestPOSTMixedDynamicArray">
+<ClassMethod>1</ClassMethod>
+<FormalSpec>namespace:%String</FormalSpec>
+<ReturnType>%DynamicArray</ReturnType>
+<ReturnTypeParams>PUBLIC=1</ReturnTypeParams>
+<Implementation><![CDATA[  return [ (##class(Frontier.UnitTest.Fixtures.Class).%OpenId(1)) ]
+]]></Implementation>
+</Method>
+</Class>
+
+
+<Class name="Frontier.UnitTest.Util">
+<Abstract>1</Abstract>
+<TimeCreated>64503,34684.599157</TimeCreated>
+
+<Parameter name="FRONTIERTESTURL">
+<Default>/api/frontier/test</Default>
+</Parameter>
+
+<Method name="CreateWebApp">
+<ClassMethod>1</ClassMethod>
+<ReturnType>%Status</ReturnType>
+<Implementation><![CDATA[
+  set ns = $namespace
+  new $namespace
+  
+  set $namespace = "%SYS"  
+  set properties("NameSpace") = ns
+  set properties("DispatchClass") = "Frontier.UnitTest.Router"  
+  
+  if ##class(Security.Applications).Exists(..#FRONTIERTESTURL) {
+    $$$QuitOnError(..DestroyWebApp())
+  }
+  return ##class(Security.Applications).Create(..#FRONTIERTESTURL, .properties)
+]]></Implementation>
+</Method>
+
+<Method name="DestroyWebApp">
+<ClassMethod>1</ClassMethod>
+<ReturnType>%Status</ReturnType>
+<Implementation><![CDATA[
+  
+  set ns = $namespace
+  new $namespace
+  
+  set $namespace = "%SYS"
+  do ##class(%File).RemoveDirectoryTree($System.Util.InstallDirectory()_"csp/frontier")
+  return ##class(Security.Applications).Delete(..#FRONTIERTESTURL)
+]]></Implementation>
+</Method>
+</Class>
+
+
+<Class name="UnitTest.Frontier.Helpers">
+<Abstract>1</Abstract>
+<TimeCreated>64502,37589.053839</TimeCreated>
+
+<Method name="DeepCompare">
+<FormalSpec>object:%Persistent,dynamic:%DynamicAbstractObject,i=""</FormalSpec>
+<Implementation><![CDATA[
+  set sc = $$$OK
+  
+  #dim iterator as %Iterator.AbstractIterator
+  set iterator = dynamic.%GetIterator()
+  
+  while iterator.getNext(.key, .dynamicValue) {
+    set propertyDescriptor = ##class(%Dictionary.CompiledProperty).%OpenId($classname(object)_"||"_key)
+    set skipCurrent = 0
+    set objectValue = ..GetDeepChildPropertyValue(object, $replace(key, "_", "."))
+    if $isobject(objectValue) {
+      if ##class(Frontier.Types).IsPersistent(propertyDescriptor.RuntimeType) set objectValue = objectValue.%Id()
+      if ##class(Frontier.Types).IsStream(propertyDescriptor.RuntimeType) set objectValue = objectValue.Read()
+    }
+    if $isobject(dynamic) && $isobject(objectValue) {
+      if dynamic.%Extends("%DynamicArray") {
+        if $isobject(dynamic.%Get(1)) {
+          for j=1:1:dynamic.Count() {
+            set childObject = objectValue.GetAt(j)
+            set childDynamicObject = dynamic.%Get(j)    
+            set sc = ..DeepCompare(childObject, childDynamicObject, j)
+            if $$$ISERR(sc) quit            
+          }
+        }
+      }
+    } elseif '$isobject(dynamicValue) && '$isobject(objectValue) {
+      if dynamicValue = "" set dynamicValue = "<EMPTY>"
+      if objectValue = "" set objectValue = "<EMPTY>"
+      if dynamicValue '= objectValue {
+        set sc = $$$ERROR($$$GeneralError, $$$FormatText("Assertion error: %1property %2, where dynamic value '= object value. Mismatch: %3 '= %4", $select(i = "" : i, 1: "index at "_i_", "), key, dynamicValue, objectValue))
+      }
+    }    
+  }
+  quit sc
+]]></Implementation>
+</Method>
+
+<Method name="GetDeepChildPropertyValue">
+<ClassMethod>1</ClassMethod>
+<FormalSpec>parent:%RegisteredObject,composedKey:%String</FormalSpec>
+<ReturnType>%RegisteredObject</ReturnType>
+<Implementation><![CDATA[
+  set nextParent = parent
+  set deepestLevel = $length(composedKey, ".")
+  for i=1:1:deepestLevel {
+    set nextParent = $property(nextParent, $piece(composedKey, ".", i, i))   
+  }
+  quit nextParent
+]]></Implementation>
+</Method>
+</Class>
+
+
+<Class name="UnitTest.Frontier.Method">
+<Super>Port.UnitTest.TestCase</Super>
+<TimeCreated>64502,36000.645679</TimeCreated>
+
+<Method name="TestDescribeArguments">
+<Implementation><![CDATA[
+  set sc = $$$OK
+  do $$$AssertStatusNotOK(##class(Frontier.Method).DescribeArguments($classname(), "DescribeMyArgumentsWHOOPS"), "returns an error if class and method doesn't exists")
+  do $$$AssertStatusOK(##class(Frontier.Method).DescribeArguments($classname(), "DescribeMyArguments", .arguments), "returns $$$OK if they do") 
+  
+  do $$$AssertTrue($isobject(arguments) && arguments.%Extends("%Collection.AbstractList"), "returns a %ListOfObjects when $$$OK")
+  
+  set expecations = $lb(
+    $lb("parameterA", "%String", "", 0),
+    $lb("parameterB", "%String", """default""", 0),
+    $lb("parameterC", "%Library.Integer", 0, 0),
+    $lb("parameterD", "%Boolean", "$$$OK", 0),
+    $lb("parameterE", "%Dictionary.CompiledClass", $classname(), 0),
+    $lb("parameterE", "%Integer", "", 1)
+  )
+  
+  for i=1:1:arguments.Count() {
+    set argument = $lg(expecations, i)
+    set name = $lg(argument, 1)
+    set type = $lg(argument, 2)
+    set defaultValue = $lg(argument, 3)
+    set arity = $lg(argument, 4)
+    set expected = ""
+    
+    set describedArgument = arguments.GetAt(i)
+    
+    for v = name, type, defaultValue, arity {
+      if v = name set expected = describedArgument.Name set property = "Name"
+      if v = type set expected = describedArgument.Type set property = "Type"
+      if v = defaultValue set expected = describedArgument.DefaultValue set property = "DefaultValue"
+      if v = arity set expected = describedArgument.Arity set property = "Arity"
+      
+      set equals = (v = expected)
+      if 'equals {
+        set sc = $$$ERROR($$$GeneralError, $$$FormatText("property value doesn't match for %1, where %2 values mismatch: %3 '= %4", name, property, v, expected))
+        quit
+      }         
+    }
+  }
+  do $$$AssertStatusOK(sc, "can describe arguments correctly")
+]]></Implementation>
+</Method>
+
+<Method name="DescribeMyArguments">
+<FormalSpec>parameterA:%String,parameterB:%String="default",parameterC:%Library.Integer=0,parameterD:%Boolean=$$$OK,parameterE:%Dictionary.CompiledClass=$classname(),parameterF...:%Integer</FormalSpec>
+<Implementation><![CDATA[
+  set ^||Port.Spy("DescribeMyArguments", 1) = parameterA
+  set ^||Port.Spy("DescribeMyArguments", 2) = parameterB
+  set ^||Port.Spy("DescribeMyArguments", 2) = parameterC
+  set ^||Port.Spy("DescribeMyArguments", 3) = parameterD
+  set ^||Port.Spy("DescribeMyArguments", 4) = parameterE
+  set ^||Port.Spy("DescribeMyArguments", 5) = parameterF
+]]></Implementation>
+</Method>
+</Class>
+
+
+<Class name="UnitTest.Frontier.Router">
+<Super>Frontier.Router</Super>
+<TimeCreated>64499,42651.978954</TimeCreated>
+
+<XData name="UrlMap">
+<XMLNamespace>http://github.com/rfns/port</XMLNamespace>
+<Data><![CDATA[
+<Routes>
+  <Route Url="/:namespace" Method="GET" Call="GetNamespaceName"/>
+  <Route Url="/:namespace" Method="POST" Call="TestPayload"/>
+  <Route Url="/:namespace/class" Method="GET" Call="GetClass"/>
+ </Routes>
+]]></Data>
+</XData>
+
+<Method name="TestPayload">
+<ClassMethod>1</ClassMethod>
+<FormalSpec>namespace:%String,q:%String,payload:%DynamicArray</FormalSpec>
+<ReturnType>%DynamicObject</ReturnType>
+<ReturnTypeParams>PUBLIC=1</ReturnTypeParams>
+<Implementation><![CDATA[
+  set payload.%Get(0).q = q
+  return payload
+]]></Implementation>
+</Method>
+
+<Method name="GetClass">
+<ClassMethod>1</ClassMethod>
+<FormalSpec>namespace:%String,class:UnitTest.Frontier.Fixtures.Class</FormalSpec>
+<ReturnType>%DynamicObject</ReturnType>
+<ReturnTypeParams>SQLMODE=1</ReturnTypeParams>
+<Implementation><![CDATA[  return "SELECT TOP 1 * FROM UnitTest.Frontier.Fixtures.Class"
+]]></Implementation>
+</Method>
+
+<Query name="Whatever">
+<Type>%SQLQuery</Type>
+<SqlQuery>  SELECT TOP 3 JSON_OBJECT('lit':'Employee from','t':%TABLENAME,'name':Name,'num':SSN) FROM Sample.Employee</SqlQuery>
+</Query>
+</Class>
+
+
+<Class name="UnitTest.Frontier.Types">
+<Super>Port.UnitTest.TestCase</Super>
+<TimeCreated>64502,35612.05458</TimeCreated>
+
+<Method name="TestIsDataType">
+<Implementation><![CDATA[
+  do $$$AssertTrue(##class(Frontier.Util).IsDataType("%Library.String"), "returns 1 if true")
+  do $$$AssertNotTrue(##class(Frontier.Util).IsDataType("%Library.RegisteredObject"), "returns 0 if false")
+  do $$$AssertNotTrue(##class(Frontier.Util).IsDataType("Invalid"), "returns 0 if invalid")
+  do $$$AssertTrue(##class(Frontier.Util).IsDataType("%String"), "can resolve omitted %Library packages")
+  do $$$AssertTrue(##class(Frontier.Util).IsDataType("%ZEN.Datatype.boolean"), "can resolve deep inheritances (custom datatypes)")
+]]></Implementation>
+</Method>
+
+<Method name="TestIsStream">
+<Implementation><![CDATA[
+  do $$$AssertTrue(##class(Frontier.Util).IsStream("%Stream.Object"), "returns 1 if true")
+  do $$$AssertNotTrue(##class(Frontier.Util).IsStream("%Library.RegisteredObject"), "returns 0 if false")
+  do $$$AssertNotTrue(##class(Frontier.Util).IsStream("Invalid"), "returns 0 if invalid")
+  do $$$AssertTrue(##class(Frontier.Util).IsStream("%Stream.GlobalCharacter"), "can resolve deep inheritances")
+]]></Implementation>
+</Method>
+
+<Method name="TestIsSerial">
+<Implementation><![CDATA[
+  do $$$AssertTrue(##class(Frontier.Util).IsSerial("%Library.SerialObject"), "returns 1 if true")
+  do $$$AssertNotTrue(##class(Frontier.Util).IsSerial("%Library.RegisteredObject"), "returns 0 if false")
+  do $$$AssertNotTrue(##class(Frontier.Util).IsSerial("Invalid"), "returns 0 if invalid")
+  do $$$AssertTrue(##class(Frontier.Util).IsSerial("%SerialObject"), "can resolve omitted %Library packages")
+  do $$$AssertTrue(##class(Frontier.Util).IsSerial("%ArrayOfDataTypes"), "can resolve deep inheritances")
+]]></Implementation>
+</Method>
+
+<Method name="TestIsCollection">
+<Implementation><![CDATA[
+  do $$$AssertTrue(##class(Frontier.Util).IsCollection("%Collection.AbstractIterator"), "returns 1 if true")
+  do $$$AssertNotTrue(##class(Frontier.Util).IsCollection("%String"), "returns 0 if false")
+  do $$$AssertNotTrue(##class(Frontier.Util).IsCollection("Invalid"), "returns 0 if invalid")
+  do $$$AssertTrue(##class(Frontier.Util).IsCollection("%ListOfDataTypes"), "can resolve omitted %Library packages")
+  do $$$AssertTrue(##class(Frontier.Util).IsCollection("%Library.ArrayOfDataTypes"), "can resolve deep inheritances")
+]]></Implementation>
+</Method>
+
+<Method name="TestIsPersistent">
+<Implementation><![CDATA[
+  do $$$AssertTrue(##class(Frontier.Util).IsPersistent("%Library.Persistent"), "returns 1 if true")
+  do $$$AssertNotTrue(##class(Frontier.Util).IsPersistent("%String"), "returns 0 if false")
+  do $$$AssertNotTrue(##class(Frontier.Util).IsPersistent("Invalid"), "returns 0 if invalid")
+  do $$$AssertTrue(##class(Frontier.Util).IsPersistent("%Persistent"), "can resolve omitted %Library packages")
+  do $$$AssertTrue(##class(Frontier.Util).IsPersistent("%Dictionary.ClassDefinition"), "can resolve deep inheritances")
+]]></Implementation>
+</Method>
+
+<Method name="TestIsInstantiable">
+<Implementation><![CDATA[
+  do $$$AssertTrue(##class(Frontier.Util).IsInstantiable("%Library.RegisteredObject"), "returns 1 if true")
+  do $$$AssertNotTrue(##class(Frontier.Util).IsInstantiable("%String"), "returns 0 if false")
+  do $$$AssertNotTrue(##class(Frontier.Util).IsInstantiable("Invalid"), "returns 0 if invalid")
+  do $$$AssertTrue(##class(Frontier.Util).IsInstantiable("%RegisteredObject"), "can resolve omitted %Library packages")
+  do $$$AssertTrue(##class(Frontier.Util).IsInstantiable("%ZEN.proxyObject"), "can resolve deep inheritances")
+]]></Implementation>
+</Method>
+</Class>
+
+
+<Project name="frontier" LastModified="2017-08-08 11:56:15.521405" Target="##class(Frontier.Dynamic.Marshaller).Marshall(##class(Frontier.UnitTest.Fixtures.Class).%OpenId(6), .a)" TargetType="2" HttpServer="http://localhost:57772">
+  <Items>
+    <ProjectItem name="Frontier.ArgumentDescription" type="CLS"></ProjectItem>
+    <ProjectItem name="Frontier.Authentication.Common" type="CLS"></ProjectItem>
+    <ProjectItem name="Frontier.Context" type="CLS"></ProjectItem>
+    <ProjectItem name="Frontier.Dynamic.Marshaller" type="CLS"></ProjectItem>
+    <ProjectItem name="Frontier.Method" type="CLS"></ProjectItem>
+    <ProjectItem name="Frontier.Router" type="CLS"></ProjectItem>
+    <ProjectItem name="Frontier.Types" type="CLS"></ProjectItem>
+    <ProjectItem name="UnitTest.Frontier.Helpers" type="CLS"></ProjectItem>
+    <ProjectItem name="UnitTest.Frontier.Method" type="CLS"></ProjectItem>
+    <ProjectItem name="UnitTest.Frontier.Router" type="CLS"></ProjectItem>
+    <ProjectItem name="UnitTest.Frontier.Types" type="CLS"></ProjectItem>
+    <ProjectItem name="Frontier.UnitTest.Util" type="CLS"></ProjectItem>
+    <ProjectItem name="Frontier.UnitTest.Router" type="CLS"></ProjectItem>
+    <ProjectItem name="Frontier.UnitTest.Fixtures.Class" type="CLS"></ProjectItem>
+    <ProjectItem name="Frontier.UnitTest.Fixtures.Student" type="CLS"></ProjectItem>
+  </Items>
+  <BreakPoints>
+    <BreakPoint Routine="Frontier.Dynamic.Marshaller.CLS" Offset="MakeDynamicObject+69"></BreakPoint>
+  </BreakPoints>
+</Project>
+</Export>
