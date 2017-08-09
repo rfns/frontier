@@ -42,15 +42,14 @@ ClassMethod TestGETUnpublishedMethod(namespace As %String) As %Status
   return $$$OK
 }
 
-ClassMethod TestPOSTObjectPayloadSingle(payload As %DynamicObject, msg As %String) As %DynamicObject(PUBLIC=1)
+ClassMethod TestPOSTObjectPayloadSingle(payload As %DynamicObject) As %DynamicObject(PUBLIC=1)
 {
   return {
-    "payload": (payload),
-    "message": (msg)
+    "payload": (payload)
   }
 }
 
-ClassMethod TestPOSTObjectPayloadQueryParams(payload As %DynamicObject, msg As %String = "")
+ClassMethod TestPOSTObjectPayloadQueryParams(msg As %String = "", payload As %DynamicObject) As %Status(PUBLIC=1)
 {
   return {
     "msg": (msg),

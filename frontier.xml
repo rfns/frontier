@@ -193,9 +193,7 @@
     }
   } else {
     set affectedProperties = classDescriptors.Properties
-  }
-  
-  break:parentKey'=""
+  }  
     
   for i=1:1:affectedProperties.Count() {    
     set propertyDescriptors = affectedProperties.GetAt(i)    
@@ -319,6 +317,31 @@ ParseArgument(parsedArgument)
 ]]></Implementation>
 </Method>
 
+<Method name="DescribeSingleArgumentByIndex">
+<ClassMethod>1</ClassMethod>
+<FormalSpec>className:%String,methodName:%String,*parsedArgument:Frontier.ArgumentDescription="",index:%Integer=1</FormalSpec>
+<ReturnType>%Status</ReturnType>
+<Implementation><![CDATA[
+  $$$QuitOnError(..AssertMethodExists(className, methodName))
+  
+  set id = className_"||"_methodName  
+  set describedArguments = ##class(%ListOfObjects).%New()
+  set formalSpec = ##class(%Dictionary.CompiledMethod).%OpenId(id).FormalSpec   
+  
+  set argumentSpec = $piece(formalSpec, ",", index)
+  if index < 1 set index = 1
+  
+  if argumentSpec '= "" {
+    set parsedArgument = ##class(Frontier.ArgumentDescription).%New()
+    if argumentSpec [ "..." set parsedArgument.Arity = 1
+    set parsedArgument.Name = $replace($piece(argumentSpec, ":", 1), "...", "")
+    set parsedArgument.DefaultValue = $piece(argumentSpec, "=", 2)
+    set parsedArgument.Type = $piece($piece(argumentSpec, ":", 2), "=")
+    quit 1
+  }
+]]></Implementation>
+</Method>
+
 <Method name="GetReturnTypeParameters">
 <ClassMethod>1</ClassMethod>
 <FormalSpec>className:%String,method:%String,*parameters:%String=""</FormalSpec>
@@ -366,19 +389,19 @@ ParseArgument(parsedArgument)
 <FormalSpec><![CDATA[className:%String,methodName:%String,httpMethod:%String,&routeArgs:%String=0,&requestArgs:%String=0,content:%Stream.Object="",*args=0]]></FormalSpec>
 <ReturnType>%Status</ReturnType>
 <Implementation><![CDATA[
+ 
   #define TriggerPayloadFlag if httpMethod = "POST" || (httpMethod = "PUT") || (httpMethod = "PATCH") set payloadFound = 1
   #define AssertSinglePayloadParameter throw:payloadFound=1 ##class(%Exception.StatusException).CreateFromStatus($$$ERROR($$$GeneralError, "Cannot have more than one payload for POST/PUT/PATCH request."))
+  #define KeyGroup(%requestKey)  $zstrip($zstrip(%requestKey, "<=N"), "=>N")
+  #define KeyIndex(%requestKey)  $zstrip($zstrip(requestKey, "<=N"), "<=A")   
   
   if requestArgs = "" || (requestArgs < 0) return $$$ERROR($$$GeneralError, "request arguments list must have length.")
-  $$$QuitOnError(..DescribeArguments(className, methodName, .methodArguments))  
+  $$$QuitOnError(..DescribeArguments(className, methodName, .methodArguments))    
+  
+  set sc = $$$OK
   
   set args = 0
-  set argsProcessed = 0
-  set argsIndex = 0
-  set argKey = ""
-  set argValue = ""
-  set output = ""
-  set sc = $$$OK
+  set argsProcessed = 0  
   set payloadFound = 0
     
   set methodArgumentsLength = methodArguments.Count()
@@ -390,42 +413,40 @@ ParseArgument(parsedArgument)
   if $$$ISERR(sc) return sc  
   
   set maxLength = methodArgumentsLength
-  if maxLength < mergedArguments set maxLength = mergedArguments
+  if maxLength < mergedArguments set maxLength = mergedArguments  
   
-  for argsProcessed=1:1:maxLength {    
-    set argKey = $order(mergedArguments(argKey), 1, argValue)
-    if argKey = "" set argValue = ""    
+  set restArgumentIndex = 1
+  
+  for argsProcessed=1:1:maxLength {
     set methodArgument = $select(argsProcessed > methodArgumentsLength : methodArguments.GetAt(methodArgumentsLength), 1: methodArguments.GetAt(argsProcessed))
-    set value = $select(argValue '= "" : argValue, 1: methodArgument.DefaultValue)
-    set output = value 
+    set value = $get(mergedArguments(methodArgument.Name))
+    
+    if value = "" {
+      if 'methodArgument.Arity set value = methodArgument.DefaultValue
+      else  set value = $get(mergedArgs(methodArgument.Name_restArgumentIndex))
+    }       
     
     if ##class(Frontier.Types).IsDynamic(methodArgument.Type) {
       $$$AssertSinglePayloadParameter
       $$$TriggerPayloadFlag      
-      set output = $classmethod(methodArgument.Type, "%FromJSON", content)
-      if output = "" return $$$ERROR($$$GeneralError, $$$FormatText(jsonErrorMessage, methodArgument.Type))
+      set value = $classmethod(methodArgument.Type, "%FromJSON", content)
+      if value = "" return $$$ERROR($$$GeneralError, $$$FormatText(jsonErrorMessage, methodArgument.Type))
     } elseif ##class(Frontier.Types).IsZENProxyObject(methodArgument.Type) {
       $$$AssertSinglePayloadParameter
       $$$TriggerPayloadFlag
-      set sc = ##class(%ZEN.Auxiliary.altJSONProvider).%ConvertJSONToObject(content,,.output)
+      set sc = ##class(%ZEN.Auxiliary.altJSONProvider).%ConvertJSONToObject(content,,.value)
       if $$$ISERR(sc) return $$$ERROR($$$GeneralError, $$$FormatText(jsonErrorMessage, methodArgument.Type))
     } elseif ##class(Frontier.Types).IsPersistent(methodArgument.Type) {
-      set output = $System.OBJ.OpenId(methodArgument.Type, value)
-      if '$isobject(output) set output = ""
+      set value = $System.OBJ.OpenId(methodArgument.Type, value)
+      if '$isobject(value) set value = ""
     }
-    set argsIndex = argsIndex + 1
-    set args(argsIndex) = output
+    set args(argsProcessed) = value
   }
   set args = argsProcessed
-  zw args
   return sc
   
-MergeArguments(mergedArgs, sc)
-  #define KeyGroup(%requestKey)  $zstrip($zstrip(%requestKey, "<=N"), "=>N")
-  #define KeyIndex(%requestKey)  $zstrip($zstrip(requestKey, "<=N"), "<=A") 
-    
-  // We need to fix the request parameters first.
-  set mergedArgsLength = 0
+MergeArguments(mergedArgs, sc) 
+  // We need to fix the request parameters first.  
   set nextKeyIndex = 0
   set lastKeyGroup = ""
   set k = ""    
@@ -438,12 +459,12 @@ MergeArguments(mergedArgs, sc)
     set requestKey = k
     
     // Don't depend on query parameter repeatance, because JavaScript cannot repeat object keys.
-    // Instead the parameter should follow the pattern "paramN".    
+    // Instead the parameter should follow the pattern "paramN" which represents a sequence.    
     set value = requestArgs(k, 1)
     
-    if k?.A1.2N = 1 {
-      set currentKeyGroup = $$$KeyGroup(requestKey)      
-      // Removes anything that is not the index located at the end of the key.
+    // Checks if we have a sequenced query param.
+    if k?.A1.2N = 1 {      
+      set currentKeyGroup = $$$KeyGroup(requestKey)            
       if lastKeyGroup = "" {
         set lastKeyGroup = $$$KeyGroup(requestKey)
       } elseif lastKeyGroup '= currentKeyGroup {      
@@ -466,6 +487,7 @@ MergeArguments(mergedArgs, sc)
   }
   // Now we merge the parameters back, route args always take priority.
   if $$$ISOK(sc) {
+    set mergedArgs = 0
     merge mergedArgs = queryParams
     merge mergedArgs = routeArgs
     set k = ""
@@ -560,7 +582,7 @@ MergeArguments(mergedArgs, sc)
                    
           #; Got a match, marshall the arguments can call directly
           if tMatcher.GroupCount {
-            #; Modified for Frontier compatibility: store key instead of index. We need this info to correlate the arguments.
+            #; Modified for Frontier compatibility: store key instead of index. We need this info to correlate the arguments.            
             for tI=1:1:tMatcher.GroupCount set tArgs(tMatcher.Text)=tMatcher.Group(tI)
             set tArgs = tI
           } else {
@@ -904,7 +926,7 @@ Issue an 'Http' error</Description>
 <IdLocation>^Frontier.UnitTest.Fix50C.ClassD</IdLocation>
 <IndexLocation>^Frontier.UnitTest.Fix50C.ClassI</IndexLocation>
 <StreamLocation>^Frontier.UnitTest.Fix50C.ClassS</StreamLocation>
-<ExtentSize>10</ExtentSize>
+<ExtentSize>30</ExtentSize>
 <Data name="ClassDefaultData">
 <Structure>listnode</Structure>
 <Subscript/>
@@ -921,11 +943,11 @@ Issue an 'Http' error</Description>
 </Property>
 <Property name="%%ID">
 <Selectivity>1</Selectivity>
-<AverageFieldSize>1.1</AverageFieldSize>
+<AverageFieldSize>1.7</AverageFieldSize>
 </Property>
 <Property name="Plate">
-<Selectivity>10.0000%</Selectivity>
-<AverageFieldSize>4.9</AverageFieldSize>
+<Selectivity>3.3333%</Selectivity>
+<AverageFieldSize>4.83</AverageFieldSize>
 </Property>
 </Storage>
 </Class>
@@ -953,7 +975,7 @@ Issue an 'Http' error</Description>
 <IdLocation>^Frontier.UnitTest.F50C.StudentD</IdLocation>
 <IndexLocation>^Frontier.UnitTest.F50C.StudentI</IndexLocation>
 <StreamLocation>^Frontier.UnitTest.F50C.StudentS</StreamLocation>
-<ExtentSize>10</ExtentSize>
+<ExtentSize>30</ExtentSize>
 <Data name="StudentDefaultData">
 <Structure>listnode</Structure>
 <Subscript/>
@@ -973,15 +995,15 @@ Issue an 'Http' error</Description>
 </Property>
 <Property name="%%ID">
 <Selectivity>1</Selectivity>
-<AverageFieldSize>1.1</AverageFieldSize>
+<AverageFieldSize>1.7</AverageFieldSize>
 </Property>
 <Property name="Class">
-<Selectivity>16.6667%</Selectivity>
-<AverageFieldSize>1.1</AverageFieldSize>
+<Selectivity>5.8824%</Selectivity>
+<AverageFieldSize>1.4</AverageFieldSize>
 </Property>
 <Property name="Name">
-<Selectivity>10.0000%</Selectivity>
-<AverageFieldSize>16.8</AverageFieldSize>
+<Selectivity>3.3333%</Selectivity>
+<AverageFieldSize>15.8</AverageFieldSize>
 </Property>
 </Storage>
 </Class>
@@ -1054,20 +1076,21 @@ curl -H "Content-Type: application/json" -X GET localhost:57772/api/frontier/tes
 
 <Method name="TestPOSTObjectPayloadSingle">
 <ClassMethod>1</ClassMethod>
-<FormalSpec>payload:%DynamicObject,msg:%String</FormalSpec>
+<FormalSpec>payload:%DynamicObject</FormalSpec>
 <ReturnType>%DynamicObject</ReturnType>
 <ReturnTypeParams>PUBLIC=1</ReturnTypeParams>
 <Implementation><![CDATA[
   return {
-    "payload": (payload),
-    "message": (msg)
+    "payload": (payload)
   }
 ]]></Implementation>
 </Method>
 
 <Method name="TestPOSTObjectPayloadQueryParams">
 <ClassMethod>1</ClassMethod>
-<FormalSpec>payload:%DynamicObject,msg:%String=""</FormalSpec>
+<FormalSpec>msg:%String="",payload:%DynamicObject</FormalSpec>
+<ReturnType>%Status</ReturnType>
+<ReturnTypeParams>PUBLIC=1</ReturnTypeParams>
 <Implementation><![CDATA[
   return {
     "msg": (msg),
@@ -1161,6 +1184,73 @@ curl -H "Content-Type: application/json" -X GET localhost:57772/api/frontier/tes
   set $namespace = "%SYS"
   do ##class(%File).RemoveDirectoryTree($System.Util.InstallDirectory()_"csp/frontier")
   return ##class(Security.Applications).Delete(..#FRONTIERTESTURL)
+]]></Implementation>
+</Method>
+
+<Method name="MergeErrors">
+<ClassMethod>1</ClassMethod>
+<FormalSpec>errors:%DynamicArray</FormalSpec>
+<ReturnType>%Status</ReturnType>
+<Implementation><![CDATA[
+  
+  set sc = $$$OK
+  
+  for i=0:1:errors.%Size() {
+    set errorObject = errors.%Get(i)
+    set sc = $$$ADDSC(sc, $$$ERROR(errorObject.code, errorObject.params.%GetAt(0)))
+  }
+  
+  return sc
+]]></Implementation>
+</Method>
+
+<Method name="DeepCompare">
+<FormalSpec>currentPersistent:%Persistent,currentProxy:JQX.ProxyObject,i=""</FormalSpec>
+<Implementation><![CDATA[
+  set sc = $$$OK
+  
+  while currentProxy.Next(.key, .proxyValue) {
+    set propertyDescriptor = ##class(%Dictionary.CompiledProperty).%OpenId($classname(currentPersistent)_"||"_key)
+    set skipCurrent = 0
+    set entityValue = ..GetDeepChildPropertyValue(currentPersistent, $replace(key, "_", "."))
+    if $isobject(entityValue) {
+      if ##class(JQX.Utils.Descriptor).IsPersistent(propertyDescriptor.RuntimeType) set entityValue = entityValue.%Id()
+      if ##class(JQX.Utils.Descriptor).IsStream(propertyDescriptor.RuntimeType) set entityValue = entityValue.Read()
+    }
+    if $isobject(proxyValue) && $isobject(entityValue) {
+      if proxyValue.%Extends("%Collection.AbstractList") {
+        if $isobject(proxyValue.GetAt(1)) {        
+          for j=1:1:proxyValue.Count() {
+            set childEntityObject = entityValue.GetAt(j)
+            set childProxyObject = proxyValue.GetAt(j)    
+            set sc = ..CompareValues(childEntityObject, childProxyObject, j)
+            if $$$ISERR(sc) quit            
+          }
+        }
+      }
+    } elseif '$isobject(proxyValue) && '$isobject(entityValue) {
+      if proxyValue = "" set proxyValue = "<EMPTY>"
+      if entityValue = "" set entityValue = "<EMPTY>"
+      if entityValue '= proxyValue {
+        set sc = $$$ERROR($$$GeneralError, $$$FormatText("Assertion error: %1property %2, where prox value '= entity value. Mismatch: %3 '= %4", $select(i = "" : i, 1: "index at "_i_", "), key, proxyValue, entityValue))
+      }
+    }
+  }
+  quit sc
+]]></Implementation>
+</Method>
+
+<Method name="GetDeepChildPropertyValue">
+<ClassMethod>1</ClassMethod>
+<FormalSpec>parent:%RegisteredObject,composedKey:%String</FormalSpec>
+<ReturnType>%RegisteredObject</ReturnType>
+<Implementation><![CDATA[
+  set nextParent = parent
+  set deepestLevel = $length(composedKey, ".")
+  for i=1:1:deepestLevel {
+    set nextParent = $property(nextParent, $piece(composedKey, ".", i, i))   
+  }
+  quit nextParent
 ]]></Implementation>
 </Method>
 </Class>
@@ -1288,44 +1378,103 @@ curl -H "Content-Type: application/json" -X GET localhost:57772/api/frontier/tes
 
 
 <Class name="UnitTest.Frontier.Router">
-<Super>Frontier.Router</Super>
+<Super>Port.UnitTest.TestCase</Super>
 <TimeCreated>64499,42651.978954</TimeCreated>
 
-<XData name="UrlMap">
-<XMLNamespace>http://github.com/rfns/port</XMLNamespace>
-<Data><![CDATA[
-<Routes>
-  <Route Url="/:namespace" Method="GET" Call="GetNamespaceName"/>
-  <Route Url="/:namespace" Method="POST" Call="TestPayload"/>
-  <Route Url="/:namespace/class" Method="GET" Call="GetClass"/>
- </Routes>
-]]></Data>
-</XData>
+<Parameter name="TESTSERVER">
+<Default>localhost</Default>
+</Parameter>
 
-<Method name="TestPayload">
-<ClassMethod>1</ClassMethod>
-<FormalSpec>namespace:%String,q:%String,payload:%DynamicArray</FormalSpec>
-<ReturnType>%DynamicObject</ReturnType>
-<ReturnTypeParams>PUBLIC=1</ReturnTypeParams>
+<Parameter name="TESTSERVERPORT">
+<Default>57772</Default>
+</Parameter>
+
+<Property name="Request">
+<Type>%Net.HttpRequest</Type>
+</Property>
+
+<Property name="Class">
+<Type>Frontier.UnitTest.Fixtures.Class</Type>
+</Property>
+
+<Property name="Student">
+<Type>Frontier.UnitTest.Fixtures.Student</Type>
+</Property>
+
+<Method name="OnAfterAllTests">
+<ReturnType>%Status</ReturnType>
 <Implementation><![CDATA[
-  set payload.%Get(0).q = q
-  return payload
+  $$$QuitOnError(##class(Frontier.UnitTest.Util).CreateWebApp())
+  $$$QuitOnError(##class(Frontier.UnitTest.Fixtures.Class).%KillExtent())
+  return ##class(Frontier.UnitTest.Fixtures.Student).%KillExtent()
 ]]></Implementation>
 </Method>
 
-<Method name="GetClass">
+<Method name="OnBeforeAllTests">
+<ReturnType>%Status</ReturnType>
+<Implementation><![CDATA[
+  $$$QuitOnError(##class(Frontier.UnitTest.Util).CreateWebApp())
+  do ##class(Frontier.UnitTest.Fixtures.Class).Populate()
+  do ##class(Frontier.UnitTest.Fixtures.Student).Populate()
+  
+  &sql(SELECT TOP 1 ID INTO :classId FROM FRONTIER_UNITTEST_FIXTURES.CLASS)
+  &sql(SELECT TOP 1 ID INTO :studentId FROM FRONTIER_UNITTEST_FIXTURES.STUDENT)
+  
+  set ..Class = ##class(Frontier.UnitTest.Fixtures.Class).%OpenId(classId)
+  set ..Student = ##class(Frontier.UnitTest.Fixtures.Student).%OpenId(studentId)
+  
+  return $$$OK
+]]></Implementation>
+</Method>
+
+<Method name="OnBeforeOneTest">
+<ReturnType>%Status</ReturnType>
+<Implementation><![CDATA[
+  set ..Request = ##class(%Net.HttpRequest).%New()
+  do ..Request.SetHeader("Content-Type", "application/json; charset=utf-8")
+  set ..Request.Server = ..#TESTSERVER
+  set ..Request.Port = ..#TESTSERVERPORT
+  return $$$OK
+]]></Implementation>
+</Method>
+
+<Method name="TestGETRouteParams">
+<Implementation><![CDATA[
+  do ##class(Frontier.Dynamic.Marshaller).Marshall(..Class, .expected)
+  
+  set sc = ..Request.Get("api/frontier/test/route_params/"_..Class.%Id())
+  if $$$ISERR(sc) return $$$AssertStatusOK(sc, "can call the resource")
+  
+  set response = ##class(%DynamicObject).%FromJSON(..Request.HttpResponse.Data)
+  
+  if $isobject(response) {
+    if response.errors {
+      set sc = ##class(Frontier.UnitTest.Util).MergeErrors(response.errors)
+    } else {
+      set response = response.Read()
+      if response '= expected.%ToJSON() {
+        set sc = $$$ERROR($$$GeneralError, "The content received mismatches with the expected one.")
+      }
+    }
+  }
+  
+  return $$$AssertStatusOK(sc, "can retrieve the expected data from the resource /route_params/"_..Class.%Id())
+]]></Implementation>
+</Method>
+
+<Method name="test">
 <ClassMethod>1</ClassMethod>
-<FormalSpec>namespace:%String,class:UnitTest.Frontier.Fixtures.Class</FormalSpec>
-<ReturnType>%DynamicObject</ReturnType>
-<ReturnTypeParams>SQLMODE=1</ReturnTypeParams>
-<Implementation><![CDATA[  return "SELECT TOP 1 * FROM UnitTest.Frontier.Fixtures.Class"
+<ReturnType>%Status</ReturnType>
+<Implementation><![CDATA[
+  set t = ..%New(##class(Port.UnitTest.Manager).%New())
+  $$$QuitOnError(t.OnBeforeAllTests())
+  $$$QuitOnError(t.OnBeforeOneTest())
+  $$$QuitOnError(t.TestGETRouteParams())
+  $$$QuitOnError(t.OnAfterOneTest())
+  $$$QuitOnError(t.OnAfterAllTests())
+  return $$$OK
 ]]></Implementation>
 </Method>
-
-<Query name="Whatever">
-<Type>%SQLQuery</Type>
-<SqlQuery>  SELECT TOP 3 JSON_OBJECT('lit':'Employee from','t':%TABLENAME,'name':Name,'num':SSN) FROM Sample.Employee</SqlQuery>
-</Query>
 </Class>
 
 
@@ -1394,7 +1543,11 @@ curl -H "Content-Type: application/json" -X GET localhost:57772/api/frontier/tes
 </Class>
 
 
-<Project name="frontier" LastModified="2017-08-08 11:56:15.521405" Target="##class(Frontier.Dynamic.Marshaller).Marshall(##class(Frontier.UnitTest.Fixtures.Class).%OpenId(6), .a)" TargetType="2" HttpServer="http://localhost:57772">
+<Routine name="frontier" type="INC"><![CDATA[
+]]></Routine>
+
+
+<Project name="frontier" LastModified="2017-08-09 10:52:39.748004" Target="##class(UnitTest.Frontier.Router).test()" TargetType="2" HttpServer="http://localhost:57772">
   <Items>
     <ProjectItem name="Frontier.ArgumentDescription" type="CLS"></ProjectItem>
     <ProjectItem name="Frontier.Authentication.Common" type="CLS"></ProjectItem>
@@ -1403,17 +1556,19 @@ curl -H "Content-Type: application/json" -X GET localhost:57772/api/frontier/tes
     <ProjectItem name="Frontier.Method" type="CLS"></ProjectItem>
     <ProjectItem name="Frontier.Router" type="CLS"></ProjectItem>
     <ProjectItem name="Frontier.Types" type="CLS"></ProjectItem>
+    <ProjectItem name="Frontier.UnitTest.Fixtures.Class" type="CLS"></ProjectItem>
+    <ProjectItem name="Frontier.UnitTest.Fixtures.Student" type="CLS"></ProjectItem>
+    <ProjectItem name="Frontier.UnitTest.Router" type="CLS"></ProjectItem>
+    <ProjectItem name="Frontier.UnitTest.Util" type="CLS"></ProjectItem>
     <ProjectItem name="UnitTest.Frontier.Helpers" type="CLS"></ProjectItem>
     <ProjectItem name="UnitTest.Frontier.Method" type="CLS"></ProjectItem>
     <ProjectItem name="UnitTest.Frontier.Router" type="CLS"></ProjectItem>
     <ProjectItem name="UnitTest.Frontier.Types" type="CLS"></ProjectItem>
-    <ProjectItem name="Frontier.UnitTest.Util" type="CLS"></ProjectItem>
-    <ProjectItem name="Frontier.UnitTest.Router" type="CLS"></ProjectItem>
-    <ProjectItem name="Frontier.UnitTest.Fixtures.Class" type="CLS"></ProjectItem>
-    <ProjectItem name="Frontier.UnitTest.Fixtures.Student" type="CLS"></ProjectItem>
+    <ProjectItem name="frontier.INC" type="MAC"></ProjectItem>
   </Items>
   <BreakPoints>
     <BreakPoint Routine="Frontier.Dynamic.Marshaller.CLS" Offset="MakeDynamicObject+69"></BreakPoint>
+    <BreakPoint Routine="UnitTest.Frontier.Router.CLS" Offset="TestGETRouteParams+1"></BreakPoint>
   </BreakPoints>
 </Project>
 </Export>

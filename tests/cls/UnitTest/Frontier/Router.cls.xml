@@ -1,25 +1,41 @@
-Class UnitTest.Frontier.Router Extends Port.UnitTest.TestCase
-{
+<?xml version="1.0" encoding="UTF-8"?>
+<Export generator="Cache" version="25">
+<Class name="UnitTest.Frontier.Router">
+<Super>Port.UnitTest.TestCase</Super>
+<TimeCreated>64499,42651.978954</TimeCreated>
 
-Parameter TESTSERVER = "localhost";
+<Parameter name="TESTSERVER">
+<Default>localhost</Default>
+</Parameter>
 
-Parameter TESTSERVERPORT = 57772;
+<Parameter name="TESTSERVERPORT">
+<Default>57772</Default>
+</Parameter>
 
-Property Request As %Net.HttpRequest;
+<Property name="Request">
+<Type>%Net.HttpRequest</Type>
+</Property>
 
-Property Class As Frontier.UnitTest.Fixtures.Class;
+<Property name="Class">
+<Type>Frontier.UnitTest.Fixtures.Class</Type>
+</Property>
 
-Property Student As Frontier.UnitTest.Fixtures.Student;
+<Property name="Student">
+<Type>Frontier.UnitTest.Fixtures.Student</Type>
+</Property>
 
-Method OnAfterAllTests() As %Status
-{
+<Method name="OnAfterAllTests">
+<ReturnType>%Status</ReturnType>
+<Implementation><![CDATA[
   $$$QuitOnError(##class(Frontier.UnitTest.Util).CreateWebApp())
   $$$QuitOnError(##class(Frontier.UnitTest.Fixtures.Class).%KillExtent())
   return ##class(Frontier.UnitTest.Fixtures.Student).%KillExtent()
-}
+]]></Implementation>
+</Method>
 
-Method OnBeforeAllTests() As %Status
-{
+<Method name="OnBeforeAllTests">
+<ReturnType>%Status</ReturnType>
+<Implementation><![CDATA[
   $$$QuitOnError(##class(Frontier.UnitTest.Util).CreateWebApp())
   do ##class(Frontier.UnitTest.Fixtures.Class).Populate()
   do ##class(Frontier.UnitTest.Fixtures.Student).Populate()
@@ -31,19 +47,22 @@ Method OnBeforeAllTests() As %Status
   set ..Student = ##class(Frontier.UnitTest.Fixtures.Student).%OpenId(studentId)
   
   return $$$OK
-}
+]]></Implementation>
+</Method>
 
-Method OnBeforeOneTest() As %Status
-{
+<Method name="OnBeforeOneTest">
+<ReturnType>%Status</ReturnType>
+<Implementation><![CDATA[
   set ..Request = ##class(%Net.HttpRequest).%New()
   do ..Request.SetHeader("Content-Type", "application/json; charset=utf-8")
   set ..Request.Server = ..#TESTSERVER
   set ..Request.Port = ..#TESTSERVERPORT
   return $$$OK
-}
+]]></Implementation>
+</Method>
 
-Method TestGETRouteParams()
-{
+<Method name="TestGETRouteParams">
+<Implementation><![CDATA[
   do ##class(Frontier.Dynamic.Marshaller).Marshall(..Class, .expected)
   
   set sc = ..Request.Get("api/frontier/test/route_params/"_..Class.%Id())
@@ -63,10 +82,13 @@ Method TestGETRouteParams()
   }
   
   return $$$AssertStatusOK(sc, "can retrieve the expected data from the resource /route_params/"_..Class.%Id())
-}
+]]></Implementation>
+</Method>
 
-ClassMethod test() As %Status
-{
+<Method name="test">
+<ClassMethod>1</ClassMethod>
+<ReturnType>%Status</ReturnType>
+<Implementation><![CDATA[
   set t = ..%New(##class(Port.UnitTest.Manager).%New())
   $$$QuitOnError(t.OnBeforeAllTests())
   $$$QuitOnError(t.OnBeforeOneTest())
@@ -74,7 +96,7 @@ ClassMethod test() As %Status
   $$$QuitOnError(t.OnAfterOneTest())
   $$$QuitOnError(t.OnAfterAllTests())
   return $$$OK
-}
-
-}
-
+]]></Implementation>
+</Method>
+</Class>
+</Export>

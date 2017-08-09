@@ -87,9 +87,7 @@ Method MakeDynamicObject(object As %RegisteredObject, Output dynamicObject As %D
     }
   } else {
     set affectedProperties = classDescriptors.Properties
-  }
-  
-  break:parentKey'=""
+  }  
     
   for i=1:1:affectedProperties.Count() {    
     set propertyDescriptors = affectedProperties.GetAt(i)    
