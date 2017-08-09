@@ -9,5 +9,7 @@ Property Type As %String;
 
 Property Arity As %Boolean [ InitialExpression = 0 ];
 
+Property Index As %Integer [ Required ];
+
 }
 

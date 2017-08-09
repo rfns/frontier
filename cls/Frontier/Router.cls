@@ -78,7 +78,7 @@ ClassMethod DispatchRequest(pUrl As %String, pMethod As %String, pForwarded As %
           #; Got a match, marshall the arguments can call directly
           if tMatcher.GroupCount {
             #; Modified for Frontier compatibility: store key instead of index. We need this info to correlate the arguments.            
-            for tI=1:1:tMatcher.GroupCount set tArgs(tMatcher.Text)=tMatcher.Group(tI)
+            for tI=1:1:tMatcher.GroupCount set tArgs(tI)=tMatcher.Group(tI)
             set tArgs = tI
           } else {
             set tArgs=0
@@ -103,7 +103,6 @@ ClassMethod DispatchRequest(pUrl As %String, pMethod As %String, pForwarded As %
           
           merge tRequestArgs = %request.Data                                                          
           $$$ThrowOnError(##class(Method).PrepareArguments(tClass, tTarget, pMethod, .tArgs, .tRequestArgs, %request.Content, .tMergedArgs))
-          
           if tMergedArgs > 0 {
             set return = $classmethod(tClass, tTarget, tMergedArgs...)
           } else {
@@ -141,7 +140,7 @@ ClassMethod DispatchRequest(pUrl As %String, pMethod As %String, pForwarded As %
     do ..ReportHttpStatusCode(tHttpStatus, e.AsStatus(), .json)
     set json.stack = stack.Read()
     
-    do json.%ToJSON()
+    do json.%ToJSON(, "aelo")
   }   
   return $$$OK
 }
@@ -209,7 +208,6 @@ ClassMethod outputStatus(pSC As %Status, Output tJSON As %ZEN.proxyObject = "") 
       set tSC = ..StatusToProxyObject(pSC, .tJSON)
       if $$$ISERR(tSC) return tSC
       #; Write the JSON to the output device
-      //set tSC = tJSON.%ToJSON(, "aelo")
       if $$$ISERR(tSC) return tSC            
     } else {            
       #; Set plain text

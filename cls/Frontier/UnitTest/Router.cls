@@ -7,32 +7,52 @@ XData UrlMap [ XMLNamespace = "http://github.com/rfns/frontier" ]
   <Route Url="/route_params/:class" Method="GET" Call="TestGETRouteParams"/>
   <Route Url="/query_params" Method="GET" Call="TestGETOneQueryParameter"/>
   <Route Url="/rest_params" Method="GET" Call="TestGETRestParametersSum"/>
+  <Route Url="/mixed/rest" Method="POST" Call="TestPOSTMixedRestParametersSum"/>
   <Route Url="/unpublished" Method="GET" Call="TestGETUnpublishedMethod"/>
   <Route Url="/payload/single_object" Method="POST" Call="TestPOSTObjectPayloadSingle"/>
-  <Route Url="/payload/object_with_query_params" Method="POST" Call="TestPOSTObjectPayloadQueryParams"/>
-  <Route Url="/payload/array_with_query_params" Method="POST" Call="TestPOSTArrayPayloadQueryParams"/>
+  <Route Url="/payload/object_with_query_params" Method="POST" Call="TestPOSTObjectPayloadQueryParams"/>  
   <Route Url="/payload/single_array" Method="POST" Call="TestPOSTArrayPayloadSingle"/>
+  <Route Url="/payload/array_with_query_params" Method="POST" Call="TestPOSTArrayPayloadQueryParams"/>
   <Route Url="/payload/invalid" Method="POST" Call="TestPOSTInvalidPayload"/>
-  <Route Url="/mixed/object" Method="GET" Call="TestPOSTMixedDynamicObject"/>
-  <Route Url="/mixed/array" Method="GET" Call="TestPOSTMixedDynamicArray"/>
+  <Route Url="/mixed/object" Method="GET" Call="TestGETMixedDynamicObject"/>
+  <Route Url="/mixed/array" Method="GET" Call="TestGETMixedDynamicArray"/>
+  <Route Url="/stress" Method="GET" Call="StressTest"/>
  </Routes>
 }
 
-/// curl -H "Content-Type: application/json" -X GET localhost:57772/api/frontier/test/route_params/6 
+/// curl -H "Content-Type: application/json" 'localhost:57772/api/frontier/test/route_params/6' 
 ClassMethod TestGETRouteParams(class As Frontier.UnitTest.Fixtures.Class) As %Status(PUBLIC=1)
 {
   return class
 }
 
+/// curl -H "Content-Type: application/json" 'localhost:57772/api/frontier/test/query_params?msg=hello'
 ClassMethod TestGETOneQueryParameter(msg As %String) As %String(PUBLIC=1)
 {
   return msg
 }
 
+/// curl -H "Content-Type: application/json" 'localhost:57772/api/frontier/test/rest_params?n1=10&n2=20&n3=30'
 ClassMethod TestGETRestParametersSum(n... As %String) As %Integer(PUBLIC=1)
 {
   set sum = 0
   for i=1:1:n  set sum = sum + n(i)
+  return sum
+}
+
+/// curl -H "Content-Type: application/json" -X POST -d '{"username":"xyz","password":"xyz"}' 'http://localhost:57772/api/frontier/test/mixed/rest?n1=10&n2=20&msg=hello'
+ClassMethod TestPOSTMixedRestParametersSum(msg As %String, data As %DynamicObject, n... As %Integer) As %DynamicObject(PUBLIC=1)
+{
+ 
+  set parameters = []  
+  set sum = 0
+  for i=1:1:n  set sum = sum + n(i) do parameters.%Push(n(i))
+  return {
+    "sum": (sum),
+    "data": (data),
+    "params": (parameters),
+    "msg": (msg)
+  }
   return sum
 }
 
@@ -42,13 +62,13 @@ ClassMethod TestGETUnpublishedMethod(namespace As %String) As %Status
   return $$$OK
 }
 
+/// curl -H "Content-Type: application/json" -X POST -d '{"username":"xyz","password":"xyz"}' 'http://localhost:57772/api/frontier/test/payload/single_object'
 ClassMethod TestPOSTObjectPayloadSingle(payload As %DynamicObject) As %DynamicObject(PUBLIC=1)
 {
-  return {
-    "payload": (payload)
-  }
+  return payload
 }
 
+/// curl -H "Content-Type: application/json" -X POST -d '{"username":"xyz","password":"xyz"}' 'http://localhost:57772/api/frontier/test/payload/object_with_query_params?msg=hello'
 ClassMethod TestPOSTObjectPayloadQueryParams(msg As %String = "", payload As %DynamicObject) As %Status(PUBLIC=1)
 {
   return {
@@ -57,31 +77,46 @@ ClassMethod TestPOSTObjectPayloadQueryParams(msg As %String = "", payload As %Dy
   }
 }
 
+/// curl -H "Content-Type: application/json" -X POST -d '[{"username":"xyz","password":"xyz"}]' 'http://localhost:57772/api/frontier/test/payload/single_array'
 ClassMethod TestPOSTArrayPayloadSingle(payload As %DynamicArray) As %DynamicObject(PUBLIC=1)
 {
   return payload
 }
 
-ClassMethod TestPOSTArrayPayloadQueryParams(payload As %DynamicObject, msg As %String = "")
+/// curl -H "Content-Type: application/json" -X POST -d '[{"username":"xyz","password":"xyz"}]' 'http://localhost:57772/api/frontier/test/payload/array_with_query_params?msg=hello'
+ClassMethod TestPOSTArrayPayloadQueryParams(payload As %DynamicObject, msg As %String = "") As %DynamicArray(PUBLIC=1)
 {
   return [ (msg), (payload) ]
 }
 
-ClassMethod TestPOSTInvalidPayload(payload As %DynamicArray) As %DynamicArray(PUBLIC=1)
+/// curl -H "Content-Type: application/json" -X POST -d '[{"username":"xyz","password":"xyz"}]' 'http://localhost:57772/api/frontier/test/payload/invalid'
+ClassMethod TestPOSTInvalidPayload(payloadA As %DynamicArray, payloadB As %DynamicObject) As %DynamicArray(PUBLIC=1)
 {
-  return payload
+  return payloadA
 }
 
-ClassMethod TestPOSTMixedDynamicObject(namespace As %String) As %DynamicObject(PUBLIC=1)
+/// curl -H "Content-Type: application/json" http://localhost:57772/api/frontier/test/mixed/object?class=1
+ClassMethod TestGETMixedDynamicObject(class As Frontier.UnitTest.Fixtures.Class) As %DynamicObject(PUBLIC=1)
 {
   return {
-    "class": (##class(Frontier.UnitTest.Fixtures.Class).%OpenId(1))
+    "class": (class)
   }
 }
 
-ClassMethod TestPOSTMixedDynamicArray(namespace As %String) As %DynamicArray(PUBLIC=1)
+/// curl -H "Content-Type: application/json" http://localhost:57772/api/frontier/test/mixed/array?class=1
+ClassMethod TestGETMixedDynamicArray(class As Frontier.UnitTest.Fixtures.Class) As %DynamicArray(PUBLIC=1)
 {
-  return [ (##class(Frontier.UnitTest.Fixtures.Class).%OpenId(1)) ]
+  return [ (class) ]
+}
+
+ClassMethod StressTest() As %DynamicArray(PUBLIC=1)
+{
+  set classes = []
+  set rows = ##class(%SQL.Statement).%ExecDirect(, "SELECT TOP 10 ID FROM FRONTIER_UNITTEST_FIXTURES.CLASS")
+  while rows.%Next() {
+    do classes.%Push(##class(Frontier.UnitTest.Fixtures.Class).%OpenId(rows.%Get("ID")))
+  }
+  return classes
 }
 
 }
