@@ -102,7 +102,7 @@ ClassMethod DispatchRequest(pUrl As %String, pMethod As %String, pForwarded As %
           } else {
             set return = $classmethod(tClass, tTarget)
           }
-          $$$ThrowOnError(..DispatchResponse(return))
+          $$$ThrowOnError(..DispatchResponse(return, .tReturnParameters))
           return $$$OK
         } else {                    
           #; We are a map, massage the URL and forward the request
@@ -139,7 +139,7 @@ ClassMethod DispatchRequest(pUrl As %String, pMethod As %String, pForwarded As %
   return $$$OK
 }
 
-ClassMethod DispatchResponse(returnedData As %CacheString) As %Status
+ClassMethod DispatchResponse(returnedData As %CacheString, ByRef returnTypeParams = "") As %Status
 {
   // Enables device writing.
   write ""

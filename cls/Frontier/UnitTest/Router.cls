@@ -22,21 +22,21 @@ XData UrlMap [ XMLNamespace = "http://github.com/rfns/frontier" ]
 
 /// curl -H "Content-Type: application/json" 'localhost:57772/api/frontier/test/route_params/6' 
 /// {"Plate":"O5397","Students":[{"Name":"Drabek,Peter T.","__id__":"20"}],"__id__":"6"}
-ClassMethod TestGETRouteParams(class As Frontier.UnitTest.Fixtures.Class) As %Status(PUBLIC=1)
+ClassMethod TestGETRouteParams(class As Frontier.UnitTest.Fixtures.Class) As %Status
 {
   return class
 }
 
 /// curl -H "Content-Type: application/json" 'localhost:57772/api/frontier/test/query_params?msg=hello'
 /// {result":"hello"}
-ClassMethod TestGETOneQueryParameter(msg As %String) As %String(PUBLIC=1)
+ClassMethod TestGETOneQueryParameter(msg As %String) As %String
 {
   return msg
 }
 
 /// curl -H "Content-Type: application/json" 'localhost:57772/api/frontier/test/rest_params?n1=10&n2=20&n3=30'
 /// {"result":60}
-ClassMethod TestGETRestParametersSum(n... As %String) As %Integer(PUBLIC=1)
+ClassMethod TestGETRestParametersSum(n... As %String) As %Integer
 {
   set sum = 0
   for i=1:1:n  set sum = sum + n(i)
@@ -45,7 +45,7 @@ ClassMethod TestGETRestParametersSum(n... As %String) As %Integer(PUBLIC=1)
 
 /// curl -H "Content-Type: application/json" -X POST -d '{"username":"xyz","password":"xyz"}' 'http://localhost:57772/api/frontier/test/mixed/rest?n1=10&n2=20&msg=hello'
 /// {"sum":30,"data":{"username":"xyz","password":"xyz"},"params":["10","20"],"msg":"hello"}}
-ClassMethod TestPOSTMixedRestParametersSum(msg As %String, data As %DynamicObject, n... As %Integer) As %DynamicObject(PUBLIC=1)
+ClassMethod TestPOSTMixedRestParametersSum(msg As %String, data As %DynamicObject, n... As %Integer) As %DynamicObject
 {
  
   set parameters = []  
@@ -60,22 +60,15 @@ ClassMethod TestPOSTMixedRestParametersSum(msg As %String, data As %DynamicObjec
   return sum
 }
 
-/// This will return 404.
-ClassMethod TestGETUnpublishedMethod(namespace As %String) As %Status
-{
-  // Whatever would you expect to happen here, it actually shouldn't.
-  return $$$OK
-}
-
 /// curl -H "Content-Type: application/json" -X POST -d '{"username":"xyz","password":"xyz"}' 'http://localhost:57772/api/frontier/test/payload/single_object'
 /// {"username":"xyz","password":"xyz"}
-ClassMethod TestPOSTObjectPayloadSingle(payload As %DynamicObject) As %DynamicObject(PUBLIC=1) [ CodeMode = expression ]
+ClassMethod TestPOSTObjectPayloadSingle(payload As %DynamicObject) As %DynamicObject
 {
-payload
+  return payload
 }
 
 /// curl -H "Content-Type: application/json" -X POST -d '{"username":"xyz","password":"xyz"}' 'http://localhost:57772/api/frontier/test/payload/object_with_query_params?msg=hello'
-ClassMethod TestPOSTObjectPayloadQueryParams(msg As %String = "", payload As %DynamicObject) As %Status(PUBLIC=1)
+ClassMethod TestPOSTObjectPayloadQueryParams(msg As %String = "", payload As %DynamicObject) As %Status
 {
   return {
     "msg": (msg),
@@ -84,25 +77,25 @@ ClassMethod TestPOSTObjectPayloadQueryParams(msg As %String = "", payload As %Dy
 }
 
 /// curl -H "Content-Type: application/json" -X POST -d '[{"username":"xyz","password":"xyz"}]' 'http://localhost:57772/api/frontier/test/payload/single_array'
-ClassMethod TestPOSTArrayPayloadSingle(payload As %DynamicArray) As %DynamicObject(PUBLIC=1)
+ClassMethod TestPOSTArrayPayloadSingle(payload As %DynamicArray) As %DynamicObject
 {
   return payload
 }
 
 /// curl -H "Content-Type: application/json" -X POST -d '[{"username":"xyz","password":"xyz"}]' 'http://localhost:57772/api/frontier/test/payload/array_with_query_params?msg=hello'
-ClassMethod TestPOSTArrayPayloadQueryParams(payload As %DynamicObject, msg As %String = "") As %DynamicArray(PUBLIC=1)
+ClassMethod TestPOSTArrayPayloadQueryParams(payload As %DynamicObject, msg As %String = "") As %DynamicArray
 {
   return [ (msg), (payload) ]
 }
 
 /// curl -H "Content-Type: application/json" -X POST -d '[{"username":"xyz","password":"xyz"}]' 'http://localhost:57772/api/frontier/test/payload/invalid'
-ClassMethod TestPOSTInvalidPayload(payloadA As %DynamicArray, payloadB As %DynamicObject) As %DynamicArray(PUBLIC=1)
+ClassMethod TestPOSTInvalidPayload(payloadA As %DynamicArray, payloadB As %DynamicObject) As %DynamicArray
 {
   return payloadA
 }
 
 /// curl -H "Content-Type: application/json" http://localhost:57772/api/frontier/test/mixed/object?class=1
-ClassMethod TestGETMixedDynamicObject(class As Frontier.UnitTest.Fixtures.Class) As %DynamicObject(PUBLIC=1)
+ClassMethod TestGETMixedDynamicObject(class As Frontier.UnitTest.Fixtures.Class) As %DynamicObject
 {
   return {
     "class": (class)
@@ -110,19 +103,9 @@ ClassMethod TestGETMixedDynamicObject(class As Frontier.UnitTest.Fixtures.Class)
 }
 
 /// curl -H "Content-Type: application/json" http://localhost:57772/api/frontier/test/mixed/array?class=1
-ClassMethod TestGETMixedDynamicArray(class As Frontier.UnitTest.Fixtures.Class) As %DynamicArray(PUBLIC=1)
+ClassMethod TestGETMixedDynamicArray(class As Frontier.UnitTest.Fixtures.Class) As %DynamicArray
 {
   return [ (class) ]
-}
-
-ClassMethod StressTest() As %DynamicArray(PUBLIC=1)
-{
-  set classes = []
-  set rows = ##class(%SQL.Statement).%ExecDirect(, "SELECT TOP 10 ID FROM FRONTIER_UNITTEST_FIXTURES.CLASS")
-  while rows.%Next() {
-    do classes.%Push(##class(Frontier.UnitTest.Fixtures.Class).%OpenId(rows.%Get("ID")))
-  }
-  return classes
 }
 
 }

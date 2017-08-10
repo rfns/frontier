@@ -13,14 +13,12 @@ Property Student As Frontier.UnitTest.Fixtures.Student;
 
 Method OnAfterAllTests() As %Status
 {
-  $$$QuitOnError(##class(Frontier.UnitTest.Util).CreateWebApp())
   $$$QuitOnError(##class(Frontier.UnitTest.Fixtures.Class).%KillExtent())
   return ##class(Frontier.UnitTest.Fixtures.Student).%KillExtent()
 }
 
 Method OnBeforeAllTests() As %Status
 {
-  $$$QuitOnError(##class(Frontier.UnitTest.Util).CreateWebApp())
   do ##class(Frontier.UnitTest.Fixtures.Class).Populate()
   do ##class(Frontier.UnitTest.Fixtures.Student).Populate()
   
@@ -42,38 +40,126 @@ Method OnBeforeOneTest() As %Status
   return $$$OK
 }
 
-Method TestGETRouteParams()
+Method AssertRequest(resource As %String, expected As %DynamicAbstractObject = "", method As %String = "GET", payload As %DynamicAbstractObject = "") As %Status
 {
-  do ##class(Frontier.Dynamic.Marshaller).Marshall(..Class, .expected)
+   
+  if $isobject(payload) {
+    $$$QuitOnError(..Request.SetHeader("Content-Type", "application/json; charset=utf-8"))
+    $$$QuitOnError(..Request.EntityBody.Write(payload.%ToJSON()))
+  }
   
-  set sc = ..Request.Get("api/frontier/test/route_params/"_..Class.%Id())
-  if $$$ISERR(sc) return $$$AssertStatusOK(sc, "can call the resource")
+  $$$QuitOnError(..Request.Send(method, resource))
   
   set response = ##class(%DynamicObject).%FromJSON(..Request.HttpResponse.Data)
   
   if $isobject(response) {
     if response.errors {
-      set sc = ##class(Frontier.UnitTest.Util).MergeErrors(response.errors)
+      return ##class(Frontier.UnitTest.Util).MergeErrors(response.errors)
     } else {
-      set response = response.Read()
-      if response '= expected.%ToJSON() {
-        set sc = $$$ERROR($$$GeneralError, "The content received mismatches with the expected one.")
+      set responseText = response.%ToJSON()
+      set expectedText = expected.%ToJSON()
+      if responseText '= expectedText {
+        return $$$ERROR($$$GeneralError, $$$FormatText("The received content mismatches with the expected one: %1 '= %2", responseText, expectedText))
       }
     }
   }
-  
-  return $$$AssertStatusOK(sc, "can retrieve the expected data from the resource /route_params/"_..Class.%Id())
+  return $$$OK
 }
 
-ClassMethod test() As %Status
+Method TestGETRouteParams()
 {
-  set t = ..%New(##class(Port.UnitTest.Manager).%New())
-  $$$QuitOnError(t.OnBeforeAllTests())
-  $$$QuitOnError(t.OnBeforeOneTest())
-  $$$QuitOnError(t.TestGETRouteParams())
-  $$$QuitOnError(t.OnAfterOneTest())
-  $$$QuitOnError(t.OnAfterAllTests())
-  return $$$OK
+  set resource = "api/frontier/test/route_params/"_..Class.%Id()  
+  do ##class(Frontier.Dynamic.Marshaller).Marshall(..Class, .expected)
+  return $$$AssertStatusOK(..AssertRequest(resource, expected), $$$FormatText("can retrieve the expected data from the resource %1", resource))
+}
+
+Method TestGETOneQueryParameter()
+{
+  set expected = { "result": "hello" }  
+  set resource = "api/frontier/test/query_params?msg=hello"  
+  return $$$AssertStatusOK(..AssertRequest(resource, expected), $$$FormatText("can retrieve the expected data from the resource %1", resource))
+}
+
+Method TestGETRestParametersSum()
+{
+  set expected = { "result": 60 }
+  set resource = "api/frontier/test/rest_params?n1=10&n2=20&n3=30"  
+  return $$$AssertStatusOK(..AssertRequest(resource, expected), $$$FormatText("can retrieve the expected data from the resource %1", resource))
+}
+
+Method TestPOSTMixedRestParametersSum()
+{
+  set resource = "api/frontier/test/mixed/rest?n1=10&n2=20&msg=hello"
+  set payload = {"username":"xyz","password":"xyz"}
+  set expected = {"sum":30,"data":{"username":"xyz","password":"xyz"},"params":["10","20"],"msg":"hello"}
+  return $$$AssertStatusOK(..AssertRequest(resource, expected, "POST", payload), $$$FormatText("can retrieve the expected data from the resource %1", resource))
+}
+
+Method TestPOSTObjectPayloadSingle()
+{
+  set resource = "api/frontier/test/payload/single_object"
+  set payload = {"username":"xyz","password":"xyz"}
+  set expected = payload
+  return $$$AssertStatusOK(..AssertRequest(resource, expected, "POST", payload), $$$FormatText("can retrieve the expected data from the resource %1", resource))
+}
+
+Method TestPOSTObjectPayloadQueryParams()
+{
+  set resource = "api/frontier/test/payload/object_with_query_params?msg=hello"
+  set payload = {"username":"xyz","password":"xyz"}
+  set expected = {"msg":"hello","payload":(payload)}
+  return $$$AssertStatusOK(..AssertRequest(resource, expected, "POST", payload), $$$FormatText("can retrieve the expected data from the resource %1", resource))
+}
+
+Method TestPOSTArrayPayloadSingle()
+{
+  set resource = "api/frontier/test/payload/single_array"
+  set payload = [{"password":"xyz","username":"xyz"}]
+  set expected = {"result":(payload)}
+  return $$$AssertStatusOK(..AssertRequest(resource, expected, "POST", payload), $$$FormatText("can retrieve the expected data from the resource %1", resource))
+}
+
+Method TestPOSTArrayPayloadQueryParams()
+{
+  set resource = "api/frontier/test/payload/array_with_query_params?msg=hello"
+  set payload = [{"password":"xyz","username":"xyz"}]
+  set expected = {"result":["hello",(payload)]}
+  return $$$AssertStatusOK(..AssertRequest(resource, expected, "POST", payload), $$$FormatText("can retrieve the expected data from the resource %1", resource))
+}
+
+Method TestPOSTInvalidPayload()
+{
+  set resource = "api/frontier/test/payload/invalid"
+  set payload = [{"username":"xyz","password":"xyz"}]
+  return $$$AssertStatusNotOK(..AssertRequest(resource, "" /* we're expecting an error */, "POST", payload), "returns an error if more than one payload is formally expected")
+}
+
+Method TestGETInvalidRestSequence()
+{
+  set resource = "api/frontier/test/rest_params?n1=&n4=10"
+  return $$$AssertStatusNotOK(..AssertRequest(resource, "" /* we're expecting an error */), "returns an error if rest argument index is not sequential")
+}
+
+Method TestGETUnspecifiedArgument()
+{
+  set resource = "api/frontier/test/query_params?unknown=1"
+  return $$$AssertStatusNotOK(..AssertRequest(resource, "" /* we're expecting an error */), "returns an error if an unknown argument is provided")
+}
+
+Method TestGETMixedDynamicObject()
+{
+  set resource = "http://localhost:57772/api/frontier/test/mixed/object?class=1"
+  do ##class(Frontier.Dynamic.Marshaller).Marshall(..Class, .class)
+  set expected = {"class":(class)}
+  return $$$AssertStatusOK(..AssertRequest(resource, expected), $$$FormatText("can retrieve the expected data from the resource %1", resource))
+}
+
+Method TestGETMixedDynamicArray()
+{
+  set resource = "api/frontier/test/mixed/array?class=1"
+  do ##class(Frontier.Dynamic.Marshaller).Marshall(..Class, .class)
+  set expected = {"result":[(class)]}
+  return $$$AssertStatusOK(..AssertRequest(resource, expected), $$$FormatText("can retrieve the expected data from the resource %1", resource))
 }
 
 }

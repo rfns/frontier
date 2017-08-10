@@ -51,7 +51,7 @@ ClassMethod IsZENProxyObject(className As %String) As %Boolean
   return ..IsTypeOf(className, "%ZEN.proxyObject", 0)
 }
 
-ClassMethod IsTypeOf(className As %String, expectedType As %String, whenNull As %String = 0, expectedClassType As %String = "") As %Boolean
+ClassMethod IsTypeOf(className As %String, expectedType As %String, whenNull As %String = 0, expectedClassType As %String = "") As %Boolean [ Final, Private ]
 {
   #define NormalizeClassName(%cn) if $l(%cn, ".") = 1 && ($e(%cn) = "%") set %cn = "%Library."_$e(%cn, 2, *)
   

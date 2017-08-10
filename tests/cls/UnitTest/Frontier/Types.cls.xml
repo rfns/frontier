@@ -1,83 +1,94 @@
-Class UnitTest.Frontier.Types Extends Port.UnitTest.TestCase
-{
+<?xml version="1.0" encoding="UTF-8"?>
+<Export generator="Cache" version="25">
+<Class name="UnitTest.Frontier.Types">
+<Super>Port.UnitTest.TestCase</Super>
+<TimeCreated>64502,35612.05458</TimeCreated>
 
-Method TestIsDataType()
-{
+<Method name="TestIsDataType">
+<Implementation><![CDATA[
   do $$$AssertTrue(##class(Frontier.Types).IsDataType("%Library.String"), "returns 1 if true")
   do $$$AssertNotTrue(##class(Frontier.Types).IsDataType("%Library.RegisteredObject"), "returns 0 if false")
   do $$$AssertNotTrue(##class(Frontier.Types).IsDataType("Invalid"), "returns 0 if invalid")
   do $$$AssertTrue(##class(Frontier.Types).IsDataType("%String"), "can resolve omitted %Library packages")
   do $$$AssertTrue(##class(Frontier.Types).IsDataType("%ZEN.Datatype.boolean"), "can resolve deep inheritances (custom datatypes)")
-}
+]]></Implementation>
+</Method>
 
-Method TestIsStream()
-{
+<Method name="TestIsStream">
+<Implementation><![CDATA[
   do $$$AssertTrue(##class(Frontier.Types).IsStream("%Stream.Object"), "returns 1 if true")
   do $$$AssertNotTrue(##class(Frontier.Types).IsStream("%Library.RegisteredObject"), "returns 0 if false")
   do $$$AssertNotTrue(##class(Frontier.Types).IsStream("Invalid"), "returns 0 if invalid")
   do $$$AssertTrue(##class(Frontier.Types).IsStream("%Stream.GlobalCharacter"), "can resolve deep inheritances")
-}
+]]></Implementation>
+</Method>
 
-Method TestIsSerial()
-{
+<Method name="TestIsSerial">
+<Implementation><![CDATA[
   do $$$AssertTrue(##class(Frontier.Types).IsSerial("%Library.SerialObject"), "returns 1 if true")
   do $$$AssertNotTrue(##class(Frontier.Types).IsSerial("%Library.RegisteredObject"), "returns 0 if false")
   do $$$AssertNotTrue(##class(Frontier.Types).IsSerial("Invalid"), "returns 0 if invalid")
   do $$$AssertTrue(##class(Frontier.Types).IsSerial("%SerialObject"), "can resolve omitted %Library packages")
   do $$$AssertTrue(##class(Frontier.Types).IsSerial("%ArrayOfDataTypes"), "can resolve deep inheritances")
-}
+]]></Implementation>
+</Method>
 
-Method TestIsCollection()
-{
+<Method name="TestIsCollection">
+<Implementation><![CDATA[
   do $$$AssertTrue(##class(Frontier.Types).IsCollection("%Collection.AbstractIterator"), "returns 1 if true")
   do $$$AssertNotTrue(##class(Frontier.Types).IsCollection("%String"), "returns 0 if false")
   do $$$AssertNotTrue(##class(Frontier.Types).IsCollection("Invalid"), "returns 0 if invalid")
   do $$$AssertTrue(##class(Frontier.Types).IsCollection("%ListOfDataTypes"), "can resolve omitted %Library packages")
   do $$$AssertTrue(##class(Frontier.Types).IsCollection("%Library.ArrayOfDataTypes"), "can resolve deep inheritances")
-}
+]]></Implementation>
+</Method>
 
-Method TestIsPersistent()
-{
+<Method name="TestIsPersistent">
+<Implementation><![CDATA[
   do $$$AssertTrue(##class(Frontier.Types).IsPersistent("%Library.Persistent"), "returns 1 if true")
   do $$$AssertNotTrue(##class(Frontier.Types).IsPersistent("%String"), "returns 0 if false")
   do $$$AssertNotTrue(##class(Frontier.Types).IsPersistent("Invalid"), "returns 0 if invalid")
   do $$$AssertTrue(##class(Frontier.Types).IsPersistent("%Persistent"), "can resolve omitted %Library packages")
   do $$$AssertTrue(##class(Frontier.Types).IsPersistent("%Dictionary.ClassDefinition"), "can resolve deep inheritances")
-}
+]]></Implementation>
+</Method>
 
-Method TestIsInstantiable()
-{
+<Method name="TestIsInstantiable">
+<Implementation><![CDATA[
   do $$$AssertTrue(##class(Frontier.Types).IsInstantiable("%Library.RegisteredObject"), "returns 1 if true")
   do $$$AssertNotTrue(##class(Frontier.Types).IsInstantiable("%String"), "returns 0 if false")
   do $$$AssertNotTrue(##class(Frontier.Types).IsInstantiable("Invalid"), "returns 0 if invalid")
   do $$$AssertTrue(##class(Frontier.Types).IsInstantiable("%RegisteredObject"), "can resolve omitted %Library packages")
   do $$$AssertTrue(##class(Frontier.Types).IsInstantiable("%ZEN.proxyObject"), "can resolve deep inheritances")
-}
+]]></Implementation>
+</Method>
 
-Method TestIsDynamic()
-{
+<Method name="TestIsDynamic">
+<Implementation><![CDATA[
   do $$$AssertTrue(##class(Frontier.Types).IsDynamic("%Library.DynamicAbstractObject"), "returns 1 if true")
   do $$$AssertNotTrue(##class(Frontier.Types).IsDynamic("%String"), "returns 0 if false")
   do $$$AssertNotTrue(##class(Frontier.Types).IsDynamic("Invalid"), "returns 0 if invalid")
   do $$$AssertTrue(##class(Frontier.Types).IsDynamic("%DynamicObject"), "can resolve omitted %Library packages")
   do $$$AssertTrue(##class(Frontier.Types).IsDynamic("%DynamicArray"), "can resolve deep inheritances")
-}
+]]></Implementation>
+</Method>
 
-Method TestIsDynamicArray()
-{
+<Method name="TestIsDynamicArray">
+<Implementation><![CDATA[
   do $$$AssertTrue(##class(Frontier.Types).IsDynamicArray("%Library.DynamicArray"), "returns 1 if true")
   do $$$AssertNotTrue(##class(Frontier.Types).IsDynamicArray("%String"), "returns 0 if false")
   do $$$AssertNotTrue(##class(Frontier.Types).IsDynamicArray("Invalid"), "returns 0 if invalid")
   do $$$AssertTrue(##class(Frontier.Types).IsDynamicArray("%DynamicArray"), "can resolve omitted %Library packages")
-}
+]]></Implementation>
+</Method>
 
-Method TestIsDynamicObject()
-{
+<Method name="TestIsDynamicObject">
+<Implementation><![CDATA[
   do $$$AssertTrue(##class(Frontier.Types).IsDynamicObject("%Library.DynamicObject"), "returns 1 if true")
   do $$$AssertNotTrue(##class(Frontier.Types).IsDynamicObject("%String"), "returns 0 if false")
   do $$$AssertNotTrue(##class(Frontier.Types).IsDynamicObject("Invalid"), "returns 0 if invalid")
   do $$$AssertTrue(##class(Frontier.Types).IsDynamicObject("%DynamicObject"), "can resolve omitted %Library packages")
-}
-
-}
-
+]]></Implementation>
+</Method>
+</Class>
+</Export>

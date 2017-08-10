@@ -34,9 +34,9 @@ ClassMethod MergeErrors(errors As %DynamicArray) As %Status
   
   set sc = $$$OK
   
-  for i=0:1:errors.%Size() {
+  for i=0:1:(errors.%Size() - 1) {
     set errorObject = errors.%Get(i)
-    set sc = $$$ADDSC(sc, $$$ERROR(errorObject.code, errorObject.params.%GetAt(0)))
+    set sc = $$$ADDSC(sc, $$$ERROR(errorObject.code, errorObject.params.%Get(0)))
   }
   
   return sc
