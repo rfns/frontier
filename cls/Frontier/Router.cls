@@ -92,16 +92,10 @@ ClassMethod DispatchRequest(pUrl As %String, pMethod As %String, pForwarded As %
           #; Modified to add support for type resolution and query parameters
           
           #; Must check if class method is available for HTTP.
-          $$$ThrowOnError(##class(Method).GetReturnTypeParameters(tClass, tTarget, .tReturnParameters))
-          
-          #; PUBLIC parameter must be defined, otherwise response should be 404.
-          #; We defer the dispatch to the end of this call.
-          if $get(tReturnParameters("PUBLIC")) '= 1 {
-            set tResourceMatched = 0
-            quit
-          }
-          
+          $$$ThrowOnError(##class(Method).GetReturnTypeParameters(tClass, tTarget, .tReturnParameters))          
+                    
           merge tRequestArgs = %request.Data                                                          
+          
           $$$ThrowOnError(##class(Method).PrepareArguments(tClass, tTarget, pMethod, .tArgs, .tRequestArgs, %request.Content, .tMergedArgs))
           if tMergedArgs > 0 {
             set return = $classmethod(tClass, tTarget, tMergedArgs...)

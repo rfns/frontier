@@ -21,18 +21,21 @@ XData UrlMap [ XMLNamespace = "http://github.com/rfns/frontier" ]
 }
 
 /// curl -H "Content-Type: application/json" 'localhost:57772/api/frontier/test/route_params/6' 
+/// {"Plate":"O5397","Students":[{"Name":"Drabek,Peter T.","__id__":"20"}],"__id__":"6"}
 ClassMethod TestGETRouteParams(class As Frontier.UnitTest.Fixtures.Class) As %Status(PUBLIC=1)
 {
   return class
 }
 
 /// curl -H "Content-Type: application/json" 'localhost:57772/api/frontier/test/query_params?msg=hello'
+/// {result":"hello"}
 ClassMethod TestGETOneQueryParameter(msg As %String) As %String(PUBLIC=1)
 {
   return msg
 }
 
 /// curl -H "Content-Type: application/json" 'localhost:57772/api/frontier/test/rest_params?n1=10&n2=20&n3=30'
+/// {"result":60}
 ClassMethod TestGETRestParametersSum(n... As %String) As %Integer(PUBLIC=1)
 {
   set sum = 0
@@ -41,6 +44,7 @@ ClassMethod TestGETRestParametersSum(n... As %String) As %Integer(PUBLIC=1)
 }
 
 /// curl -H "Content-Type: application/json" -X POST -d '{"username":"xyz","password":"xyz"}' 'http://localhost:57772/api/frontier/test/mixed/rest?n1=10&n2=20&msg=hello'
+/// {"sum":30,"data":{"username":"xyz","password":"xyz"},"params":["10","20"],"msg":"hello"}}
 ClassMethod TestPOSTMixedRestParametersSum(msg As %String, data As %DynamicObject, n... As %Integer) As %DynamicObject(PUBLIC=1)
 {
  
@@ -56,6 +60,7 @@ ClassMethod TestPOSTMixedRestParametersSum(msg As %String, data As %DynamicObjec
   return sum
 }
 
+/// This will return 404.
 ClassMethod TestGETUnpublishedMethod(namespace As %String) As %Status
 {
   // Whatever would you expect to happen here, it actually shouldn't.
@@ -63,9 +68,10 @@ ClassMethod TestGETUnpublishedMethod(namespace As %String) As %Status
 }
 
 /// curl -H "Content-Type: application/json" -X POST -d '{"username":"xyz","password":"xyz"}' 'http://localhost:57772/api/frontier/test/payload/single_object'
-ClassMethod TestPOSTObjectPayloadSingle(payload As %DynamicObject) As %DynamicObject(PUBLIC=1)
+/// {"username":"xyz","password":"xyz"}
+ClassMethod TestPOSTObjectPayloadSingle(payload As %DynamicObject) As %DynamicObject(PUBLIC=1) [ CodeMode = expression ]
 {
-  return payload
+payload
 }
 
 /// curl -H "Content-Type: application/json" -X POST -d '{"username":"xyz","password":"xyz"}' 'http://localhost:57772/api/frontier/test/payload/object_with_query_params?msg=hello'

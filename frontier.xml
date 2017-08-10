@@ -616,16 +616,10 @@ MergeArguments(arguments, sc)
           #; Modified to add support for type resolution and query parameters
           
           #; Must check if class method is available for HTTP.
-          $$$ThrowOnError(##class(Method).GetReturnTypeParameters(tClass, tTarget, .tReturnParameters))
-          
-          #; PUBLIC parameter must be defined, otherwise response should be 404.
-          #; We defer the dispatch to the end of this call.
-          if $get(tReturnParameters("PUBLIC")) '= 1 {
-            set tResourceMatched = 0
-            quit
-          }
-          
+          $$$ThrowOnError(##class(Method).GetReturnTypeParameters(tClass, tTarget, .tReturnParameters))          
+                    
           merge tRequestArgs = %request.Data                                                          
+          
           $$$ThrowOnError(##class(Method).PrepareArguments(tClass, tTarget, pMethod, .tArgs, .tRequestArgs, %request.Content, .tMergedArgs))
           if tMergedArgs > 0 {
             set return = $classmethod(tClass, tTarget, tMergedArgs...)
@@ -1054,7 +1048,8 @@ Issue an 'Http' error</Description>
 
 <Method name="TestGETRouteParams">
 <Description>
-curl -H "Content-Type: application/json" 'localhost:57772/api/frontier/test/route_params/6' </Description>
+curl -H "Content-Type: application/json" 'localhost:57772/api/frontier/test/route_params/6' 
+{"Plate":"O5397","Students":[{"Name":"Drabek,Peter T.","__id__":"20"}],"__id__":"6"}</Description>
 <ClassMethod>1</ClassMethod>
 <FormalSpec>class:Frontier.UnitTest.Fixtures.Class</FormalSpec>
 <ReturnType>%Status</ReturnType>
@@ -1065,7 +1060,8 @@ curl -H "Content-Type: application/json" 'localhost:57772/api/frontier/test/rout
 
 <Method name="TestGETOneQueryParameter">
 <Description>
-curl -H "Content-Type: application/json" 'localhost:57772/api/frontier/test/query_params?msg=hello'</Description>
+curl -H "Content-Type: application/json" 'localhost:57772/api/frontier/test/query_params?msg=hello'
+{result":"hello"}</Description>
 <ClassMethod>1</ClassMethod>
 <FormalSpec>msg:%String</FormalSpec>
 <ReturnType>%String</ReturnType>
@@ -1076,7 +1072,8 @@ curl -H "Content-Type: application/json" 'localhost:57772/api/frontier/test/quer
 
 <Method name="TestGETRestParametersSum">
 <Description><![CDATA[
-curl -H "Content-Type: application/json" 'localhost:57772/api/frontier/test/rest_params?n1=10&n2=20&n3=30']]></Description>
+curl -H "Content-Type: application/json" 'localhost:57772/api/frontier/test/rest_params?n1=10&n2=20&n3=30'
+{"result":60}]]></Description>
 <ClassMethod>1</ClassMethod>
 <FormalSpec>n...:%String</FormalSpec>
 <ReturnType>%Integer</ReturnType>
@@ -1090,7 +1087,8 @@ curl -H "Content-Type: application/json" 'localhost:57772/api/frontier/test/rest
 
 <Method name="TestPOSTMixedRestParametersSum">
 <Description><![CDATA[
-curl -H "Content-Type: application/json" -X POST -d '{"username":"xyz","password":"xyz"}' 'http://localhost:57772/api/frontier/test/mixed/rest?n1=10&n2=20&msg=hello']]></Description>
+curl -H "Content-Type: application/json" -X POST -d '{"username":"xyz","password":"xyz"}' 'http://localhost:57772/api/frontier/test/mixed/rest?n1=10&n2=20&msg=hello'
+{"sum":30,"data":{"username":"xyz","password":"xyz"},"params":["10","20"],"msg":"hello"}}]]></Description>
 <ClassMethod>1</ClassMethod>
 <FormalSpec>msg:%String,data:%DynamicObject,n...:%Integer</FormalSpec>
 <ReturnType>%DynamicObject</ReturnType>
@@ -1111,6 +1109,8 @@ curl -H "Content-Type: application/json" -X POST -d '{"username":"xyz","password
 </Method>
 
 <Method name="TestGETUnpublishedMethod">
+<Description>
+This will return 404.</Description>
 <ClassMethod>1</ClassMethod>
 <FormalSpec>namespace:%String</FormalSpec>
 <ReturnType>%Status</ReturnType>
@@ -1122,12 +1122,14 @@ curl -H "Content-Type: application/json" -X POST -d '{"username":"xyz","password
 
 <Method name="TestPOSTObjectPayloadSingle">
 <Description>
-curl -H "Content-Type: application/json" -X POST -d '{"username":"xyz","password":"xyz"}' 'http://localhost:57772/api/frontier/test/payload/single_object'</Description>
+curl -H "Content-Type: application/json" -X POST -d '{"username":"xyz","password":"xyz"}' 'http://localhost:57772/api/frontier/test/payload/single_object'
+{"username":"xyz","password":"xyz"}</Description>
 <ClassMethod>1</ClassMethod>
+<CodeMode>expression</CodeMode>
 <FormalSpec>payload:%DynamicObject</FormalSpec>
 <ReturnType>%DynamicObject</ReturnType>
 <ReturnTypeParams>PUBLIC=1</ReturnTypeParams>
-<Implementation><![CDATA[  return payload
+<Implementation><![CDATA[payload
 ]]></Implementation>
 </Method>
 
@@ -1620,7 +1622,7 @@ curl -H "Content-Type: application/json" http://localhost:57772/api/frontier/tes
 ]]></Routine>
 
 
-<Project name="frontier" LastModified="2017-08-09 16:53:37.243969" Target="##class(UnitTest.Frontier.Router).test()" TargetType="2" HttpServer="http://localhost:57772">
+<Project name="frontier" LastModified="2017-08-09 17:47:36.964971" Target="##class(UnitTest.Frontier.Router).test()" TargetType="2" HttpServer="http://localhost:57772">
   <Items>
     <ProjectItem name="Frontier.ArgumentDescription" type="CLS"></ProjectItem>
     <ProjectItem name="Frontier.Authentication.Common" type="CLS"></ProjectItem>
@@ -1639,9 +1641,5 @@ curl -H "Content-Type: application/json" http://localhost:57772/api/frontier/tes
     <ProjectItem name="UnitTest.Frontier.Types" type="CLS"></ProjectItem>
     <ProjectItem name="frontier.INC" type="MAC"></ProjectItem>
   </Items>
-  <BreakPoints>
-    <BreakPoint Routine="Frontier.Dynamic.Marshaller.CLS" Offset="MakeDynamicObject+69"></BreakPoint>
-    <BreakPoint Routine="UnitTest.Frontier.Router.CLS" Offset="TestGETRouteParams+1"></BreakPoint>
-  </BreakPoints>
 </Project>
 </Export>
