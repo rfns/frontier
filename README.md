@@ -111,7 +111,7 @@ Just like you would [do](http://docs.intersystems.com/latest/csp/docbook/DocBook
 
 But instead of extending your router from %CSP.REST you use ```Frontier.Router.```
 
-Still with doubts? The [class](https://github.com/rfns/frontier/blob/master/cls/Frontier/UnitTest/Router.clss) demo'ed on Features is available to check out.
+Still with doubts? The [class](https://github.com/rfns/frontier/blob/master/cls/Frontier/UnitTest/Router.cls) demo'ed on Features is available to check out.
 
 ## So, what's next?
 
