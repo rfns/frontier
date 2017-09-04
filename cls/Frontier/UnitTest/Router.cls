@@ -16,7 +16,7 @@ XData UrlMap [ XMLNamespace = "http://github.com/rfns/frontier" ]
   <Route Url="/payload/invalid" Method="POST" Call="TestPOSTInvalidPayload"/>
   <Route Url="/mixed/object" Method="GET" Call="TestGETMixedDynamicObject"/>
   <Route Url="/mixed/array" Method="GET" Call="TestGETMixedDynamicArray"/>
-  <Route Url="/stress" Method="GET" Call="StressTest"/>
+  <Route Url="/raw" Method="GET" Call="TestGETRawMode"/>
  </Routes>
 }
 
@@ -31,7 +31,8 @@ ClassMethod TestGETRouteParams(class As Frontier.UnitTest.Fixtures.Class) As %St
 /// {result":"hello"}
 ClassMethod TestGETOneQueryParameter(msg As %String) As %String
 {
-  return msg
+  
+  return "hello"
 }
 
 /// curl -H "Content-Type: application/json" 'localhost:57772/api/frontier/test/rest_params?n1=10&n2=20&n3=30'
@@ -106,6 +107,12 @@ ClassMethod TestGETMixedDynamicObject(class As Frontier.UnitTest.Fixtures.Class)
 ClassMethod TestGETMixedDynamicArray(class As Frontier.UnitTest.Fixtures.Class) As %DynamicArray
 {
   return [ (class) ]
+}
+
+ClassMethod TestGETRawMode() As %String
+{
+  do %frontier.Raw()
+  return "hello raw response"
 }
 
 }

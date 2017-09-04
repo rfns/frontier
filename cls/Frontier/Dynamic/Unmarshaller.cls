@@ -8,10 +8,6 @@ ClassMethod Unmarshall(className As %String, dynamicObject As %DynamicAbstractOb
     set dynamicType = $classname(dynamicObject)
     set isCollection = ##class(Frontier.Types).IsCollection(className) || ##class(Frontier.Types).IsDynamicArray(className)
     
-    /*if isCollection {
-      return $$$ERROR($$$GeneralError, "Cannot unmarshall items that are collections.")
-    }*/
-    
     if ##class(Frontier.Types).IsDynamicArray(dynamicType) {
       return ..MakeCollection(className, dynamicObject, .registeredObject)
     } elseif 'isCollection && ##class(Frontier.Types).IsDynamicObject(dynamicType) && ##class(Frontier.Types).IsInstantiable(className) {

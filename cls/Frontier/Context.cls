@@ -1,14 +1,67 @@
 Class Frontier.Context Extends %RegisteredObject
 {
 
-Property Session As %CSP.Session [ ReadOnly ];
+Property Session As %CSP.Session [ Private ];
 
-Property Request As %CSP.Request [ ReadOnly ];
+Property Request As %CSP.Request [ Private ];
 
-Method %OnNew(session As %CSP.Session, request As %CSP.Request) As %Status
+Property Response As %CSP.Response [ Private ];
+
+Property CharSet As %String [ InitialExpression = "utf-8" ];
+
+Method %OnNew(session As %CSP.Session, request As %CSP.Request, response As %CSP.Response) As %Status
 {
   set i%Session = session
   set i%Request = request
+  set i%Response = response
+  do ..Response.SetHeader("Content-Type", "application/json")
+  set ..CharSet = "utf-8"  
+  return $$$OK
+}
+
+Method CharSetSet(charset As %String) As %Status
+{
+  set ..Response.CharSet = charset
+  set ..Response.HeaderCharSet = charset  
+  return $$$OK
+}
+
+Method Raw() As %Status
+{
+  do ..Response.SetHeader("Content-Type", "text/plain")
+  return $$$OK
+}
+
+Method IsRaw() As %Boolean
+{
+  return $$$lcase(..Response.ContentType) = "text/plain"
+}
+
+Method HTML() As %Status
+{
+  do ..Response.SetHeader("Content-Type", "text/html")
+  return $$$OK
+}
+
+Method IsHTML() As %Boolean
+{
+  return $$$lcase(..Response.ContentType) = "text/html"
+}
+
+Method JSON() As %Status
+{
+  do ..Response.SetHeader("Content-Type", "application/json")
+  return $$$OK
+}
+
+Method IsJSON() As %Boolean
+{
+  return $$$lcase(..Response.ContentType) = "application/json"
+}
+
+Method Status(statusCode As %String) As %Status
+{
+  set ..Response.Status = statusCode
   return $$$OK
 }
 

@@ -3,7 +3,7 @@ Class Frontier.UnitTest.Fixtures.Student Extends (%Persistent, %Populate)
 
 Property Name As %String;
 
-Relationship Class As Class [ Cardinality = one, Inverse = Student ];
+Relationship Class As Class [ Cardinality = one, Inverse = Students ];
 
 Storage Default
 {
@@ -32,13 +32,16 @@ Storage Default
 <Selectivity>1</Selectivity>
 </Property>
 <Property name="Class">
-<AverageFieldSize>1.1</AverageFieldSize>
-<Selectivity>16.6667%</Selectivity>
+<AverageFieldSize>1</AverageFieldSize>
+<Selectivity>14.2857%</Selectivity>
 </Property>
 <Property name="Name">
-<AverageFieldSize>16.8</AverageFieldSize>
+<AverageFieldSize>15.5</AverageFieldSize>
 <Selectivity>10.0000%</Selectivity>
 </Property>
+<SQLMap name="IDKEY">
+<BlockCount>-4</BlockCount>
+</SQLMap>
 <StreamLocation>^Frontier.UnitTest.F50C.StudentS</StreamLocation>
 <Type>%Library.CacheStorage</Type>
 }

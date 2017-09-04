@@ -28,7 +28,7 @@ ClassMethod IsCollection(className As %String) As %Boolean
 
 ClassMethod IsSerial(className As %String) As %Boolean
 {
-  quit ..IsTypeOf(className, "%Serial", 0, "serial")
+  quit ..IsTypeOf(className, "%SerialObject", 0, "serial")
 }
 
 ClassMethod IsDynamic(className As %String) As %Boolean
@@ -53,6 +53,7 @@ ClassMethod IsZENProxyObject(className As %String) As %Boolean
 
 ClassMethod IsTypeOf(className As %String, expectedType As %String, whenNull As %String = 0, expectedClassType As %String = "") As %Boolean [ Final, Private ]
 {
+  
   #define NormalizeClassName(%cn) if $l(%cn, ".") = 1 && ($e(%cn) = "%") set %cn = "%Library."_$e(%cn, 2, *)
   
   set isExpectedType = whenNull
@@ -63,10 +64,16 @@ ClassMethod IsTypeOf(className As %String, expectedType As %String, whenNull As 
   
   if className = expectedType return 1
   
+  // Uses default %Extends method to check for common cases and improve performance.
+  set matches = ##class(%Dictionary.CompiledClass).%ExistsId(className) && $classmethod(className, "%Extends", expectedType)
+  if matches = 1 return matches
+  
+  // Now we check classes that are custom data types.
   set definition = ##class(%Dictionary.CompiledClass).%OpenId(className)
   if $isobject(definition) {
-    // Checks if current is truly an expectedType.
+    // This should contain one of: "serial" or "datatype".
     set isExpectedType = (definition.Super [ expectedType || (expectedClassType '= "" && (definition.ClassType = expectedClassType)))
+    // If we did not find it, we must traverse the inheritance up to the super.
     if 'isExpectedType {
       if definition.Super [ "," {
         if definition.Inheritance '= "right" {

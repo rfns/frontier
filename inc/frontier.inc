@@ -2,3 +2,5 @@
 #define rtrim(%str)       $zstrip(%str, ">W")
 #define trim(%str)        $zstrip(%str, "<>W")
 #define IsSQLQuery(%str)  ($$$ucase($extract($$$trim(%str), 6)) = "SELECT")
+#define KeyGroup(%requestKey)  $zstrip($zstrip(%requestKey, "<=N"), "=>N")
+#define KeyIndex(%requestKey)  $zstrip($zstrip(%requestKey, "<=N"), "<=A")
