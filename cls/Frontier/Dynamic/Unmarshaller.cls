@@ -1,4 +1,4 @@
-Class Frontier.Dynamic.Unmarshaller Extends %RegisteredObject
+Class Frontier.Dynamic.Unmarshaller [ Abstract ]
 {
 
 ClassMethod Unmarshall(className As %String, dynamicObject As %DynamicAbstractObject, Output registeredObject As %RegisteredObject = "") As %Status
@@ -131,7 +131,7 @@ ClassMethod MakeCollection(collectionType As %String, dynamicCollection As %Dyna
   }
   
   // We must check for both occorences: 
-  // 1 - When this method within Deproxify.
+  // 1 - When this method is called within Deproxify.
   // 2 - When this method is a first call.
   if $isobject(collection) {
     do collection.Clear()
@@ -173,14 +173,6 @@ ClassMethod MakeCollection(collectionType As %String, dynamicCollection As %Dyna
       do collection.Insert(item)
     } 
   }
-  quit sc
-}
-
-ClassMethod t()
-{
-  //set o = {"Plate":"O5397","Students":[{"Name":"Drabek,Peter T.","__id__":"20"}],"__id__":"6"}
-  set o = [[1,2,3,4],[5,6,7,8]]
-  set sc = ##class(Frontier.Dynamic.Unmarshaller).Unmarshall("%ListOfDataTypes", o, .c)
   quit sc
 }
 
