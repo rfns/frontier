@@ -121,10 +121,10 @@ Still with doubts? The [class](https://github.com/rfns/frontier/blob/master/cls/
 
 ## CONTRIBUTING
 
-If you want to contribute with this project. Please read the [CONTRIBUTING](https://github.com/rfns/frontier/tree/master/CONTRIBUTING.md) file.
+If you want to contribute with this project. Please read the [CONTRIBUTING](https://github.com/rfns/frontier/blob/tree/master/CONTRIBUTING.md) file.
 
 ## LICENSE
 
-[MIT](https://github.com/rfns/frontier/tree/master/LICENSE.md).
+[MIT](https://github.com/rfns/frontier/blob/tree/master/LICENSE.md).
 
 
