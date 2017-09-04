@@ -14,7 +14,7 @@ ClassMethod DispatchRequest(pUrl As %String, pMethod As %String, pForwarded As %
   #dim tMethodMatched As %Boolean
   
   new %frontier
-  set %frontier = ##class(Frontier.Context).%New(%session, %request)      
+  set %frontier = ..InitContext(%session, %request, %response)  
     
    try {       
     set (tResourceMatched,tMethodMatched) = 0    
@@ -82,7 +82,7 @@ ClassMethod DispatchRequest(pUrl As %String, pMethod As %String, pForwarded As %
             set tArgs = tI
           } else {
             set tArgs=0
-          }
+          }          
                     
           #; Check for optional ClassName prefix
           set tClass = $classname()
@@ -90,15 +90,11 @@ ClassMethod DispatchRequest(pUrl As %String, pMethod As %String, pForwarded As %
                               
           #; Dispatch
           #; Modified to add support for type resolution and query parameters
+          set tPublicMethod = ##class(Method).%New(tClass, tTarget, .tArgs, %request)
+          merge tMethodArguments = tPublicMethod.Arguments                
           
-          #; Must check if class method is available for HTTP.
-          $$$ThrowOnError(##class(Method).GetReturnTypeParameters(tClass, tTarget, .tReturnParameters))          
-                    
-          merge tRequestArgs = %request.Data                                                          
-          
-          $$$ThrowOnError(##class(Method).PrepareArguments(tClass, tTarget, pMethod, .tArgs, .tRequestArgs, %request.Content, .tMergedArgs))
-          if tMergedArgs > 0 {
-            set return = $classmethod(tClass, tTarget, tMergedArgs...)
+          if tMethodArguments > 0 {
+            set return = $classmethod(tClass, tTarget, tMethodArguments...)
           } else {
             set return = $classmethod(tClass, tTarget)
           }
@@ -139,7 +135,7 @@ ClassMethod DispatchRequest(pUrl As %String, pMethod As %String, pForwarded As %
   return $$$OK
 }
 
-ClassMethod DispatchResponse(returnedData As %CacheString, ByRef returnTypeParams = "") As %Status
+ClassMethod DispatchResponse(returnedData As %CacheString, method As Frontier.Router, ByRef returnTypeParams = "") As %Status
 {
   // Enables device writing.
   write ""
@@ -163,29 +159,13 @@ ClassMethod DispatchResponse(returnedData As %CacheString, ByRef returnTypeParam
     } else {      
       $$$QuitOnError(##class(%ZEN.Auxiliary.altJSONProvider).%ObjectToJSON(returnedData,,,"aelo"))      
     }
-  } else {
+  } elseif %frontier.IsJSON() {
     do response.%ToJSON()
+  } else {
+    // Since we only support HTML and JSON for now we will leave it without any extra checks.
+    write returnedData
   }  
   return $$$OK
-  
-CollectionToDynamic(collection)
-  if collection.%IsA("%Collection.AbstractList") {    
-    #dim dynamicArray As %DynamicArray = []
-    #dim list As %Collection.AbstractList = collection
-    
-    for i=1:1:list.Count() do dynamicArray.%Push(list.GetAt(i))    
-    return dynamicArray
-  } elseif collection.%IsA("%Collection.AbstractArray") {
-     #dim dynamicObject As %DynamicObject = {}
-     #dim array As %Collection.AbstractArray = collection
-     
-     while array.GetNext(.key) {
-      set arrayValue = array.GetAt(key)
-      do dynamicObject.%Set(key, arrayValue)
-     }
-     return dynamicObject
-  }
-  return ""
 }
 
 /// This method takes a status, renders it as json (if requested) and outputs the result
@@ -225,6 +205,11 @@ ClassMethod ReportHttpStatusCode(pHttpStatus, pSC As %Status = {$$$OK}, Output p
     If $$$ISERR(pSC) Do ..outputStatus(pSC, .pData)
         
     Quit $$$OK
+}
+
+ClassMethod InitContext(session As %CSP.Session, request As %CSP.Request, response As %CSP.Response) As Frontier.Context [ Private ]
+{
+  return ##class(Frontier.Context).%New(session, request, response)
 }
 
 ClassMethod CaptureStack(Output stackText As %Stream.GlobalCharacter = "") As %Status
