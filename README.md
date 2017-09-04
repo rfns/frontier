@@ -103,7 +103,7 @@ ClassMethod TestGETMixedDynamicObject(class As Frontier.UnitTest.Fixtures.Class)
 
 ## I want to see this demo running!
 
-You're in luck! Just import the class [Frontier.UnitTest.WebApplicationInstaller](https://github.com/rfns/frontier/tree/master/cls/Frontier/UnitTest/WebApplicationInstaller.cls) and use some browser or tool like cURL to see it in action.
+You're in luck! Just import the class [Frontier.UnitTest.WebApplicationInstaller](https://github.com/rfns/frontier/blob/master/cls/Frontier/UnitTest/WebApplicationInstaller.cls) and use some browser or tool like cURL to see it in action.
 
 ## How do I create my own router?
 
@@ -111,12 +111,12 @@ Just like you would [do](http://docs.intersystems.com/latest/csp/docbook/DocBook
 
 But instead of extending your router from %CSP.REST you use ```Frontier.Router.```
 
-Still with doubts? The [class](https://github.com/rfns/frontier/tree/master/cls/Frontier/UnitTest/Router.cls) demo'ed on Features is available to check out.
+Still with doubts? The [class](https://github.com/rfns/frontier/blob/master/cls/Frontier/UnitTest/Router.clss) demo'ed on Features is available to check out.
 
 ## So, what's next?
 
-[ ] SQL support.
-[ ] Easier credentials validation and user object access.
+- [ ] SQL support.
+- [ ] Easier credentials validation and user object access.
 
 ## CONTRIBUTING
 
