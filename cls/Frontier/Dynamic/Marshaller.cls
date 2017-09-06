@@ -42,9 +42,12 @@ Method MarshallPartial(dynamicInstance As %DynamicAbstractObject, marshalledObje
     set dynamicValueResult = value
     if $isobject(value) {
       set valueType = $classname(value)
-      if ##class(Frontier.Types).IsDynamic(valueType) {
+      set isDynamic = ##class(Frontier.Types).IsDynamic(valueType)
+      set isStream = ##class(Frontier.Types).IsStream(valueType)
+      set isSQLProvider = ##class(Frontier.Types).IsSQLProvider(valueType)
+      if isDynamic {
         set sc = ..MarshallPartial(value, .dynamicValueResult)       
-      } else {
+      } elseif 'isStream && 'isSQLProvider {
         set sc = ..Marshall(value, .dynamicValueResult)
       }
       if $$$ISERR(sc) return sc
@@ -136,6 +139,7 @@ Method MakeDynamicCollection(collection As %Collection.Super, Output dynamicColl
 {
   set sc = $$$OK   
   set startOffset = 0
+  set cyclicReferenceTrap = 0
       
   if collection.%IsA("%Collection.AbstractList") || collection.%IsA("%RelationshipObject") {
     set startOffset = 1
@@ -154,12 +158,13 @@ Method MakeDynamicCollection(collection As %Collection.Super, Output dynamicColl
         set sc = ..MakeDynamicCollection(item , .value)
       } else {
         set sc = ..MakeDynamicObject(item, .value, parentKey, parentObject)
+        set cyclicReferenceTrap = (value = "")
       }
     } else {
       set value = item
     }
     
-    do dynamicCollection.%Set(key - startOffset, value)    
+    if 'cyclicReferenceTrap do dynamicCollection.%Set(key - startOffset, value)    
     if $$$ISERR(sc) quit
   }
   quit sc

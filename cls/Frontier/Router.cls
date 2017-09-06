@@ -3,6 +3,11 @@ Class Frontier.Router Extends %CSP.REST
 
 ClassMethod DispatchRequest(pUrl As %String, pMethod As %String, pForwarded As %Boolean = 0) As %Status
 {
+ 
+  #; This is a modified version of %CSP.REST's DispatchRequest that creates an entry point for
+  #; for additional features.
+  #; TODO: Check the possibility of purging this source code to stop ovewriting the original method.
+  
   #dim tSC As %Status = $$$OK
   #dim e As %Exception.AbstractException
   
@@ -92,10 +97,10 @@ ClassMethod DispatchRequest(pUrl As %String, pMethod As %String, pForwarded As %
           #; Modified to add support for type resolution and query parameters
           set tPublicMethod = ##class(Method).%New(tClass, tTarget, .tArgs, %request)
           merge tMethodArguments = tPublicMethod.Arguments                
-          
+                   
           if tMethodArguments > 0 {
             set return = $classmethod(tClass, tTarget, tMethodArguments...)
-          } else {
+          } else {            
             set return = $classmethod(tClass, tTarget)
           }
           $$$ThrowOnError(..DispatchResponse(return, .tReturnParameters))
@@ -137,34 +142,32 @@ ClassMethod DispatchRequest(pUrl As %String, pMethod As %String, pForwarded As %
 
 ClassMethod DispatchResponse(returnedData As %CacheString, method As Frontier.Router, ByRef returnTypeParams = "") As %Status
 {
+ 
+  set response = {}
+  
   // Enables device writing.
   write ""
-  set isDeviceWrite = 0
-  set response = {}
-  set response.result = returnedData
-  if $isobject(returnedData) {
-    set type = $classname(returnedData)    
-    set isCollection = ##class(Types).IsDynamicArray(type) || (type [ "List")
-    set isMarshallable = isCollection || ##class(Types).IsDynamicObject(type) || ##class(Types).IsPersistent(type)
-    set isSerializable = (isCollection || isMarshallable || ##class(Types).IsZENProxyObject(type)) && ($extract(type '= "%"))
-    if 'isSerializable {
+  
+  if $isobject(returnedData) {   
+    set type = $classname(returnedData)
+    set isCollection = ##class(Types).IsCollection(type)
+    set isDynamic = ##class(Types).IsDynamic(type)
+    set isSystemType = ($extract(type) = "%")
+    set isMarshallable = isCollection || isDynamic || ('isSystemType && ##class(Types).IsInstantiable(type))
+    if isMarshallable {
+      $$$QuitOnError(##class(Frontier.Dynamic.Marshaller).Marshall(returnedData, .response))
+    } else {
       return $$$ERROR($$$GeneralError, "Cannot serialize system class instances.")
     }
-    if isMarshallable {
-      $$$QuitOnError(##class(Frontier.Dynamic.Marshaller).Marshall(returnedData, .marshalledData))
-      if isCollection set response.result = marshalledData
-      else  set response = marshalledData
-      do response.%ToJSON()
-      return $$$OK
-    } else {      
-      $$$QuitOnError(##class(%ZEN.Auxiliary.altJSONProvider).%ObjectToJSON(returnedData,,,"aelo"))      
-    }
   } elseif %frontier.IsJSON() {
-    do response.%ToJSON()
+    set response.result = returnedData
   } else {
-    // Since we only support HTML and JSON for now we will leave it without any extra checks.
     write returnedData
-  }  
+    return $$$OK
+  }
+  // We must use a custom serializer because the current %ToJSON implementation cannot serialize
+  // mixed instances.
+  do ##class(Frontier.Dynamic.Serializer).Serialize(response)
   return $$$OK
 }
 

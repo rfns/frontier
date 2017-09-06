@@ -29,7 +29,7 @@ Storage Default
 <Selectivity>1</Selectivity>
 </Property>
 <Property name="Plate">
-<AverageFieldSize>4.8</AverageFieldSize>
+<AverageFieldSize>4.9</AverageFieldSize>
 <Selectivity>10.0000%</Selectivity>
 </Property>
 <SQLMap name="IDKEY">

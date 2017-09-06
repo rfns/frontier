@@ -7,11 +7,17 @@ Projection Installer As Frontier.UnitTest.WebApplicationInstaller;
 
 ClassMethod CreateProjection(classname As %String, ByRef parameters As %String, modified As %String, qstruct) As %Status
 {
+  $$$QuitOnError(##class(Frontier.UnitTest.Fixtures.Class).%KillExtent())
+  $$$QuitOnError(##class(Frontier.UnitTest.Fixtures.Student).%KillExtent())
+  $$$QuitOnError(##class(Frontier.UnitTest.Fixtures.Class).Populate())
+  $$$QuitOnError(##class(Frontier.UnitTest.Fixtures.Student).Populate())  
   return ..CreateWebApplication()
 }
 
 ClassMethod RemoveProjection(classname As %String, ByRef parameters As %String, recompile As %Boolean, modified As %String, qstruct) As %Status
 {
+  $$$QuitOnError(##class(Frontier.UnitTest.Fixtures.Class).%KillExtent())
+  $$$QuitOnError(##class(Frontier.UnitTest.Fixtures.Student).%KillExtent())  
   return ..RemoveWebApplication()
 }
 
@@ -30,7 +36,7 @@ ClassMethod CreateWebApplication() As %Status
   
   set properties("CookiePath") = ..#NAME
   set properties("DispatchClass") = "Frontier.UnitTest.Router"
-  set properties("Namespace") = targetNamespace
+  set properties("NameSpace") = targetNamespace
   set properties("UseCookies") = 2
   set properties("AutheEnabled") = 64
   
@@ -45,7 +51,7 @@ ClassMethod RemoveWebApplication() As %Status
   set $namespace = "%SYS"
   
   if '##class(Security.Applications).Exists(..#NAME) return $$$OK
-  write !, ">> Deleting sample web application ..."   
+  write !, ">> Deleting demo web application "_..#NAME_" ..."
   
   $$$QuitOnError(##class(Security.Applications).Delete(..#NAME))
   write !, ">> Web application has been deleted with success."

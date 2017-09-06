@@ -17,6 +17,7 @@ XData UrlMap [ XMLNamespace = "http://github.com/rfns/frontier" ]
   <Route Url="/mixed/object" Method="GET" Call="TestGETMixedDynamicObject"/>
   <Route Url="/mixed/array" Method="GET" Call="TestGETMixedDynamicArray"/>
   <Route Url="/raw" Method="GET" Call="TestGETRawMode"/>
+  <Route Url="/sql" Method="GET" Call="TestGETMixedSQL"/>
  </Routes>
 }
 
@@ -113,6 +114,28 @@ ClassMethod TestGETRawMode() As %String
 {
   do %frontier.Raw()
   return "hello raw response"
+}
+
+ClassMethod TestGETMixedSQL(page As %Integer = 1, rows As %Integer = 5) As Frontier.SQL.Provider
+{
+  set offset = (page * rows) - (rows - 1)
+  set limit = page * rows
+  
+  set students = %frontier.SQL.Prepare(
+    "SELECT *, %VID as Index FROM (SELECT * FROM FRONTIER_UNITTEST_FIXTURES.STUDENT) WHERE %VID BETWEEN ? AND ?"
+  ).Parameters(offset, limit)
+  
+  set str = ##class(%Stream.GlobalCharacter).%New()
+  do str.Write("Hello, this is a test using stream properties.")
+  
+  return {
+    // Stream data.
+    "str": (str),
+    // SQL result data. 
+    "students": (students),
+    // Student instance. 
+    "student": (##class(Frontier.UnitTest.Fixtures.Student).%OpenId(1))
+  }
 }
 
 }

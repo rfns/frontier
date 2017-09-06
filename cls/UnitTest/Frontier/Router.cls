@@ -13,16 +13,8 @@ Property Student As Frontier.UnitTest.Fixtures.Student;
 
 Property WebApplicationName As %String [ InitialExpression = {$e(##class(Frontier.UnitTest.WebApplicationInstaller).#NAME, 2, *)} ];
 
-Method OnAfterAllTests() As %Status
-{
-  $$$QuitOnError(##class(Frontier.UnitTest.Fixtures.Class).%KillExtent())
-  return ##class(Frontier.UnitTest.Fixtures.Student).%KillExtent()
-}
-
 Method OnBeforeAllTests() As %Status
 {
-  do ##class(Frontier.UnitTest.Fixtures.Class).Populate()
-  do ##class(Frontier.UnitTest.Fixtures.Student).Populate()
   
   &sql(SELECT TOP 1 ID INTO :classId FROM FRONTIER_UNITTEST_FIXTURES.CLASS)
   &sql(SELECT TOP 1 ID INTO :studentId FROM FRONTIER_UNITTEST_FIXTURES.STUDENT)
@@ -57,17 +49,18 @@ Method AssertRequest(resource As %String, expected As %DynamicAbstractObject = "
   
   set firstByte = $extract(responseText)
   
-  if $extract(firstByte)?1(1"{",2"[") {
-    set response = ##class(%DynamicObject).%FromJSON(responseText)
+  if $extract(firstByte)?1(1"{",1"[") {
+    set response = ##class(%DynamicObject).%FromJSON(responseText)    
     if $isobject(response) {
-      if response.errors {
+      if ##class(Frontier.Types).IsDynamicObject(response) && (response.errors '= ""){        
         return ##class(Frontier.UnitTest.Util).MergeErrors(response.errors)
-      } else {
-        if ##class(Frontier.Types).IsDynamic($classname(expected)) {
-          set expectedText = expected.%ToJSON()
-        }
+      } elseif ##class(Frontier.Types).IsDynamic($classname(expected)) {
+        $$$QuitOnError(##class(Frontier.Dynamic.Serializer).SerializeToStream(expected, .str))
+        set expectedText = str.Read()
       }
     }
+  } else {
+    break
   }
   
   if responseText '= expectedText {
@@ -126,7 +119,7 @@ Method TestPOSTArrayPayloadSingle()
 {
   set resource = $$$FormatText("%1payload/single_array", ..WebApplicationName)
   set payload = [{"password":"xyz","username":"xyz"}]
-  set expected = {"result":(payload)}
+  set expected = payload
   return $$$AssertStatusOK(..AssertRequest(resource, expected, "POST", payload), $$$FormatText("can retrieve the expected data from the resource %1", resource))
 }
 
@@ -134,7 +127,7 @@ Method TestPOSTArrayPayloadQueryParams()
 {
   set resource =  $$$FormatText("%1payload/array_with_query_params?msg=hello", ..WebApplicationName)
   set payload = [{"password":"xyz","username":"xyz"}]
-  set expected = {"result":["hello",(payload)]}
+  set expected = ["hello",(payload)]
   return $$$AssertStatusOK(..AssertRequest(resource, expected, "POST", payload), $$$FormatText("can retrieve the expected data from the resource %1", resource))
 }
 
@@ -169,7 +162,7 @@ Method TestGETMixedDynamicArray()
 {
   set resource = $$$FormatText("%1mixed/array?class=1", ..WebApplicationName)
   do ##class(Frontier.Dynamic.Marshaller).Marshall(..Class, .class)
-  set expected = {"result":[(class)]}
+  set expected = [ (class) ]
   return $$$AssertStatusOK(..AssertRequest(resource, expected), $$$FormatText("can retrieve the expected data from the resource %1", resource))
 }
 
@@ -178,6 +171,16 @@ Method TestGETRawMode()
   set resource = $$$FormatText("%1raw", ..WebApplicationName)
   set expected = "hello raw response"
   return $$$AssertStatusOK(..AssertRequest(resource, expected))
+}
+
+ClassMethod T()
+{
+  set t = ..%New(##class(Port.UnitTest.Manager).%New())
+  do t.OnBeforeAllTests()
+  do t.OnBeforeOneTest()
+  do t.TestGETRawMode()
+  do t.OnAfterOneTest()
+  do t.OnAfterAllTests()
 }
 
 }

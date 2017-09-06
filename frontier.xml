@@ -52,6 +52,11 @@
 <InitialExpression>"utf-8"</InitialExpression>
 </Property>
 
+<Property name="SQL">
+<Type>Frontier.SQL</Type>
+<ReadOnly>1</ReadOnly>
+</Property>
+
 <Method name="%OnNew">
 <FormalSpec>session:%CSP.Session,request:%CSP.Request,response:%CSP.Response</FormalSpec>
 <ReturnType>%Status</ReturnType>
@@ -59,6 +64,7 @@
   set i%Session = session
   set i%Request = request
   set i%Response = response
+  set i%SQL = ##class(Frontier.SQL).%New()
   do ..Response.SetHeader("Content-Type", "application/json")
   set ..CharSet = "utf-8"  
   return $$$OK
@@ -193,9 +199,12 @@
     set dynamicValueResult = value
     if $isobject(value) {
       set valueType = $classname(value)
-      if ##class(Frontier.Types).IsDynamic(valueType) {
+      set isDynamic = ##class(Frontier.Types).IsDynamic(valueType)
+      set isStream = ##class(Frontier.Types).IsStream(valueType)
+      set isSQLProvider = ##class(Frontier.Types).IsSQLProvider(valueType)
+      if isDynamic {
         set sc = ..MarshallPartial(value, .dynamicValueResult)       
-      } else {
+      } elseif 'isStream && 'isSQLProvider {
         set sc = ..Marshall(value, .dynamicValueResult)
       }
       if $$$ISERR(sc) return sc
@@ -299,6 +308,7 @@
 <Implementation><![CDATA[
   set sc = $$$OK   
   set startOffset = 0
+  set cyclicReferenceTrap = 0
       
   if collection.%IsA("%Collection.AbstractList") || collection.%IsA("%RelationshipObject") {
     set startOffset = 1
@@ -317,15 +327,107 @@
         set sc = ..MakeDynamicCollection(item , .value)
       } else {
         set sc = ..MakeDynamicObject(item, .value, parentKey, parentObject)
+        set cyclicReferenceTrap = (value = "")
       }
     } else {
       set value = item
     }
     
-    do dynamicCollection.%Set(key - startOffset, value)    
+    if 'cyclicReferenceTrap do dynamicCollection.%Set(key - startOffset, value)    
     if $$$ISERR(sc) quit
   }
   quit sc
+]]></Implementation>
+</Method>
+</Class>
+
+
+<Class name="Frontier.Dynamic.Serializer">
+<IncludeCode>frontier,%ZEN.Utils</IncludeCode>
+<TimeCreated>64531,58689.528672</TimeCreated>
+
+<Method name="Serialize">
+<ClassMethod>1</ClassMethod>
+<FormalSpec>dynamic:%DynamicAbstractObject,parentKey:%String=""</FormalSpec>
+<Implementation><![CDATA[
+  set isArray = ##class(Frontier.Types).IsDynamicArray($classname(dynamic))  
+  
+  if isArray {
+    write "["
+  } else {
+    write "{"
+  }
+  
+  set iterator = dynamic.%GetIterator()   
+  set comma = ""  
+  
+  while iterator.%GetNext(.key, .value) {
+    write comma
+    set comma = ","
+    if 'isArray write $$$ZENJSPROP(key)_":"
+    if $isobject(value) {
+      set type = $classname(value)
+      if ##class(Frontier.Types).IsDynamic(type) {         
+        do ..Serialize(value, key) 
+      } elseif ##class(Frontier.Types).IsStream(type) {
+        write $c(34)
+        do WriteEscaped(value)
+        write $c(34)
+      } elseif ##class(Frontier.Types).IsSQLProvider(type) {        
+        do value.RenderToJSON()
+      }
+    } else {
+      write $$$ZENJSVALUE(value)
+    }    
+  }
+  
+  if isArray write "]"
+  else  write "}"
+  
+  return $$$OK
+  
+WriteEscaped(v)
+  while 'v.AtEnd { 
+    write $$$ZENJSONESCAPE(v.Read(),"s")
+  }
+]]></Implementation>
+</Method>
+
+<Method name="SerializeToStream">
+<ClassMethod>1</ClassMethod>
+<FormalSpec>dynamic:%DynamicAbstractObject,*stream:%Stream.Object</FormalSpec>
+<ProcedureBlock>0</ProcedureBlock>
+<Implementation><![CDATA[
+  new currentMnemonic, alreadyRedirected
+  
+  set isRedirected = 0
+  
+  set stream = ##class(%Stream.TmpBinary).%New()
+  set alreadyRedirected = ##class(%Device).ReDirectIO()
+  
+  try {
+    set currentMnemonic = "^"_##class(%Device).GetMnemonicRoutine()
+    use $io::("^"_$zname)
+    do ##class(%Device).ReDirectIO(1)
+    do ..Serialize(dynamic)
+  } catch ex {
+    set sc = ex.AsStatus()
+  }
+  
+  if alreadyRedirected { 
+    do ##class(%Device).ReDirectIO(1) 
+    use $io::(currentMnemonic) 
+  }
+  
+  return $$$OK
+  
+wstr(s) Do stream.Write(s) Quit
+wchr(a) Do stream.Write($char(a)) Quit
+wnl Do stream.Write($char(13,10)) Quit
+wff Do stream.Write($char(13,10,13,10)) Quit
+wtab(n) Do stream.Write($c(9)) Quit
+rstr(len,time) Quit ""
+rchr(time) Quit ""
 ]]></Implementation>
 </Method>
 </Class>
@@ -692,7 +794,8 @@ ParseArgument(parsedArgument)
   if $$$ISERR(sc) return sc  
   
   set maxLength = methodArgumentsLength
-  if maxLength < mergedArguments set maxLength = mergedArguments    
+  if maxLength < mergedArguments set maxLength = mergedArguments
+      
   
   if methodArgumentsLength > 0 {
     for argsProcessed=1:1:maxLength {       
@@ -734,6 +837,7 @@ ParseArgument(parsedArgument)
 <Private>1</Private>
 <ReturnType>%Status</ReturnType>
 <Implementation><![CDATA[
+  
   set argumentIndex = routeArguments 
   set nextKeyIndex = 0
   set key = ""
@@ -743,6 +847,7 @@ ParseArgument(parsedArgument)
   for {
     set key = $order(requestArguments(key))
     quit:key=""
+    
     
     set keyGroup = $$$KeyGroup(key)
     set methodArgument = ..FindDescribedArgumentByName(keyGroup)
@@ -792,6 +897,11 @@ ParseArgument(parsedArgument)
 <FormalSpec>pUrl:%String,pMethod:%String,pForwarded:%Boolean=0</FormalSpec>
 <ReturnType>%Status</ReturnType>
 <Implementation><![CDATA[
+ 
+  #; This is a modified version of %CSP.REST's DispatchRequest that creates an entry point for
+  #; for additional features.
+  #; TODO: Check the possibility of purging this source code to stop ovewriting the original method.
+  
   #dim tSC As %Status = $$$OK
   #dim e As %Exception.AbstractException
   
@@ -881,10 +991,10 @@ ParseArgument(parsedArgument)
           #; Modified to add support for type resolution and query parameters
           set tPublicMethod = ##class(Method).%New(tClass, tTarget, .tArgs, %request)
           merge tMethodArguments = tPublicMethod.Arguments                
-          
+                   
           if tMethodArguments > 0 {
             set return = $classmethod(tClass, tTarget, tMethodArguments...)
-          } else {
+          } else {            
             set return = $classmethod(tClass, tTarget)
           }
           $$$ThrowOnError(..DispatchResponse(return, .tReturnParameters))
@@ -930,34 +1040,32 @@ ParseArgument(parsedArgument)
 <FormalSpec><![CDATA[returnedData:%CacheString,method:Frontier.Router,&returnTypeParams=""]]></FormalSpec>
 <ReturnType>%Status</ReturnType>
 <Implementation><![CDATA[
+ 
+  set response = {}
+  
   // Enables device writing.
   write ""
-  set isDeviceWrite = 0
-  set response = {}
-  set response.result = returnedData
-  if $isobject(returnedData) {
-    set type = $classname(returnedData)    
-    set isCollection = ##class(Types).IsDynamicArray(type) || (type [ "List")
-    set isMarshallable = isCollection || ##class(Types).IsDynamicObject(type) || ##class(Types).IsPersistent(type)
-    set isSerializable = (isCollection || isMarshallable || ##class(Types).IsZENProxyObject(type)) && ($extract(type '= "%"))
-    if 'isSerializable {
+  
+  if $isobject(returnedData) {   
+    set type = $classname(returnedData)
+    set isCollection = ##class(Types).IsCollection(type)
+    set isDynamic = ##class(Types).IsDynamic(type)
+    set isSystemType = ($extract(type) = "%")
+    set isMarshallable = isCollection || isDynamic || ('isSystemType && ##class(Types).IsInstantiable(type))
+    if isMarshallable {
+      $$$QuitOnError(##class(Frontier.Dynamic.Marshaller).Marshall(returnedData, .response))
+    } else {
       return $$$ERROR($$$GeneralError, "Cannot serialize system class instances.")
     }
-    if isMarshallable {
-      $$$QuitOnError(##class(Frontier.Dynamic.Marshaller).Marshall(returnedData, .marshalledData))
-      if isCollection set response.result = marshalledData
-      else  set response = marshalledData
-      do response.%ToJSON()
-      return $$$OK
-    } else {      
-      $$$QuitOnError(##class(%ZEN.Auxiliary.altJSONProvider).%ObjectToJSON(returnedData,,,"aelo"))      
-    }
   } elseif %frontier.IsJSON() {
-    do response.%ToJSON()
+    set response.result = returnedData
   } else {
-    // Since we only support HTML and JSON for now we will leave it without any extra checks.
     write returnedData
-  }  
+    return $$$OK
+  }
+  // We must use a custom serializer because the current %ToJSON implementation cannot serialize
+  // mixed instances.
+  do ##class(Frontier.Dynamic.Serializer).Serialize(response)
   return $$$OK
 ]]></Implementation>
 </Method>
@@ -1035,6 +1143,150 @@ Issue an 'Http' error</Description>
     if $$$ISERR(sc) return sc
   }   
   return $$$OK
+]]></Implementation>
+</Method>
+</Class>
+
+
+<Class name="Frontier.SQL">
+<Super>%RegisteredObject</Super>
+<TimeCreated>64531,35746.997056</TimeCreated>
+
+<Method name="Prepare">
+<FormalSpec>statement:%String</FormalSpec>
+<Implementation><![CDATA[  return ##class(Frontier.SQL.Provider).%New(statement)
+]]></Implementation>
+</Method>
+</Class>
+
+
+<Class name="Frontier.SQL.DeviceOutputAdapter">
+<Super>%ZEN.Auxiliary.altJSONSQLProvider</Super>
+<TimeCreated>64532,54699.043149</TimeCreated>
+
+<Method name="%DrawJSON">
+<Internal>1</Internal>
+<ReturnType>%Status</ReturnType>
+<Implementation><![CDATA[
+  set sc = $$$OK
+  set ..contentType = "array"
+  set key = ""
+  
+  try {    
+    while ..parameters.GetNext(.key) {
+      set value = ..parameters.GetAt(key).value
+      Set parameters(key) = $$$ZENVAL(value)
+    }        
+    
+    set queryInfo = ##class(%ZEN.Auxiliary.QueryInfo).%New()     
+    merge queryInfo.parms = parameters
+    set resultSet = ..%CreateResultSet(.sc, queryInfo)
+    if $$$ISERR(sc) || '$isobject(resultSet) write "null" quit
+    
+    kill columnInfo
+    
+    if resultSet.%IsA("%Library.ResultSet") {
+      set columnsCount = resultSet.GetColumnCount()
+      for c = 1:1:columnsCount {
+       Set tColInfo(c,"name") = resultSet.GetColumnHeader(c)
+      }
+    } else {
+      set columnsCount = resultSet.%ResultColumnCount
+      for c = 1:1:columnsCount {
+        set tColInfo(c,"name") = resultSet.%Metadata.columns.GetAt(c).label
+      }
+    }   
+    
+    set arrayNode = []    
+    Set row = 0
+    
+    while (resultSet.%Next(.tSC) && ((..maxRows = 0) || (row < ..maxRows))) {
+      quit:$$$ISERR(tSC)
+      set row = row + 1
+      set node = ##class(%DynamicObject).%New()
+      for c = 1:1:resultSet.%ResultColumnCount {
+        set tVal = resultSet.%GetData(c)
+        
+        if ($isvalidnum(tVal) && ($e(tVal) '= 0)) do node.%Set($get(tColInfo(c,"name")),$num(tVal),"number")
+        else  do node.%Set($get(tColInfo(c,"name")),tVal)
+      }
+      Do arrayNode.%Push(node)
+    }   
+    do arrayNode.%ToJSON()    
+  } catch ex {
+    Write "null"
+    Set tSC = ex.AsStatus()  
+  }
+  return $$$OK
+]]></Implementation>
+</Method>
+</Class>
+
+
+<Class name="Frontier.SQL.Provider">
+<IncludeCode>frontier</IncludeCode>
+<Super>%RegisteredObject</Super>
+<TimeCreated>64531,36463.732591</TimeCreated>
+
+<Property name="SQLProvider">
+<Type>Frontier.SQL.DeviceOutputAdapter</Type>
+</Property>
+
+<Method name="%OnNew">
+<FormalSpec>statement:%String</FormalSpec>
+<ReturnType>%Status</ReturnType>
+<Implementation><![CDATA[
+  $$$ThrowOnError(..CreateProvider(statement))
+  return $$$OK
+]]></Implementation>
+</Method>
+
+<Method name="CreateProvider">
+<FormalSpec>statement:%String</FormalSpec>
+<Private>1</Private>
+<ReturnType>%Status</ReturnType>
+<Implementation><![CDATA[
+   
+  set ..SQLProvider = ##class(Frontier.SQL.DeviceOutputAdapter).%New()
+  set ..SQLProvider.maxRows = 0
+  
+  if $length(statement, ":") = 2 {   
+    set ..SQLProvider.queryClass = $piece(statement, ":")
+    set ..SQLProvider.queryNAme = $piece(statement, ":", 2)   
+  } elseif $extract($$$ucase($$$trim(statement)), 1, 6) = "SELECT" {
+    set ..SQLProvider.sql = statement    
+  }
+  return $$$OK
+]]></Implementation>
+</Method>
+
+<Method name="Paginate">
+<FormalSpec>page:%Integer=1,size:%Integer=30</FormalSpec>
+<ReturnType>Frontier.SQL.Provider</ReturnType>
+<Implementation><![CDATA[
+  set ..SQLProvider.maxRows = page * size  
+  return $this
+]]></Implementation>
+</Method>
+
+<Method name="Parameters">
+<FormalSpec>params...:%String</FormalSpec>
+<ReturnType>Frontier.SQL.Provider</ReturnType>
+<Implementation><![CDATA[
+  do ..SQLProvider.parameters.Clear()
+  
+  for i=1:1:params {
+    set parameter = ##class(%ZEN.Auxiliary.parameter).%New()
+    set parameter.value = params(i)
+    do ..SQLProvider.parameters.SetAt(parameter, i)
+  }
+  return $this
+]]></Implementation>
+</Method>
+
+<Method name="RenderToJSON">
+<ReturnType>%Status</ReturnType>
+<Implementation><![CDATA[  return ..SQLProvider.%DrawJSON()
 ]]></Implementation>
 </Method>
 </Class>
@@ -1124,6 +1376,14 @@ Issue an 'Http' error</Description>
 ]]></Implementation>
 </Method>
 
+<Method name="IsSQLProvider">
+<ClassMethod>1</ClassMethod>
+<FormalSpec>className:%String</FormalSpec>
+<ReturnType>%Boolean</ReturnType>
+<Implementation><![CDATA[  return ..IsTypeOf(className, "Frontier.SQL.Provider", 0)
+]]></Implementation>
+</Method>
+
 <Method name="IsTypeOf">
 <Final>1</Final>
 <ClassMethod>1</ClassMethod>
@@ -1202,8 +1462,6 @@ Issue an 'Http' error</Description>
 <StreamLocation>^Frontier.UnitTest.Fix50C.ClassS</StreamLocation>
 <ExtentSize>10</ExtentSize>
 <Data name="ClassDefaultData">
-<Structure>listnode</Structure>
-<Subscript/>
 <Value name="1">
 <Value>%%CLASSNAME</Value>
 </Value>
@@ -1221,7 +1479,7 @@ Issue an 'Http' error</Description>
 </Property>
 <Property name="Plate">
 <Selectivity>10.0000%</Selectivity>
-<AverageFieldSize>5</AverageFieldSize>
+<AverageFieldSize>4.9</AverageFieldSize>
 </Property>
 <SQLMap name="IDKEY">
 <BlockCount>-4</BlockCount>
@@ -1244,6 +1502,17 @@ Issue an 'Http' error</Description>
 <Inverse>Students</Inverse>
 <Relationship>1</Relationship>
 </Property>
+
+<Query name="Top10ClassStudents">
+<Type>%SQLQuery</Type>
+<SqlProc>1</SqlProc>
+<SqlQuery>  --SELECT TOP 10 S.*, C.PLATE as placa, 'ouch' as ai FROM FRONTIER_UNITTEST_FIXTURES.STUDENT S
+  --JOIN FRONTIER_UNITTEST_FIXTURES.CLASS C ON C.ID = S.CLASS
+  --WHERE S.NAME LIKE '%'||:name||'%'
+  
+  SELECT JSON_OBJECT('id':S.ID,'placa':C.PLATE,'ai': 'ouch') FROM FRONTIER_UNITTEST_FIXTURES.STUDENT S
+  JOIN FRONTIER_UNITTEST_FIXTURES.CLASS C ON C.ID = S.CLASS</SqlQuery>
+</Query>
 
 <Storage name="Default">
 <Type>%Library.CacheStorage</Type>
@@ -1278,7 +1547,7 @@ Issue an 'Http' error</Description>
 </Property>
 <Property name="Name">
 <Selectivity>10.0000%</Selectivity>
-<AverageFieldSize>14.6</AverageFieldSize>
+<AverageFieldSize>15.3</AverageFieldSize>
 </Property>
 <SQLMap name="IDKEY">
 <BlockCount>-4</BlockCount>
@@ -1308,6 +1577,7 @@ Issue an 'Http' error</Description>
   <Route Url="/mixed/object" Method="GET" Call="TestGETMixedDynamicObject"/>
   <Route Url="/mixed/array" Method="GET" Call="TestGETMixedDynamicArray"/>
   <Route Url="/raw" Method="GET" Call="TestGETRawMode"/>
+  <Route Url="/sql" Method="GET" Call="TestGETMixedSQL"/>
  </Routes>
 ]]></Data>
 </XData>
@@ -1458,6 +1728,32 @@ curl -H "Content-Type: application/json" http://localhost:57772/api/frontier/tes
   return "hello raw response"
 ]]></Implementation>
 </Method>
+
+<Method name="TestGETMixedSQL">
+<ClassMethod>1</ClassMethod>
+<FormalSpec>page:%Integer=1,rows:%Integer=5</FormalSpec>
+<ReturnType>Frontier.SQL.Provider</ReturnType>
+<Implementation><![CDATA[
+  set offset = (page * rows) - (rows - 1)
+  set limit = page * rows
+  
+  set students = %frontier.SQL.Prepare(
+    "SELECT *, %VID as Index FROM (SELECT * FROM FRONTIER_UNITTEST_FIXTURES.STUDENT) WHERE %VID BETWEEN ? AND ?"
+  ).Parameters(offset, limit)
+  
+  set str = ##class(%Stream.GlobalCharacter).%New()
+  do str.Write("Hello, this is a test using stream properties.")
+  
+  return {
+    // Stream data.
+    "str": (str),
+    // SQL result data. 
+    "students": (students),
+    // Student instance. 
+    "student": (##class(Frontier.UnitTest.Fixtures.Student).%OpenId(1))
+  }
+]]></Implementation>
+</Method>
 </Class>
 
 
@@ -1570,32 +1866,6 @@ curl -H "Content-Type: application/json" http://localhost:57772/api/frontier/tes
 </Class>
 
 
-<Class name="Frontier.UnitTest.WebApplication">
-<Super>%Projection.AbstractProjection</Super>
-<TimeCreated>64506,60730.368136</TimeCreated>
-
-<Projection name="Reference">
-<Type>Frontier.UnitTest.WebApplication</Type>
-</Projection>
-
-<Method name="CreateProjection">
-<ClassMethod>1</ClassMethod>
-<FormalSpec><![CDATA[classname:%String,&parameters:%String,modified:%String,qstruct]]></FormalSpec>
-<ReturnType>%Status</ReturnType>
-<Implementation><![CDATA[  return ##class(Frontier.UnitTest.Util).CreateWebApp()
-]]></Implementation>
-</Method>
-
-<Method name="RemoveProjection">
-<ClassMethod>1</ClassMethod>
-<FormalSpec><![CDATA[classname:%String,&parameters:%String,recompile:%Boolean,modified:%String,qstruct]]></FormalSpec>
-<ReturnType>%Status</ReturnType>
-<Implementation><![CDATA[  return ##class(Frontier.UnitTest.Util).DestroyWebApp()
-]]></Implementation>
-</Method>
-</Class>
-
-
 <Class name="Frontier.UnitTest.WebApplicationInstaller">
 <Super>%Projection.AbstractProjection</Super>
 <TimeCreated>64530,35966.171067</TimeCreated>
@@ -1612,7 +1882,12 @@ curl -H "Content-Type: application/json" http://localhost:57772/api/frontier/tes
 <ClassMethod>1</ClassMethod>
 <FormalSpec><![CDATA[classname:%String,&parameters:%String,modified:%String,qstruct]]></FormalSpec>
 <ReturnType>%Status</ReturnType>
-<Implementation><![CDATA[  return ..CreateWebApplication()
+<Implementation><![CDATA[
+  $$$QuitOnError(##class(Frontier.UnitTest.Fixtures.Class).%KillExtent())
+  $$$QuitOnError(##class(Frontier.UnitTest.Fixtures.Student).%KillExtent())
+  $$$QuitOnError(##class(Frontier.UnitTest.Fixtures.Class).Populate())
+  $$$QuitOnError(##class(Frontier.UnitTest.Fixtures.Student).Populate())  
+  return ..CreateWebApplication()
 ]]></Implementation>
 </Method>
 
@@ -1620,7 +1895,10 @@ curl -H "Content-Type: application/json" http://localhost:57772/api/frontier/tes
 <ClassMethod>1</ClassMethod>
 <FormalSpec><![CDATA[classname:%String,&parameters:%String,recompile:%Boolean,modified:%String,qstruct]]></FormalSpec>
 <ReturnType>%Status</ReturnType>
-<Implementation><![CDATA[  return ..RemoveWebApplication()
+<Implementation><![CDATA[
+  $$$QuitOnError(##class(Frontier.UnitTest.Fixtures.Class).%KillExtent())
+  $$$QuitOnError(##class(Frontier.UnitTest.Fixtures.Student).%KillExtent())  
+  return ..RemoveWebApplication()
 ]]></Implementation>
 </Method>
 
@@ -1641,7 +1919,7 @@ curl -H "Content-Type: application/json" http://localhost:57772/api/frontier/tes
   
   set properties("CookiePath") = ..#NAME
   set properties("DispatchClass") = "Frontier.UnitTest.Router"
-  set properties("Namespace") = targetNamespace
+  set properties("NameSpace") = targetNamespace
   set properties("UseCookies") = 2
   set properties("AutheEnabled") = 64
   
@@ -1659,7 +1937,7 @@ curl -H "Content-Type: application/json" http://localhost:57772/api/frontier/tes
   set $namespace = "%SYS"
   
   if '##class(Security.Applications).Exists(..#NAME) return $$$OK
-  write !, ">> Deleting sample web application ..."   
+  write !, ">> Deleting demo web application "_..#NAME_" ..."
   
   $$$QuitOnError(##class(Security.Applications).Delete(..#NAME))
   write !, ">> Web application has been deleted with success."
@@ -1699,19 +1977,9 @@ curl -H "Content-Type: application/json" http://localhost:57772/api/frontier/tes
 <InitialExpression>$e(##class(Frontier.UnitTest.WebApplicationInstaller).#NAME, 2, *)</InitialExpression>
 </Property>
 
-<Method name="OnAfterAllTests">
-<ReturnType>%Status</ReturnType>
-<Implementation><![CDATA[
-  $$$QuitOnError(##class(Frontier.UnitTest.Fixtures.Class).%KillExtent())
-  return ##class(Frontier.UnitTest.Fixtures.Student).%KillExtent()
-]]></Implementation>
-</Method>
-
 <Method name="OnBeforeAllTests">
 <ReturnType>%Status</ReturnType>
 <Implementation><![CDATA[
-  do ##class(Frontier.UnitTest.Fixtures.Class).Populate()
-  do ##class(Frontier.UnitTest.Fixtures.Student).Populate()
   
   &sql(SELECT TOP 1 ID INTO :classId FROM FRONTIER_UNITTEST_FIXTURES.CLASS)
   &sql(SELECT TOP 1 ID INTO :studentId FROM FRONTIER_UNITTEST_FIXTURES.STUDENT)
@@ -1751,17 +2019,18 @@ curl -H "Content-Type: application/json" http://localhost:57772/api/frontier/tes
   
   set firstByte = $extract(responseText)
   
-  if $extract(firstByte)?1(1"{",2"[") {
-    set response = ##class(%DynamicObject).%FromJSON(responseText)
+  if $extract(firstByte)?1(1"{",1"[") {
+    set response = ##class(%DynamicObject).%FromJSON(responseText)    
     if $isobject(response) {
-      if response.errors {
+      if ##class(Frontier.Types).IsDynamicObject(response) && (response.errors '= ""){        
         return ##class(Frontier.UnitTest.Util).MergeErrors(response.errors)
-      } else {
-        if ##class(Frontier.Types).IsDynamic($classname(expected)) {
-          set expectedText = expected.%ToJSON()
-        }
+      } elseif ##class(Frontier.Types).IsDynamic($classname(expected)) {
+        $$$QuitOnError(##class(Frontier.Dynamic.Serializer).SerializeToStream(expected, .str))
+        set expectedText = str.Read()
       }
     }
+  } else {
+    break
   }
   
   if responseText '= expectedText {
@@ -1827,7 +2096,7 @@ curl -H "Content-Type: application/json" http://localhost:57772/api/frontier/tes
 <Implementation><![CDATA[
   set resource = $$$FormatText("%1payload/single_array", ..WebApplicationName)
   set payload = [{"password":"xyz","username":"xyz"}]
-  set expected = {"result":(payload)}
+  set expected = payload
   return $$$AssertStatusOK(..AssertRequest(resource, expected, "POST", payload), $$$FormatText("can retrieve the expected data from the resource %1", resource))
 ]]></Implementation>
 </Method>
@@ -1836,7 +2105,7 @@ curl -H "Content-Type: application/json" http://localhost:57772/api/frontier/tes
 <Implementation><![CDATA[
   set resource =  $$$FormatText("%1payload/array_with_query_params?msg=hello", ..WebApplicationName)
   set payload = [{"password":"xyz","username":"xyz"}]
-  set expected = {"result":["hello",(payload)]}
+  set expected = ["hello",(payload)]
   return $$$AssertStatusOK(..AssertRequest(resource, expected, "POST", payload), $$$FormatText("can retrieve the expected data from the resource %1", resource))
 ]]></Implementation>
 </Method>
@@ -1876,7 +2145,7 @@ curl -H "Content-Type: application/json" http://localhost:57772/api/frontier/tes
 <Implementation><![CDATA[
   set resource = $$$FormatText("%1mixed/array?class=1", ..WebApplicationName)
   do ##class(Frontier.Dynamic.Marshaller).Marshall(..Class, .class)
-  set expected = {"result":[(class)]}
+  set expected = [ (class) ]
   return $$$AssertStatusOK(..AssertRequest(resource, expected), $$$FormatText("can retrieve the expected data from the resource %1", resource))
 ]]></Implementation>
 </Method>
@@ -1886,6 +2155,18 @@ curl -H "Content-Type: application/json" http://localhost:57772/api/frontier/tes
   set resource = $$$FormatText("%1raw", ..WebApplicationName)
   set expected = "hello raw response"
   return $$$AssertStatusOK(..AssertRequest(resource, expected))
+]]></Implementation>
+</Method>
+
+<Method name="T">
+<ClassMethod>1</ClassMethod>
+<Implementation><![CDATA[
+  set t = ..%New(##class(Port.UnitTest.Manager).%New())
+  do t.OnBeforeAllTests()
+  do t.OnBeforeOneTest()
+  do t.TestGETRawMode()
+  do t.OnAfterOneTest()
+  do t.OnAfterAllTests()
 ]]></Implementation>
 </Method>
 </Class>
@@ -1985,29 +2266,35 @@ curl -H "Content-Type: application/json" http://localhost:57772/api/frontier/tes
 
 
 <Routine name="frontier" type="INC"><![CDATA[
+#include %ZEN.Utils
+
 #define ltrim(%str)       $zstrip(%str, "<W")
 #define rtrim(%str)       $zstrip(%str, ">W")
 #define trim(%str)        $zstrip(%str, "<>W")
+#define trimQuote(%str)   $zstrip(%str, "*", $c(34))
 #define IsSQLQuery(%str)  ($$$ucase($extract($$$trim(%str), 6)) = "SELECT")
 #define KeyGroup(%requestKey)  $zstrip($zstrip(%requestKey, "<=N"), "=>N")
 #define KeyIndex(%requestKey)  $zstrip($zstrip(%requestKey, "<=N"), "<=A")
 ]]></Routine>
 
 
-<Project name="frontier" LastModified="2017-09-04 11:42:47.50833" Target="##class(Frontier.Types).IsSerial(&quot;%Library.SerialObject&quot;)" TargetType="2" HttpServer="http://localhost:57772">
+<Project name="frontier" LastModified="2017-09-06 17:14:40.701065" Target="##class(Frontier.UnitTest.Router).TestGETMixedSQL()" TargetType="2" HttpServer="http://localhost:57772">
   <Items>
     <ProjectItem name="Frontier.ArgumentDescription" type="CLS"></ProjectItem>
     <ProjectItem name="Frontier.Context" type="CLS"></ProjectItem>
     <ProjectItem name="Frontier.Dynamic.Marshaller" type="CLS"></ProjectItem>
+    <ProjectItem name="Frontier.Dynamic.Serializer" type="CLS"></ProjectItem>
     <ProjectItem name="Frontier.Dynamic.Unmarshaller" type="CLS"></ProjectItem>
     <ProjectItem name="Frontier.Method" type="CLS"></ProjectItem>
     <ProjectItem name="Frontier.Router" type="CLS"></ProjectItem>
+    <ProjectItem name="Frontier.SQL" type="CLS"></ProjectItem>
+    <ProjectItem name="Frontier.SQL.DeviceOutputAdapter" type="CLS"></ProjectItem>
+    <ProjectItem name="Frontier.SQL.Provider" type="CLS"></ProjectItem>
     <ProjectItem name="Frontier.Types" type="CLS"></ProjectItem>
     <ProjectItem name="Frontier.UnitTest.Fixtures.Class" type="CLS"></ProjectItem>
     <ProjectItem name="Frontier.UnitTest.Fixtures.Student" type="CLS"></ProjectItem>
     <ProjectItem name="Frontier.UnitTest.Router" type="CLS"></ProjectItem>
     <ProjectItem name="Frontier.UnitTest.Util" type="CLS"></ProjectItem>
-    <ProjectItem name="Frontier.UnitTest.WebApplication" type="CLS"></ProjectItem>
     <ProjectItem name="Frontier.UnitTest.WebApplicationInstaller" type="CLS"></ProjectItem>
     <ProjectItem name="UnitTest.Frontier.Router" type="CLS"></ProjectItem>
     <ProjectItem name="UnitTest.Frontier.Types" type="CLS"></ProjectItem>

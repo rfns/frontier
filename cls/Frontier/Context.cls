@@ -9,11 +9,14 @@ Property Response As %CSP.Response [ Private ];
 
 Property CharSet As %String [ InitialExpression = "utf-8" ];
 
+Property SQL As Frontier.SQL [ ReadOnly ];
+
 Method %OnNew(session As %CSP.Session, request As %CSP.Request, response As %CSP.Response) As %Status
 {
   set i%Session = session
   set i%Request = request
   set i%Response = response
+  set i%SQL = ##class(Frontier.SQL).%New()
   do ..Response.SetHeader("Content-Type", "application/json")
   set ..CharSet = "utf-8"  
   return $$$OK

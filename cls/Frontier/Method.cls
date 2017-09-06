@@ -120,7 +120,8 @@ Method Sequentialize(ByRef mergedArguments = 0) As %Status [ Private ]
   if $$$ISERR(sc) return sc  
   
   set maxLength = methodArgumentsLength
-  if maxLength < mergedArguments set maxLength = mergedArguments    
+  if maxLength < mergedArguments set maxLength = mergedArguments
+      
   
   if methodArgumentsLength > 0 {
     for argsProcessed=1:1:maxLength {       
@@ -158,6 +159,7 @@ Method Sequentialize(ByRef mergedArguments = 0) As %Status [ Private ]
 
 Method MergeArguments(ByRef routeArguments As %String = 0, ByRef requestArguments As %String = 0, Output preArguments As %String = 0) As %Status [ Private ]
 {
+  
   set argumentIndex = routeArguments 
   set nextKeyIndex = 0
   set key = ""
@@ -167,6 +169,7 @@ Method MergeArguments(ByRef routeArguments As %String = 0, ByRef requestArgument
   for {
     set key = $order(requestArguments(key))
     quit:key=""
+    
     
     set keyGroup = $$$KeyGroup(key)
     set methodArgument = ..FindDescribedArgumentByName(keyGroup)
