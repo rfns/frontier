@@ -40,7 +40,7 @@ ClassMethod TestGETOneQueryParameter(msg As %String) As %String
 }
 ```
 
-* __Support for rest parameters:__ If more flexibility is needed for a single query parameter, using rest parameters might be better. Define them as it would be using common COS syntax and populate it using queryN syntax, where N is a sequential index.
+* __Support for rest parameters:__ If more flexibility is needed for a single query parameter, using rest parameters might be better. Define them as it should when using common COS syntax and populate it using queryN syntax, where N is a sequential index.
 
 ```
 ClassMethod TestGETRestParametersSum(n... As %String) As %Integer
@@ -113,7 +113,7 @@ ClassMethod TestGETStream() As %Stream.Object
 }
 ```
 
-*  __Seamless marshalling procedure:__ Normalizes the instance graphs by marshalling them into %Dyanamic instances before serialization.
+*  __Seamless marshalling procedure:__ Normalizes the instance graphs by marshalling them into %Dynamic instances before serialization.
 
 ```
 ClassMethod TestGETMixedDynamicObject(class As Frontier.UnitTest.Fixtures.Class) As %DynamicObject
