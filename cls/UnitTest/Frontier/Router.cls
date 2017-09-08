@@ -59,8 +59,6 @@ Method AssertRequest(resource As %String, expected As %DynamicAbstractObject = "
         set expectedText = str.Read()
       }
     }
-  } else {
-    break
   }
   
   if responseText '= expectedText {
@@ -170,7 +168,40 @@ Method TestGETRawMode()
 {
   set resource = $$$FormatText("%1raw", ..WebApplicationName)
   set expected = "hello raw response"
-  return $$$AssertStatusOK(..AssertRequest(resource, expected))
+  return $$$AssertStatusOK(..AssertRequest(resource, expected), $$$FormatText("can retrieve the expected data from the resource %1", resource))
+}
+
+Method TestGETStream()
+{
+  set resource = $$$FormatText("%1stream", ..WebApplicationName)
+  set expected = {"content":"This line is from a stream."}
+  return $$$AssertStatusOK(..AssertRequest(resource, expected), $$$FormatText("can retrieve the expected data from the resource %1", resource))
+}
+
+Method TestGETDynamicSQLResult()
+{
+  set resource = $$$FormatText("%1sql/dynamic", ..WebApplicationName)
+  
+  set sd = ##class(%SQL.Statement).%New()
+  do sd.%Prepare("SELECT *, %VID as Index FROM (SELECT * FROM FRONTIER_UNITTEST_FIXTURES.STUDENT) WHERE %VID BETWEEN ? AND ?")
+  set rd = sd.%Execute(1, 5)
+  
+  do $$$AssertStatusOK(##class(Frontier.UnitTest.Util).MarshallSQLResult(rd, .array), "can read SQL result")
+  set expected = {"results":(array)}
+  return $$$AssertStatusOK(..AssertRequest(resource, expected.%ToJSON()), $$$FormatText("can retrieve the expected data from the resource %1", resource))
+}
+
+Method TestGETQuerySQLResult()
+{
+  set resource = $$$FormatText("%1sql/query", ..WebApplicationName)
+  
+  set sd = ##class(%SQL.Statement).%New()
+  do sd.%PrepareClassQuery("Frontier.UnitTest.Fixtures.Student", "PaginatedStudents")
+  set rd = sd.%Execute(1, 5)
+  
+  do $$$AssertStatusOK(##class(Frontier.UnitTest.Util).MarshallSQLResult(rd, .array), "can read SQL result")
+  set expected = {"results":(array)}
+  return $$$AssertStatusOK(..AssertRequest(resource, expected.%ToJSON()), $$$FormatText("can retrieve the expected data from the resource %1", resource))
 }
 
 ClassMethod T()
@@ -178,7 +209,7 @@ ClassMethod T()
   set t = ..%New(##class(Port.UnitTest.Manager).%New())
   do t.OnBeforeAllTests()
   do t.OnBeforeOneTest()
-  do t.TestGETRawMode()
+  do t.TestGETQuerySQLResult()
   do t.OnAfterOneTest()
   do t.OnAfterAllTests()
 }

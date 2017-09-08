@@ -96,7 +96,15 @@ ClassMethod DispatchRequest(pUrl As %String, pMethod As %String, pForwarded As %
           #; Dispatch
           #; Modified to add support for type resolution and query parameters
           set tPublicMethod = ##class(Method).%New(tClass, tTarget, .tArgs, %request)
-          merge tMethodArguments = tPublicMethod.Arguments                
+          merge tMethodArguments = tPublicMethod.Arguments
+          
+          set receivedData = ..OnReceivingData()
+          
+          if '$isobject(receivedData) || ($isobject(receivedData) && 'receivedData.%IsA("%DynamicObject"))  {
+            $$$ThrowOnError($$$ERROR($$$GeneralError, "OnReceivingData must return a %DynamicObject."))
+          } else {
+            set %frontier.Data = receivedData
+          }          
                    
           if tMethodArguments > 0 {
             set return = $classmethod(tClass, tTarget, tMethodArguments...)
@@ -148,13 +156,22 @@ ClassMethod DispatchResponse(returnedData As %CacheString, method As Frontier.Ro
   // Enables device writing.
   write ""
   
-  if $isobject(returnedData) {   
+  if $isobject(returnedData) {
     set type = $classname(returnedData)
     set isCollection = ##class(Types).IsCollection(type)
+    set isSQLProvider = ##class(Types).IsSQLProvider(type)
+    set isStream = ##class(Types).IsStream(type)
     set isDynamic = ##class(Types).IsDynamic(type)
     set isSystemType = ($extract(type) = "%")
-    set isMarshallable = isCollection || isDynamic || ('isSystemType && ##class(Types).IsInstantiable(type))
+    set isMarshallable = isCollection || isDynamic || isStream || isSQLProvider || ('isSystemType && ##class(Types).IsInstantiable(type))
     if isMarshallable {
+      if isStream {
+        set stream = returnedData set returnedData = response
+        set response.content = stream
+      } elseif isSQLProvider {
+        set results = returnedData set returnedData = response
+        set response.results = results
+      }
       $$$QuitOnError(##class(Frontier.Dynamic.Marshaller).Marshall(returnedData, .response))
     } else {
       return $$$ERROR($$$GeneralError, "Cannot serialize system class instances.")
@@ -226,6 +243,11 @@ ClassMethod CaptureStack(Output stackText As %Stream.GlobalCharacter = "") As %S
     if $$$ISERR(sc) return sc
   }   
   return $$$OK
+}
+
+ClassMethod OnReceivingData() As %DynamicObject
+{
+  return {}
 }
 
 }

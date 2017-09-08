@@ -1,32 +1,44 @@
 Class Frontier.UnitTest.Util [ Abstract ]
 {
 
-Parameter FRONTIERTESTURL = "/api/frontier/test";
+Parameter NAME = "/api/frontier/test/";
 
-ClassMethod CreateWebApp() As %Status
+ClassMethod CreateWebApplication() As %Status
 {
-  set ns = $namespace
-  new $namespace
+  set targetNamespace = $namespace
   
-  set $namespace = "%SYS"  
-  set properties("NameSpace") = ns
-  set properties("DispatchClass") = "Frontier.UnitTest.Router"  
+  new $namespace  
+  set $namespace = "%SYS"
   
-  if ##class(Security.Applications).Exists(..#FRONTIERTESTURL) {
-    $$$QuitOnError(..DestroyWebApp())
+  write !, ">> Creating demo web application using namespace "_targetNamespace_" ..."
+  if ##class(Security.Applications).Exists(..#NAME) {
+    write !, ">> Application already exists, skipping ..."
+    return $$$OK
   }
-  return ##class(Security.Applications).Create(..#FRONTIERTESTURL, .properties)
+  
+  set properties("CookiePath") = ..#NAME
+  set properties("DispatchClass") = "Frontier.UnitTest.Router"
+  set properties("NameSpace") = targetNamespace
+  set properties("UseCookies") = 2
+  set properties("AutheEnabled") = 64
+  
+  $$$QuitOnError(##class(Security.Applications).Create(..#NAME, .properties))
+  write !, ">> Application /api/frontier/test has been created."
+  return $$$OK
 }
 
-ClassMethod DestroyWebApp() As %Status
+ClassMethod RemoveWebApplication() As %Status
 {
-  
-  set ns = $namespace
   new $namespace
-  
   set $namespace = "%SYS"
-  do ##class(%File).RemoveDirectoryTree($System.Util.InstallDirectory()_"csp/frontier")
-  return ##class(Security.Applications).Delete(..#FRONTIERTESTURL)
+  
+  if '##class(Security.Applications).Exists(..#NAME) return $$$OK
+  write !, ">> Deleting demo web application "_..#NAME_" ..."
+  
+  $$$QuitOnError(##class(Security.Applications).Delete(..#NAME))
+  write !, ">> Web application has been deleted with success."
+  
+  return $$$OK
 }
 
 ClassMethod MergeErrors(errors As %DynamicArray) As %Status
@@ -84,6 +96,31 @@ ClassMethod GetDeepChildPropertyValue(parent As %RegisteredObject, composedKey A
     set nextParent = $property(nextParent, $piece(composedKey, ".", i, i))   
   }
   quit nextParent
+}
+
+ClassMethod MarshallSQLResult(SQLResult As %IResultSet, Output dynamicArray As %DynamicArray) As %Status
+{
+  set sc = $$$OK
+  set dynamicArray = []
+  set columnInfo = ""
+  
+  set columnsCount = SQLResult.%ResultColumnCount
+  for c = 1:1:columnsCount {
+    set columnInfo(c,"name") = SQLResult.%GetMetadata().columns.GetAt(c).label
+  }  
+  
+  while (SQLResult.%Next(.sc)) {
+    quit:$$$ISERR(sc)
+    set node = {}
+    for c = 1:1:SQLResult.%ResultColumnCount {
+      set value = SQLResult.%GetData(c)
+        
+      if ($isvalidnum(value) && ($e(value) '= 0)) do node.%Set($get(columnInfo(c,"name")),$num(value),"number")
+      else  do node.%Set($get(columnInfo(c,"name")),value)
+    }
+    Do dynamicArray.%Push(node)
+  }
+  return sc
 }
 
 }

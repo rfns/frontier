@@ -29,6 +29,7 @@
 
 
 <Class name="Frontier.Context">
+<IncludeCode>%occErrors,%occStatus</IncludeCode>
 <Super>%RegisteredObject</Super>
 <TimeCreated>64502,31617.993909</TimeCreated>
 
@@ -55,6 +56,10 @@
 <Property name="SQL">
 <Type>Frontier.SQL</Type>
 <ReadOnly>1</ReadOnly>
+</Property>
+
+<Property name="Data">
+<Type>%DynamicObject</Type>
 </Property>
 
 <Method name="%OnNew">
@@ -129,6 +134,19 @@
 <Implementation><![CDATA[
   set ..Response.Status = statusCode
   return $$$OK
+]]></Implementation>
+</Method>
+
+<Method name="ThrowException">
+<FormalSpec>message:%String,statusCode:%Integer=$$$GeneralError,parameters...:%String</FormalSpec>
+<Implementation><![CDATA[
+  if '$data(parameters) set parameters = 0
+  set args = 2 + parameters
+  set args(1) = statusCode
+  set args(2) = message
+  
+  for i=1:1:parameters set args(2+i) = parameters(i)
+  throw ##class(%Exception.StatusException).CreateFromStatus($$$ERROR(args...))
 ]]></Implementation>
 </Method>
 </Class>
@@ -990,7 +1008,15 @@ ParseArgument(parsedArgument)
           #; Dispatch
           #; Modified to add support for type resolution and query parameters
           set tPublicMethod = ##class(Method).%New(tClass, tTarget, .tArgs, %request)
-          merge tMethodArguments = tPublicMethod.Arguments                
+          merge tMethodArguments = tPublicMethod.Arguments
+          
+          set receivedData = ..OnReceivingData()
+          
+          if '$isobject(receivedData) || ($isobject(receivedData) && 'receivedData.%IsA("%DynamicObject"))  {
+            $$$ThrowOnError($$$ERROR($$$GeneralError, "OnReceivingData must return a %DynamicObject."))
+          } else {
+            set %frontier.Data = receivedData
+          }          
                    
           if tMethodArguments > 0 {
             set return = $classmethod(tClass, tTarget, tMethodArguments...)
@@ -1046,13 +1072,22 @@ ParseArgument(parsedArgument)
   // Enables device writing.
   write ""
   
-  if $isobject(returnedData) {   
+  if $isobject(returnedData) {
     set type = $classname(returnedData)
     set isCollection = ##class(Types).IsCollection(type)
+    set isSQLProvider = ##class(Types).IsSQLProvider(type)
+    set isStream = ##class(Types).IsStream(type)
     set isDynamic = ##class(Types).IsDynamic(type)
     set isSystemType = ($extract(type) = "%")
-    set isMarshallable = isCollection || isDynamic || ('isSystemType && ##class(Types).IsInstantiable(type))
+    set isMarshallable = isCollection || isDynamic || isStream || isSQLProvider || ('isSystemType && ##class(Types).IsInstantiable(type))
     if isMarshallable {
+      if isStream {
+        set stream = returnedData set returnedData = response
+        set response.content = stream
+      } elseif isSQLProvider {
+        set results = returnedData set returnedData = response
+        set response.results = results
+      }
       $$$QuitOnError(##class(Frontier.Dynamic.Marshaller).Marshall(returnedData, .response))
     } else {
       return $$$ERROR($$$GeneralError, "Cannot serialize system class instances.")
@@ -1145,6 +1180,13 @@ Issue an 'Http' error</Description>
   return $$$OK
 ]]></Implementation>
 </Method>
+
+<Method name="OnReceivingData">
+<ClassMethod>1</ClassMethod>
+<ReturnType>%DynamicObject</ReturnType>
+<Implementation><![CDATA[  return {}
+]]></Implementation>
+</Method>
 </Class>
 
 
@@ -1188,27 +1230,27 @@ Issue an 'Http' error</Description>
     if resultSet.%IsA("%Library.ResultSet") {
       set columnsCount = resultSet.GetColumnCount()
       for c = 1:1:columnsCount {
-       Set tColInfo(c,"name") = resultSet.GetColumnHeader(c)
+       Set columnInfo(c,"name") = resultSet.GetColumnHeader(c)
       }
     } else {
       set columnsCount = resultSet.%ResultColumnCount
       for c = 1:1:columnsCount {
-        set tColInfo(c,"name") = resultSet.%Metadata.columns.GetAt(c).label
+        set columnInfo(c,"name") = resultSet.%Metadata.columns.GetAt(c).label
       }
     }   
     
     set arrayNode = []    
     Set row = 0
     
-    while (resultSet.%Next(.tSC) && ((..maxRows = 0) || (row < ..maxRows))) {
-      quit:$$$ISERR(tSC)
+    while (resultSet.%Next(.sc) && ((..maxRows = 0) || (row < ..maxRows))) {
+      quit:$$$ISERR(sc)
       set row = row + 1
-      set node = ##class(%DynamicObject).%New()
+      set node = {}
       for c = 1:1:resultSet.%ResultColumnCount {
-        set tVal = resultSet.%GetData(c)
+        set value = resultSet.%GetData(c)
         
-        if ($isvalidnum(tVal) && ($e(tVal) '= 0)) do node.%Set($get(tColInfo(c,"name")),$num(tVal),"number")
-        else  do node.%Set($get(tColInfo(c,"name")),tVal)
+        if ($isvalidnum(value) && ($e(value) '= 0)) do node.%Set($get(columnInfo(c,"name")),$num(value),"number")
+        else  do node.%Set($get(columnInfo(c,"name")),value)
       }
       Do arrayNode.%Push(node)
     }   
@@ -1230,6 +1272,7 @@ Issue an 'Http' error</Description>
 
 <Property name="SQLProvider">
 <Type>Frontier.SQL.DeviceOutputAdapter</Type>
+<Private>1</Private>
 </Property>
 
 <Method name="%OnNew">
@@ -1252,20 +1295,11 @@ Issue an 'Http' error</Description>
   
   if $length(statement, ":") = 2 {   
     set ..SQLProvider.queryClass = $piece(statement, ":")
-    set ..SQLProvider.queryNAme = $piece(statement, ":", 2)   
+    set ..SQLProvider.queryName = $piece(statement, ":", 2)
   } elseif $extract($$$ucase($$$trim(statement)), 1, 6) = "SELECT" {
     set ..SQLProvider.sql = statement    
   }
   return $$$OK
-]]></Implementation>
-</Method>
-
-<Method name="Paginate">
-<FormalSpec>page:%Integer=1,size:%Integer=30</FormalSpec>
-<ReturnType>Frontier.SQL.Provider</ReturnType>
-<Implementation><![CDATA[
-  set ..SQLProvider.maxRows = page * size  
-  return $this
 ]]></Implementation>
 </Method>
 
@@ -1479,7 +1513,7 @@ Issue an 'Http' error</Description>
 </Property>
 <Property name="Plate">
 <Selectivity>10.0000%</Selectivity>
-<AverageFieldSize>4.9</AverageFieldSize>
+<AverageFieldSize>4.8</AverageFieldSize>
 </Property>
 <SQLMap name="IDKEY">
 <BlockCount>-4</BlockCount>
@@ -1503,15 +1537,12 @@ Issue an 'Http' error</Description>
 <Relationship>1</Relationship>
 </Property>
 
-<Query name="Top10ClassStudents">
+<Query name="PaginatedStudents">
 <Type>%SQLQuery</Type>
+<FormalSpec>offset:%Integer,limit:%Integer</FormalSpec>
 <SqlProc>1</SqlProc>
-<SqlQuery>  --SELECT TOP 10 S.*, C.PLATE as placa, 'ouch' as ai FROM FRONTIER_UNITTEST_FIXTURES.STUDENT S
-  --JOIN FRONTIER_UNITTEST_FIXTURES.CLASS C ON C.ID = S.CLASS
-  --WHERE S.NAME LIKE '%'||:name||'%'
-  
-  SELECT JSON_OBJECT('id':S.ID,'placa':C.PLATE,'ai': 'ouch') FROM FRONTIER_UNITTEST_FIXTURES.STUDENT S
-  JOIN FRONTIER_UNITTEST_FIXTURES.CLASS C ON C.ID = S.CLASS</SqlQuery>
+<SqlQuery>  
+  SELECT *, %VID as Index FROM (SELECT * FROM FRONTIER_UNITTEST_FIXTURES.STUDENT) WHERE %VID BETWEEN :offset AND :limit</SqlQuery>
 </Query>
 
 <Storage name="Default">
@@ -1542,12 +1573,12 @@ Issue an 'Http' error</Description>
 <AverageFieldSize>1.1</AverageFieldSize>
 </Property>
 <Property name="Class">
-<Selectivity>14.2857%</Selectivity>
-<AverageFieldSize>1.2</AverageFieldSize>
+<Selectivity>12.5000%</Selectivity>
+<AverageFieldSize>1.1</AverageFieldSize>
 </Property>
 <Property name="Name">
 <Selectivity>10.0000%</Selectivity>
-<AverageFieldSize>15.3</AverageFieldSize>
+<AverageFieldSize>16.5</AverageFieldSize>
 </Property>
 <SQLMap name="IDKEY">
 <BlockCount>-4</BlockCount>
@@ -1567,8 +1598,11 @@ Issue an 'Http' error</Description>
   <Route Url="/route_params/:class" Method="GET" Call="TestGETRouteParams"/>
   <Route Url="/query_params" Method="GET" Call="TestGETOneQueryParameter"/>
   <Route Url="/rest_params" Method="GET" Call="TestGETRestParametersSum"/>
-  <Route Url="/mixed/rest" Method="POST" Call="TestPOSTMixedRestParametersSum"/>
-  <Route Url="/unpublished" Method="GET" Call="TestGETUnpublishedMethod"/>
+  <Route Url="/sql/dynamic" Method="GET" Call="TestGETDynamicSQLResult"/>
+  <Route Url="/sql/query" Method="GET" Call="TestGETQuerySQLResult"/>
+  <Route Url="/raw" Method="GET" Call="TestGETRawMode"/>
+  <Route Url="/shared_data" Method="GET" Call="TestGETData"/>
+  <Route Url="/stream" Method="GET" Call="TestGETStream"/>
   <Route Url="/payload/single_object" Method="POST" Call="TestPOSTObjectPayloadSingle"/>
   <Route Url="/payload/object_with_query_params" Method="POST" Call="TestPOSTObjectPayloadQueryParams"/>  
   <Route Url="/payload/single_array" Method="POST" Call="TestPOSTArrayPayloadSingle"/>
@@ -1576,14 +1610,27 @@ Issue an 'Http' error</Description>
   <Route Url="/payload/invalid" Method="POST" Call="TestPOSTInvalidPayload"/>
   <Route Url="/mixed/object" Method="GET" Call="TestGETMixedDynamicObject"/>
   <Route Url="/mixed/array" Method="GET" Call="TestGETMixedDynamicArray"/>
-  <Route Url="/raw" Method="GET" Call="TestGETRawMode"/>
-  <Route Url="/sql" Method="GET" Call="TestGETMixedSQL"/>
+  <Route Url="/mixed/rest" Method="POST" Call="TestPOSTMixedRestParametersSum"/>
  </Routes>
 ]]></Data>
 </XData>
 
+<Method name="OnReceivingData">
+<Description>
+If you need to share something between methods. You can use this method to populate %frontier.Data.</Description>
+<ClassMethod>1</ClassMethod>
+<ReturnType>%DynamicObject</ReturnType>
+<Implementation><![CDATA[
+  return {
+    "Message": "This 'Message' is shared between all methods."
+  }
+]]></Implementation>
+</Method>
+
 <Method name="TestGETRouteParams">
 <Description>
+Whenever a parameter is typed of %Persistent and a valid id is provided, the parameter will be instantiated.
+Call example:
 curl -H "Content-Type: application/json" 'localhost:57772/api/frontier/test/route_params/6' 
 {"Plate":"O5397","Students":[{"Name":"Drabek,Peter T.","__id__":"20"}],"__id__":"6"}</Description>
 <ClassMethod>1</ClassMethod>
@@ -1595,6 +1642,8 @@ curl -H "Content-Type: application/json" 'localhost:57772/api/frontier/test/rout
 
 <Method name="TestGETOneQueryParameter">
 <Description>
+Query parameters are also supported. And are fetch if the parameter name matches the URL query name.
+Call example:
 curl -H "Content-Type: application/json" 'localhost:57772/api/frontier/test/query_params?msg=hello'
 {result":"hello"}</Description>
 <ClassMethod>1</ClassMethod>
@@ -1608,8 +1657,10 @@ curl -H "Content-Type: application/json" 'localhost:57772/api/frontier/test/quer
 
 <Method name="TestGETRestParametersSum">
 <Description><![CDATA[
-curl -H "Content-Type: application/json" 'localhost:57772/api/frontier/test/rest_params?n1=10&n2=20&n3=30'
-{"result":60}]]></Description>
+Rest parameters are sequential query parameters. They can have flexible arity and have the format parameterN.
+This request takes that number of parameters and sum them.
+Call example:
+curl -H "Content-Type: application/json" 'localhost:57772/api/frontier/test/rest_params?n1=10&n2=20&n3=30']]></Description>
 <ClassMethod>1</ClassMethod>
 <FormalSpec>n...:%String</FormalSpec>
 <ReturnType>%Integer</ReturnType>
@@ -1620,10 +1671,174 @@ curl -H "Content-Type: application/json" 'localhost:57772/api/frontier/test/rest
 ]]></Implementation>
 </Method>
 
+<Method name="TestGETDynamicSQLResult">
+<Description>
+Support of SQL is implemented as well. This example demonstrates how easy it's to create a paginated query.
+For SQL, the usage of of Prepare() from frontier.SQL API is required.</Description>
+<ClassMethod>1</ClassMethod>
+<FormalSpec>page:%Integer=1,rows:%Integer=5</FormalSpec>
+<ReturnType>Frontier.SQL.Provider</ReturnType>
+<Implementation><![CDATA[
+  set offset = (page * rows) - (rows - 1)
+  set limit = page * rows
+  
+  return %frontier.SQL.Prepare(
+    "SELECT *, %VID as Index FROM (SELECT * FROM FRONTIER_UNITTEST_FIXTURES.STUDENT) WHERE %VID BETWEEN ? AND ?"
+  ).Parameters(offset, limit)
+]]></Implementation>
+</Method>
+
+<Method name="TestGETQuerySQLResult">
+<Description>
+Support of SQL is implemented as well. This example demonstrates how easy it's to create a paginated query.
+For SQL, the usage of of Prepare() from frontier.SQL API is required.</Description>
+<ClassMethod>1</ClassMethod>
+<FormalSpec>page:%Integer=1,rows:%Integer=5</FormalSpec>
+<ReturnType>Frontier.SQL.Provider</ReturnType>
+<Implementation><![CDATA[
+  set offset = (page * rows) - (rows - 1)
+  set limit = page * rows
+  
+  return %frontier.SQL.Prepare("Frontier.UnitTest.Fixtures.Student:PaginatedStudents").Parameters(offset, limit)
+]]></Implementation>
+</Method>
+
+<Method name="TestGETRawMode">
+<Description>
+There can be cases where the response should not be a JSON.
+This method shows how to output a text in plain format.
+Call example:
+curl -H "Content-Type: application/json" http://localhost:57772/api/frontier/test/raw</Description>
+<ClassMethod>1</ClassMethod>
+<ReturnType>%String</ReturnType>
+<Implementation><![CDATA[
+  do %frontier.Raw()
+  return "hello raw response"
+]]></Implementation>
+</Method>
+
+<Method name="TestGETData">
+<Description>
+This method uses the data object provided on OnReceivingData method.
+The idea is to demonstrate how to access shared data.
+Call example: 
+/// curl -H "Content-Type: application/json" 'localhost:57772/api/frontier/test/shared_data' </Description>
+<ClassMethod>1</ClassMethod>
+<ReturnType>%DynamicObject</ReturnType>
+<Implementation><![CDATA[  return %frontier.Data
+]]></Implementation>
+</Method>
+
+<Method name="TestGETStream">
+<Description>
+Streams can be serialized as well.</Description>
+<ClassMethod>1</ClassMethod>
+<ReturnType>%Stream.Object</ReturnType>
+<Implementation><![CDATA[
+  set stream = ##class(%Stream.GlobalCharacter).%New()
+  do stream.Write("This line is from a stream.")
+  
+  return stream
+]]></Implementation>
+</Method>
+
+<Method name="TestPOSTObjectPayloadSingle">
+<Description>
+If the request is a POST/PUT/PATCH method, it can receive a payload that's represented by a parameter typed of %DynamicObject instances.
+Call example:
+curl -H "Content-Type: application/json" -X POST -d '{"username":"xyz","password":"xyz"}' 'http://localhost:57772/api/frontier/test/payload/single_object'</Description>
+<ClassMethod>1</ClassMethod>
+<FormalSpec>payload:%DynamicObject</FormalSpec>
+<ReturnType>%DynamicObject</ReturnType>
+<Implementation><![CDATA[  return payload
+]]></Implementation>
+</Method>
+
+<Method name="TestPOSTObjectPayloadQueryParams">
+<Description>
+Request can have a payload along with a query parameter.
+curl -H "Content-Type: application/json" -X POST -d '{"username":"xyz","password":"xyz"}' 'http://localhost:57772/api/frontier/test/payload/object_with_query_params?msg=hello'</Description>
+<ClassMethod>1</ClassMethod>
+<FormalSpec>msg:%String="",payload:%DynamicObject</FormalSpec>
+<ReturnType>%Status</ReturnType>
+<Implementation><![CDATA[
+  return {
+    "msg": (msg),
+    "payload": (payload)
+  }
+]]></Implementation>
+</Method>
+
+<Method name="TestPOSTArrayPayloadSingle">
+<Description>
+Payloads can also be an array.
+Call example:
+curl -H "Content-Type: application/json" -X POST -d '[{"username":"xyz","password":"xyz"}]' 'http://localhost:57772/api/frontier/test/payload/single_array'</Description>
+<ClassMethod>1</ClassMethod>
+<FormalSpec>payload:%DynamicArray</FormalSpec>
+<ReturnType>%DynamicObject</ReturnType>
+<Implementation><![CDATA[  return payload
+]]></Implementation>
+</Method>
+
+<Method name="TestPOSTArrayPayloadQueryParams">
+<Description>
+Requests with array payloads also support query parameters.
+Call example:
+curl -H "Content-Type: application/json" -X POST -d '[{"username":"xyz","password":"xyz"}]' 'http://localhost:57772/api/frontier/test/payload/array_with_query_params?msg=hello'</Description>
+<ClassMethod>1</ClassMethod>
+<FormalSpec>payload:%DynamicObject,msg:%String=""</FormalSpec>
+<ReturnType>%DynamicArray</ReturnType>
+<Implementation><![CDATA[  return [ (msg), (payload) ]
+]]></Implementation>
+</Method>
+
+<Method name="TestPOSTInvalidPayload">
+<Description>
+This demonstrates payload validation, as browsers can receive one payload per request
+a classmethod that expects more than one is considered invalid and will throw an exception.
+curl -H "Content-Type: application/json" -X POST -d '[{"username":"xyz","password":"xyz"}]' 'http://localhost:57772/api/frontier/test/payload/invalid'</Description>
+<ClassMethod>1</ClassMethod>
+<FormalSpec>payloadA:%DynamicArray,payloadB:%DynamicObject</FormalSpec>
+<ReturnType>%DynamicArray</ReturnType>
+<Implementation><![CDATA[  return payloadA
+]]></Implementation>
+</Method>
+
+<Method name="TestGETMixedDynamicObject">
+<Description>
+Normally %Dynamic instances cannot serialize childrens that aren't dynamic as well. (%ToJSON would thrown an exception).
+Frontier fixes it by marshalling irregular to %Dynamic instances beforehand and making it compatible.
+Call example:
+curl -H "Content-Type: application/json" http://localhost:57772/api/frontier/test/mixed/object?class=1</Description>
+<ClassMethod>1</ClassMethod>
+<FormalSpec>class:Frontier.UnitTest.Fixtures.Class</FormalSpec>
+<ReturnType>%DynamicObject</ReturnType>
+<Implementation><![CDATA[
+  return {
+    "class": (class)
+  }
+]]></Implementation>
+</Method>
+
+<Method name="TestGETMixedDynamicArray">
+<Description>
+Also supported for %DynamicArray.
+Call example:
+curl -H "Content-Type: application/json" http://localhost:57772/api/frontier/test/mixed/array?class=1</Description>
+<ClassMethod>1</ClassMethod>
+<FormalSpec>class:Frontier.UnitTest.Fixtures.Class</FormalSpec>
+<ReturnType>%DynamicArray</ReturnType>
+<Implementation><![CDATA[  return [ (class) ]
+]]></Implementation>
+</Method>
+
 <Method name="TestPOSTMixedRestParametersSum">
 <Description><![CDATA[
-curl -H "Content-Type: application/json" -X POST -d '{"username":"xyz","password":"xyz"}' 'http://localhost:57772/api/frontier/test/mixed/rest?n1=10&n2=20&msg=hello'
-{"sum":30,"data":{"username":"xyz","password":"xyz"},"params":["10","20"],"msg":"hello"}}]]></Description>
+It's possible to mix multiple parameter types as you could when calling a method.
+The example below illustrates the usage of a method that receives a 'msg' query parameter along with a payload and a rest parameter.
+Call example:
+curl -H "Content-Type: application/json" -X POST -d '{"username":"xyz","password":"xyz"}' 'http://localhost:57772/api/frontier/test/mixed/rest?n1=10&n2=20&msg=hello']]></Description>
 <ClassMethod>1</ClassMethod>
 <FormalSpec>msg:%String,data:%DynamicObject,n...:%Integer</FormalSpec>
 <ReturnType>%DynamicObject</ReturnType>
@@ -1641,119 +1856,6 @@ curl -H "Content-Type: application/json" -X POST -d '{"username":"xyz","password
   return sum
 ]]></Implementation>
 </Method>
-
-<Method name="TestPOSTObjectPayloadSingle">
-<Description>
-curl -H "Content-Type: application/json" -X POST -d '{"username":"xyz","password":"xyz"}' 'http://localhost:57772/api/frontier/test/payload/single_object'
-{"username":"xyz","password":"xyz"}</Description>
-<ClassMethod>1</ClassMethod>
-<FormalSpec>payload:%DynamicObject</FormalSpec>
-<ReturnType>%DynamicObject</ReturnType>
-<Implementation><![CDATA[  return payload
-]]></Implementation>
-</Method>
-
-<Method name="TestPOSTObjectPayloadQueryParams">
-<Description>
-curl -H "Content-Type: application/json" -X POST -d '{"username":"xyz","password":"xyz"}' 'http://localhost:57772/api/frontier/test/payload/object_with_query_params?msg=hello'</Description>
-<ClassMethod>1</ClassMethod>
-<FormalSpec>msg:%String="",payload:%DynamicObject</FormalSpec>
-<ReturnType>%Status</ReturnType>
-<Implementation><![CDATA[
-  return {
-    "msg": (msg),
-    "payload": (payload)
-  }
-]]></Implementation>
-</Method>
-
-<Method name="TestPOSTArrayPayloadSingle">
-<Description>
-curl -H "Content-Type: application/json" -X POST -d '[{"username":"xyz","password":"xyz"}]' 'http://localhost:57772/api/frontier/test/payload/single_array'</Description>
-<ClassMethod>1</ClassMethod>
-<FormalSpec>payload:%DynamicArray</FormalSpec>
-<ReturnType>%DynamicObject</ReturnType>
-<Implementation><![CDATA[  return payload
-]]></Implementation>
-</Method>
-
-<Method name="TestPOSTArrayPayloadQueryParams">
-<Description>
-curl -H "Content-Type: application/json" -X POST -d '[{"username":"xyz","password":"xyz"}]' 'http://localhost:57772/api/frontier/test/payload/array_with_query_params?msg=hello'</Description>
-<ClassMethod>1</ClassMethod>
-<FormalSpec>payload:%DynamicObject,msg:%String=""</FormalSpec>
-<ReturnType>%DynamicArray</ReturnType>
-<Implementation><![CDATA[  return [ (msg), (payload) ]
-]]></Implementation>
-</Method>
-
-<Method name="TestPOSTInvalidPayload">
-<Description>
-curl -H "Content-Type: application/json" -X POST -d '[{"username":"xyz","password":"xyz"}]' 'http://localhost:57772/api/frontier/test/payload/invalid'</Description>
-<ClassMethod>1</ClassMethod>
-<FormalSpec>payloadA:%DynamicArray,payloadB:%DynamicObject</FormalSpec>
-<ReturnType>%DynamicArray</ReturnType>
-<Implementation><![CDATA[  return payloadA
-]]></Implementation>
-</Method>
-
-<Method name="TestGETMixedDynamicObject">
-<Description>
-curl -H "Content-Type: application/json" http://localhost:57772/api/frontier/test/mixed/object?class=1</Description>
-<ClassMethod>1</ClassMethod>
-<FormalSpec>class:Frontier.UnitTest.Fixtures.Class</FormalSpec>
-<ReturnType>%DynamicObject</ReturnType>
-<Implementation><![CDATA[
-  return {
-    "class": (class)
-  }
-]]></Implementation>
-</Method>
-
-<Method name="TestGETMixedDynamicArray">
-<Description>
-curl -H "Content-Type: application/json" http://localhost:57772/api/frontier/test/mixed/array?class=1</Description>
-<ClassMethod>1</ClassMethod>
-<FormalSpec>class:Frontier.UnitTest.Fixtures.Class</FormalSpec>
-<ReturnType>%DynamicArray</ReturnType>
-<Implementation><![CDATA[  return [ (class) ]
-]]></Implementation>
-</Method>
-
-<Method name="TestGETRawMode">
-<ClassMethod>1</ClassMethod>
-<ReturnType>%String</ReturnType>
-<Implementation><![CDATA[
-  do %frontier.Raw()
-  return "hello raw response"
-]]></Implementation>
-</Method>
-
-<Method name="TestGETMixedSQL">
-<ClassMethod>1</ClassMethod>
-<FormalSpec>page:%Integer=1,rows:%Integer=5</FormalSpec>
-<ReturnType>Frontier.SQL.Provider</ReturnType>
-<Implementation><![CDATA[
-  set offset = (page * rows) - (rows - 1)
-  set limit = page * rows
-  
-  set students = %frontier.SQL.Prepare(
-    "SELECT *, %VID as Index FROM (SELECT * FROM FRONTIER_UNITTEST_FIXTURES.STUDENT) WHERE %VID BETWEEN ? AND ?"
-  ).Parameters(offset, limit)
-  
-  set str = ##class(%Stream.GlobalCharacter).%New()
-  do str.Write("Hello, this is a test using stream properties.")
-  
-  return {
-    // Stream data.
-    "str": (str),
-    // SQL result data. 
-    "students": (students),
-    // Student instance. 
-    "student": (##class(Frontier.UnitTest.Fixtures.Student).%OpenId(1))
-  }
-]]></Implementation>
-</Method>
 </Class>
 
 
@@ -1761,39 +1863,51 @@ curl -H "Content-Type: application/json" http://localhost:57772/api/frontier/tes
 <Abstract>1</Abstract>
 <TimeCreated>64503,34684.599157</TimeCreated>
 
-<Parameter name="FRONTIERTESTURL">
-<Default>/api/frontier/test</Default>
+<Parameter name="NAME">
+<Default>/api/frontier/test/</Default>
 </Parameter>
 
-<Method name="CreateWebApp">
+<Method name="CreateWebApplication">
 <ClassMethod>1</ClassMethod>
 <ReturnType>%Status</ReturnType>
 <Implementation><![CDATA[
-  set ns = $namespace
-  new $namespace
+  set targetNamespace = $namespace
   
-  set $namespace = "%SYS"  
-  set properties("NameSpace") = ns
-  set properties("DispatchClass") = "Frontier.UnitTest.Router"  
+  new $namespace  
+  set $namespace = "%SYS"
   
-  if ##class(Security.Applications).Exists(..#FRONTIERTESTURL) {
-    $$$QuitOnError(..DestroyWebApp())
+  write !, ">> Creating demo web application using namespace "_targetNamespace_" ..."
+  if ##class(Security.Applications).Exists(..#NAME) {
+    write !, ">> Application already exists, skipping ..."
+    return $$$OK
   }
-  return ##class(Security.Applications).Create(..#FRONTIERTESTURL, .properties)
+  
+  set properties("CookiePath") = ..#NAME
+  set properties("DispatchClass") = "Frontier.UnitTest.Router"
+  set properties("NameSpace") = targetNamespace
+  set properties("UseCookies") = 2
+  set properties("AutheEnabled") = 64
+  
+  $$$QuitOnError(##class(Security.Applications).Create(..#NAME, .properties))
+  write !, ">> Application /api/frontier/test has been created."
+  return $$$OK
 ]]></Implementation>
 </Method>
 
-<Method name="DestroyWebApp">
+<Method name="RemoveWebApplication">
 <ClassMethod>1</ClassMethod>
 <ReturnType>%Status</ReturnType>
 <Implementation><![CDATA[
-  
-  set ns = $namespace
   new $namespace
-  
   set $namespace = "%SYS"
-  do ##class(%File).RemoveDirectoryTree($System.Util.InstallDirectory()_"csp/frontier")
-  return ##class(Security.Applications).Delete(..#FRONTIERTESTURL)
+  
+  if '##class(Security.Applications).Exists(..#NAME) return $$$OK
+  write !, ">> Deleting demo web application "_..#NAME_" ..."
+  
+  $$$QuitOnError(##class(Security.Applications).Delete(..#NAME))
+  write !, ">> Web application has been deleted with success."
+  
+  return $$$OK
 ]]></Implementation>
 </Method>
 
@@ -1863,6 +1977,35 @@ curl -H "Content-Type: application/json" http://localhost:57772/api/frontier/tes
   quit nextParent
 ]]></Implementation>
 </Method>
+
+<Method name="MarshallSQLResult">
+<ClassMethod>1</ClassMethod>
+<FormalSpec>SQLResult:%IResultSet,*dynamicArray:%DynamicArray</FormalSpec>
+<ReturnType>%Status</ReturnType>
+<Implementation><![CDATA[
+  set sc = $$$OK
+  set dynamicArray = []
+  set columnInfo = ""
+  
+  set columnsCount = SQLResult.%ResultColumnCount
+  for c = 1:1:columnsCount {
+    set columnInfo(c,"name") = SQLResult.%GetMetadata().columns.GetAt(c).label
+  }  
+  
+  while (SQLResult.%Next(.sc)) {
+    quit:$$$ISERR(sc)
+    set node = {}
+    for c = 1:1:SQLResult.%ResultColumnCount {
+      set value = SQLResult.%GetData(c)
+        
+      if ($isvalidnum(value) && ($e(value) '= 0)) do node.%Set($get(columnInfo(c,"name")),$num(value),"number")
+      else  do node.%Set($get(columnInfo(c,"name")),value)
+    }
+    Do dynamicArray.%Push(node)
+  }
+  return sc
+]]></Implementation>
+</Method>
 </Class>
 
 
@@ -1887,7 +2030,7 @@ curl -H "Content-Type: application/json" http://localhost:57772/api/frontier/tes
   $$$QuitOnError(##class(Frontier.UnitTest.Fixtures.Student).%KillExtent())
   $$$QuitOnError(##class(Frontier.UnitTest.Fixtures.Class).Populate())
   $$$QuitOnError(##class(Frontier.UnitTest.Fixtures.Student).Populate())  
-  return ..CreateWebApplication()
+  return ##class(Frontier.UnitTest.Util).CreateWebApplication()
 ]]></Implementation>
 </Method>
 
@@ -1898,51 +2041,7 @@ curl -H "Content-Type: application/json" http://localhost:57772/api/frontier/tes
 <Implementation><![CDATA[
   $$$QuitOnError(##class(Frontier.UnitTest.Fixtures.Class).%KillExtent())
   $$$QuitOnError(##class(Frontier.UnitTest.Fixtures.Student).%KillExtent())  
-  return ..RemoveWebApplication()
-]]></Implementation>
-</Method>
-
-<Method name="CreateWebApplication">
-<ClassMethod>1</ClassMethod>
-<ReturnType>%Status</ReturnType>
-<Implementation><![CDATA[
-  set targetNamespace = $namespace
-  
-  new $namespace  
-  set $namespace = "%SYS"
-  
-  write !, ">> Creating demo web application using namespace "_targetNamespace_" ..."
-  if ##class(Security.Applications).Exists(..#NAME) {
-    write !, ">> Application already exists, skipping ..."
-    return $$$OK
-  }
-  
-  set properties("CookiePath") = ..#NAME
-  set properties("DispatchClass") = "Frontier.UnitTest.Router"
-  set properties("NameSpace") = targetNamespace
-  set properties("UseCookies") = 2
-  set properties("AutheEnabled") = 64
-  
-  $$$QuitOnError(##class(Security.Applications).Create(..#NAME, .properties))
-  write !, ">> Application /api/frontier/test has been created."
-  return $$$OK
-]]></Implementation>
-</Method>
-
-<Method name="RemoveWebApplication">
-<ClassMethod>1</ClassMethod>
-<ReturnType>%Status</ReturnType>
-<Implementation><![CDATA[
-  new $namespace
-  set $namespace = "%SYS"
-  
-  if '##class(Security.Applications).Exists(..#NAME) return $$$OK
-  write !, ">> Deleting demo web application "_..#NAME_" ..."
-  
-  $$$QuitOnError(##class(Security.Applications).Delete(..#NAME))
-  write !, ">> Web application has been deleted with success."
-  
-  return $$$OK
+  return ##class(Frontier.UnitTest.Util).RemoveWebApplication()
 ]]></Implementation>
 </Method>
 </Class>
@@ -2029,8 +2128,6 @@ curl -H "Content-Type: application/json" http://localhost:57772/api/frontier/tes
         set expectedText = str.Read()
       }
     }
-  } else {
-    break
   }
   
   if responseText '= expectedText {
@@ -2154,7 +2251,43 @@ curl -H "Content-Type: application/json" http://localhost:57772/api/frontier/tes
 <Implementation><![CDATA[
   set resource = $$$FormatText("%1raw", ..WebApplicationName)
   set expected = "hello raw response"
-  return $$$AssertStatusOK(..AssertRequest(resource, expected))
+  return $$$AssertStatusOK(..AssertRequest(resource, expected), $$$FormatText("can retrieve the expected data from the resource %1", resource))
+]]></Implementation>
+</Method>
+
+<Method name="TestGETStream">
+<Implementation><![CDATA[
+  set resource = $$$FormatText("%1stream", ..WebApplicationName)
+  set expected = {"content":"This line is from a stream."}
+  return $$$AssertStatusOK(..AssertRequest(resource, expected), $$$FormatText("can retrieve the expected data from the resource %1", resource))
+]]></Implementation>
+</Method>
+
+<Method name="TestGETDynamicSQLResult">
+<Implementation><![CDATA[
+  set resource = $$$FormatText("%1sql/dynamic", ..WebApplicationName)
+  
+  set sd = ##class(%SQL.Statement).%New()
+  do sd.%Prepare("SELECT *, %VID as Index FROM (SELECT * FROM FRONTIER_UNITTEST_FIXTURES.STUDENT) WHERE %VID BETWEEN ? AND ?")
+  set rd = sd.%Execute(1, 5)
+  
+  do $$$AssertStatusOK(##class(Frontier.UnitTest.Util).MarshallSQLResult(rd, .array), "can read SQL result")
+  set expected = {"results":(array)}
+  return $$$AssertStatusOK(..AssertRequest(resource, expected.%ToJSON()), $$$FormatText("can retrieve the expected data from the resource %1", resource))
+]]></Implementation>
+</Method>
+
+<Method name="TestGETQuerySQLResult">
+<Implementation><![CDATA[
+  set resource = $$$FormatText("%1sql/query", ..WebApplicationName)
+  
+  set sd = ##class(%SQL.Statement).%New()
+  do sd.%PrepareClassQuery("Frontier.UnitTest.Fixtures.Student", "PaginatedStudents")
+  set rd = sd.%Execute(1, 5)
+  
+  do $$$AssertStatusOK(##class(Frontier.UnitTest.Util).MarshallSQLResult(rd, .array), "can read SQL result")
+  set expected = {"results":(array)}
+  return $$$AssertStatusOK(..AssertRequest(resource, expected.%ToJSON()), $$$FormatText("can retrieve the expected data from the resource %1", resource))
 ]]></Implementation>
 </Method>
 
@@ -2164,7 +2297,7 @@ curl -H "Content-Type: application/json" http://localhost:57772/api/frontier/tes
   set t = ..%New(##class(Port.UnitTest.Manager).%New())
   do t.OnBeforeAllTests()
   do t.OnBeforeOneTest()
-  do t.TestGETRawMode()
+  do t.TestGETQuerySQLResult()
   do t.OnAfterOneTest()
   do t.OnAfterAllTests()
 ]]></Implementation>
@@ -2262,6 +2395,14 @@ curl -H "Content-Type: application/json" http://localhost:57772/api/frontier/tes
   do $$$AssertTrue(##class(Frontier.Types).IsDynamicObject("%DynamicObject"), "can resolve omitted %Library packages")
 ]]></Implementation>
 </Method>
+
+<Method name="TestIsSQLProvider">
+<Implementation><![CDATA[
+  do $$$AssertTrue(##class(Frontier.Types).IsSQLProvider("Frontier.SQL.Provider"), "returns 1 if true")
+  do $$$AssertNotTrue(##class(Frontier.Types).IsSQLProvider("%String"), "returns 0 if false")
+  do $$$AssertNotTrue(##class(Frontier.Types).IsSQLProvider("Invalid"), "returns 0 if invalid")
+]]></Implementation>
+</Method>
 </Class>
 
 
@@ -2278,7 +2419,7 @@ curl -H "Content-Type: application/json" http://localhost:57772/api/frontier/tes
 ]]></Routine>
 
 
-<Project name="frontier" LastModified="2017-09-06 17:14:40.701065" Target="##class(Frontier.UnitTest.Router).TestGETMixedSQL()" TargetType="2" HttpServer="http://localhost:57772">
+<Project name="frontier" LastModified="2017-09-08 16:32:47.099205" Target="##class(UnitTest.Frontier.Router).T()" TargetType="2" HttpServer="http://localhost:57772">
   <Items>
     <ProjectItem name="Frontier.ArgumentDescription" type="CLS"></ProjectItem>
     <ProjectItem name="Frontier.Context" type="CLS"></ProjectItem>

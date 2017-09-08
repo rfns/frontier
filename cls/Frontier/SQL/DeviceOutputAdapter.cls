@@ -23,27 +23,27 @@ Method %DrawJSON() As %Status [ Internal ]
     if resultSet.%IsA("%Library.ResultSet") {
       set columnsCount = resultSet.GetColumnCount()
       for c = 1:1:columnsCount {
-       Set tColInfo(c,"name") = resultSet.GetColumnHeader(c)
+       Set columnInfo(c,"name") = resultSet.GetColumnHeader(c)
       }
     } else {
       set columnsCount = resultSet.%ResultColumnCount
       for c = 1:1:columnsCount {
-        set tColInfo(c,"name") = resultSet.%Metadata.columns.GetAt(c).label
+        set columnInfo(c,"name") = resultSet.%Metadata.columns.GetAt(c).label
       }
     }   
     
     set arrayNode = []    
     Set row = 0
     
-    while (resultSet.%Next(.tSC) && ((..maxRows = 0) || (row < ..maxRows))) {
-      quit:$$$ISERR(tSC)
+    while (resultSet.%Next(.sc) && ((..maxRows = 0) || (row < ..maxRows))) {
+      quit:$$$ISERR(sc)
       set row = row + 1
-      set node = ##class(%DynamicObject).%New()
+      set node = {}
       for c = 1:1:resultSet.%ResultColumnCount {
-        set tVal = resultSet.%GetData(c)
+        set value = resultSet.%GetData(c)
         
-        if ($isvalidnum(tVal) && ($e(tVal) '= 0)) do node.%Set($get(tColInfo(c,"name")),$num(tVal),"number")
-        else  do node.%Set($get(tColInfo(c,"name")),tVal)
+        if ($isvalidnum(value) && ($e(value) '= 0)) do node.%Set($get(columnInfo(c,"name")),$num(value),"number")
+        else  do node.%Set($get(columnInfo(c,"name")),value)
       }
       Do arrayNode.%Push(node)
     }   

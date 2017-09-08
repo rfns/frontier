@@ -79,5 +79,12 @@ Method TestIsDynamicObject()
   do $$$AssertTrue(##class(Frontier.Types).IsDynamicObject("%DynamicObject"), "can resolve omitted %Library packages")
 }
 
+Method TestIsSQLProvider()
+{
+  do $$$AssertTrue(##class(Frontier.Types).IsSQLProvider("Frontier.SQL.Provider"), "returns 1 if true")
+  do $$$AssertNotTrue(##class(Frontier.Types).IsSQLProvider("%String"), "returns 0 if false")
+  do $$$AssertNotTrue(##class(Frontier.Types).IsSQLProvider("Invalid"), "returns 0 if invalid")
+}
+
 }
 
