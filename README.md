@@ -4,11 +4,11 @@
 
 # Frontier
 
-Frontier is a framework for developing applications using routing functionality. It's based on %CSP.REST with a set of additional features.
+Frontier is an abstraction layer for rapid web application development with Caché. By using it you'll stop worrying about how to handle data and errors thus focusing on what matters: your application.
 
 # Features
 
-* Automatic exception handling.
+* __Automatic exception handling:__ Handles the exception feedback accordingly when it's thrown. Recommended to be used along with status to notify the consumer application about errors.
 
 ```
 ClassMethod TestPOSTInvalidPayload() As %String
@@ -18,7 +18,7 @@ ClassMethod TestPOSTInvalidPayload() As %String
 }
 ```
 
-* Smart parameter type resolution.
+* __Typed parameter instantiation:__ Parameters that are typed from %Persistent classes can be resolved and instantiated right at the runtime. Invalid ids are represented by empty values.
 
 ```
 ClassMethod TestGETRouteParams(class As Frontier.UnitTest.Fixtures.Class) As %Status
@@ -29,7 +29,7 @@ ClassMethod TestGETRouteParams(class As Frontier.UnitTest.Fixtures.Class) As %St
 }
 ```
 
-* Support named query parameters.
+* __Support for query parameters:__ Can be used by simply defining their formal spec and passing them in the URL.
 
 ```
 ClassMethod TestGETOneQueryParameter(msg As %String) As %String
@@ -40,7 +40,7 @@ ClassMethod TestGETOneQueryParameter(msg As %String) As %String
 }
 ```
 
-* Support for rest parameters.
+* __Support for rest parameters:__ If more flexibility is needed for a single query parameter, using rest parameters might be better. Define them as it would be using common COS syntax and populate it using queryN syntax, where N is a sequential index.
 
 ```
 ClassMethod TestGETRestParametersSum(n... As %String) As %Integer
@@ -53,7 +53,7 @@ ClassMethod TestGETRestParametersSum(n... As %String) As %Integer
 }
 ```
 
-* Automatic payload detection (can also be an array).
+* __Automatic payload detection (can also be an array):__ Applications requiring to send payload data (normally JSON), can do so with methods whose parameters are typed from %Dynamic instances.
 
 ```
 ClassMethod TestPOSTObjectPayloadSingle(payload As %DynamicObject) As %DynamicObject
@@ -64,8 +64,7 @@ ClassMethod TestPOSTObjectPayloadSingle(payload As %DynamicObject) As %DynamicOb
 }
 ```
 
-* Request rules enforcement.
-
+* __Request rules enforcement:__ Makes sure that the developer is following the correct practices for welcoming requests.
 ```
 ClassMethod TestPOSTInvalidPayload(
   payloadA As %DynamicArray,
@@ -77,9 +76,7 @@ ClassMethod TestPOSTInvalidPayload(
 }
 ```
 
-* Advanced on-the-fly configuration with %frontier instance.
-
-
+* __Request context instance:__ Can be used to modify certain behaviors and produce different results.
 ```
 ClassMethod TestGETRawMode() As %String
 {
@@ -89,7 +86,34 @@ ClassMethod TestGETRawMode() As %String
 }
 ```
 
-*  Seamless marshalling execution.
+* __SQL support:__ SQL results can be serialized by using the Frontier's SQL API. Named queries are supported as well.
+```
+ClassMethod TestGETDynamicSQLResult(
+	page As %Integer = 1,
+	rows As %Integer = 5) As Frontier.SQL.Provider
+{
+  set offset = (page * rows) - (rows - 1)
+  set limit = page * rows
+
+  return %frontier.SQL.Prepare(
+    "SELECT *, %VID as Index FROM (SELECT * FROM FRONTIER_UNITTEST_FIXTURES.STUDENT) WHERE %VID BETWEEN ? AND ?"
+  ).Parameters(offset, limit)
+}
+```
+
+* __Stream support:__ Big contents can be serialized by returning a %Stream.Object instance.
+
+```
+ClassMethod TestGETStream() As %Stream.Object
+{
+  set stream = ##class(%Stream.GlobalCharacter).%New()
+  do stream.Write("This line is from a stream.")
+
+  return stream
+}
+```
+
+*  __Seamless marshalling procedure:__ Normalizes the instance graphs by marshalling them into %Dyanamic instances before serialization.
 
 ```
 ClassMethod TestGETMixedDynamicObject(class As Frontier.UnitTest.Fixtures.Class) As %DynamicObject
@@ -115,7 +139,7 @@ Still with doubts? The [class](https://github.com/rfns/frontier/blob/master/cls/
 
 ## So, what's next?
 
-- [ ] SQL support.
+- [v] SQL support.
 - [ ] Easier credentials validation and user object access.
 - [ ] Request error email reporter.
 
