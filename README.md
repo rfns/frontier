@@ -139,7 +139,7 @@ Still with doubts? The [class](https://github.com/rfns/frontier/blob/master/cls/
 
 ## So, what's next?
 
-- [v] SQL support.
+- [x] SQL support.
 - [ ] Easier credentials validation and user object access.
 - [ ] Request error email reporter.
 
