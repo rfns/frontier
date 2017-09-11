@@ -12,6 +12,7 @@ XData UrlMap [ XMLNamespace = "http://github.com/rfns/frontier" ]
   <Route Url="/raw" Method="GET" Call="TestGETRawMode"/>
   <Route Url="/shared_data" Method="GET" Call="TestGETData"/>
   <Route Url="/stream" Method="GET" Call="TestGETStream"/>
+  <Route Url="/alias" Method="GET" Call="TestGETAliasedQueryParameter"/>
   <Route Url="/payload/single_object" Method="POST" Call="TestPOSTObjectPayloadSingle"/>
   <Route Url="/payload/object_with_query_params" Method="POST" Call="TestPOSTObjectPayloadQueryParams"/>  
   <Route Url="/payload/single_array" Method="POST" Call="TestPOSTArrayPayloadSingle"/>
@@ -23,12 +24,13 @@ XData UrlMap [ XMLNamespace = "http://github.com/rfns/frontier" ]
  </Routes>
 }
 
-/// If you need to share something between methods. You can use this method to populate %frontier.Data.
-ClassMethod OnReceivingData() As %DynamicObject
+/// This method is reserved for setting up context configurations.
+ClassMethod Setup(data As %DynamicObject) As %Status
 {
-  return {
-    "Message": "This 'Message' is shared between all methods."
-  }
+  
+  /// This 'data' object is shared between all methods. Accessible using %frontier.Data.
+  set data.Message = "This 'Message' is shared between all methods."
+  return $$$OK
 }
 
 /// Whenever a parameter is typed of %Persistent and a valid id is provided, the parameter will be instantiated.
@@ -93,7 +95,7 @@ ClassMethod TestGETRawMode() As %String
   return "hello raw response"
 }
 
-/// This method uses the data object provided on OnReceivingData method.
+/// This method uses the data object provided on Setup method.
 /// The idea is to demonstrate how to access shared data.
 /// Call example: 
 /// /// curl -H "Content-Type: application/json" 'localhost:57772/api/frontier/test/shared_data' 
@@ -189,6 +191,11 @@ ClassMethod TestPOSTMixedRestParametersSum(msg As %String, data As %DynamicObjec
     "msg": (msg)
   }
   return sum
+}
+
+ClassMethod TestGETAliasedQueryParameter(msg As %String(ALIAS="aliased_key"))
+{
+  return msg
 }
 
 }

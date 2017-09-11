@@ -25,7 +25,7 @@ Method %OnNew(className As %String, methodName As %String, RESTMethodArguments A
   $$$ThrowOnError(..ParseReturnTypeParameters())
   
   merge requestQueryParams = request.Data
-  $$$ThrowOnError(..MergeArguments(.RESTMethodArguments, .requestQueryParams, .mergedArguments))    
+  $$$ThrowOnError(..MergeArguments(.RESTMethodArguments, .requestQueryParams, .mergedArguments))
     
   set ..Payload = request.Content
   set ..HttpMethod = request.Method
@@ -56,20 +56,34 @@ ParseArgument(parsedArgument)
     set parsedArgument = ##class(Frontier.ArgumentDescription).%New()
     if argument [ "..." set parsedArgument.Arity = 1
     set parsedArgument.Name = $replace($piece(argument, ":", 1), "...", "")
-    set parsedArgument.DefaultValue = $piece(argument, "=", 2)
-    set parsedArgument.Type = $piece($piece(argument, ":", 2), "=")
+    set parsedArgument.DefaultValue = $piece(argument, "=", 2)    
     set parsedArgument.Index = currentIndex
+    set preType = $piece(argument, ":", 2)
+    if preType [ "(" {
+      set parsedArgument.Type = $extract(preType, 1, $find(preType, "(") - 2)
+      set argumentParameters = $extract(preType, $find(preType, "("), $find(preType, ")") - 2)
+      if '$find(argumentParameters, ",") set argumentParameters = argumentParameters_","
+      for i=1:1:$length(argumentParameters, ",") {
+        set argumentParameter = $piece(argumentParameters, ",", i)
+        set parameterName = $piece(argumentParameter, "=")
+        set parameterValue = $$$trimQuote($piece(argumentParameter, "=", 2))
+        do parsedArgument.Parameters.SetAt(parameterValue, parameterName)
+        if parameterName = "ALIAS" set parsedArgument.Alias = parameterValue
+      }
+    } else {
+      set parsedArgument.Type = preType
+    }
     quit 1
   }    
   quit 0
 }
 
-Method FindDescribedArgumentByName(name As %String) As Frontier.ArgumentDescription [ Internal, Private ]
+Method FindDescribedArgument(identifier As %String) As Frontier.ArgumentDescription [ Internal, Private ]
 {
   
   for i=1:1:..MethodArguments.Count() {
     set argument = ..MethodArguments.GetAt(i)
-    if argument.Name = name return argument
+    if argument.Name = identifier || (argument.Alias = identifier) return argument
   }
   return ""
 }
@@ -121,8 +135,7 @@ Method Sequentialize(ByRef mergedArguments = 0) As %Status [ Private ]
   
   set maxLength = methodArgumentsLength
   if maxLength < mergedArguments set maxLength = mergedArguments
-      
-  
+        
   if methodArgumentsLength > 0 {
     for argsProcessed=1:1:maxLength {       
       set methodArgument = $select(argsProcessed > methodArgumentsLength 
@@ -168,11 +181,10 @@ Method MergeArguments(ByRef routeArguments As %String = 0, ByRef requestArgument
 
   for {
     set key = $order(requestArguments(key))
-    quit:key=""
-    
+    quit:key=""    
     
     set keyGroup = $$$KeyGroup(key)
-    set methodArgument = ..FindDescribedArgumentByName(keyGroup)
+    set methodArgument = ..FindDescribedArgument(keyGroup)
     
     if '$isobject(methodArgument) {
       return $$$ERROR($$$GeneralError, "Formal spec doesn't match with request: "_keyGroup_" was not expected.")

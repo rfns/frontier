@@ -21,6 +21,7 @@ Method %OnNew(session As %CSP.Session, request As %CSP.Request, response As %CSP
   set i%Request = request
   set i%Response = response
   set i%SQL = ##class(Frontier.SQL).%New()
+  set ..Data = ##class(%DynamicObject).%New()
   do ..Response.SetHeader("Content-Type", "application/json")
   set ..CharSet = "utf-8"  
   return $$$OK

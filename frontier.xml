@@ -8,6 +8,10 @@
 <Type>%String</Type>
 </Property>
 
+<Property name="Alias">
+<Type>%String</Type>
+</Property>
+
 <Property name="DefaultValue">
 <Type>%String</Type>
 </Property>
@@ -19,6 +23,11 @@
 <Property name="Arity">
 <Type>%Boolean</Type>
 <InitialExpression>0</InitialExpression>
+</Property>
+
+<Property name="Parameters">
+<Type>%String</Type>
+<Collection>array</Collection>
 </Property>
 
 <Property name="Index">
@@ -70,6 +79,7 @@
   set i%Request = request
   set i%Response = response
   set i%SQL = ##class(Frontier.SQL).%New()
+  set ..Data = ##class(%DynamicObject).%New()
   do ..Response.SetHeader("Content-Type", "application/json")
   set ..CharSet = "utf-8"  
   return $$$OK
@@ -696,7 +706,7 @@ rchr(time) Quit ""
   $$$ThrowOnError(..ParseReturnTypeParameters())
   
   merge requestQueryParams = request.Data
-  $$$ThrowOnError(..MergeArguments(.RESTMethodArguments, .requestQueryParams, .mergedArguments))    
+  $$$ThrowOnError(..MergeArguments(.RESTMethodArguments, .requestQueryParams, .mergedArguments))
     
   set ..Payload = request.Content
   set ..HttpMethod = request.Method
@@ -730,25 +740,39 @@ ParseArgument(parsedArgument)
     set parsedArgument = ##class(Frontier.ArgumentDescription).%New()
     if argument [ "..." set parsedArgument.Arity = 1
     set parsedArgument.Name = $replace($piece(argument, ":", 1), "...", "")
-    set parsedArgument.DefaultValue = $piece(argument, "=", 2)
-    set parsedArgument.Type = $piece($piece(argument, ":", 2), "=")
+    set parsedArgument.DefaultValue = $piece(argument, "=", 2)    
     set parsedArgument.Index = currentIndex
+    set preType = $piece(argument, ":", 2)
+    if preType [ "(" {
+      set parsedArgument.Type = $extract(preType, 1, $find(preType, "(") - 2)
+      set argumentParameters = $extract(preType, $find(preType, "("), $find(preType, ")") - 2)
+      if '$find(argumentParameters, ",") set argumentParameters = argumentParameters_","
+      for i=1:1:$length(argumentParameters, ",") {
+        set argumentParameter = $piece(argumentParameters, ",", i)
+        set parameterName = $piece(argumentParameter, "=")
+        set parameterValue = $$$trimQuote($piece(argumentParameter, "=", 2))
+        do parsedArgument.Parameters.SetAt(parameterValue, parameterName)
+        if parameterName = "ALIAS" set parsedArgument.Alias = parameterValue
+      }
+    } else {
+      set parsedArgument.Type = preType
+    }
     quit 1
   }    
   quit 0
 ]]></Implementation>
 </Method>
 
-<Method name="FindDescribedArgumentByName">
+<Method name="FindDescribedArgument">
 <Internal>1</Internal>
-<FormalSpec>name:%String</FormalSpec>
+<FormalSpec>identifier:%String</FormalSpec>
 <Private>1</Private>
 <ReturnType>Frontier.ArgumentDescription</ReturnType>
 <Implementation><![CDATA[
   
   for i=1:1:..MethodArguments.Count() {
     set argument = ..MethodArguments.GetAt(i)
-    if argument.Name = name return argument
+    if argument.Name = identifier || (argument.Alias = identifier) return argument
   }
   return ""
 ]]></Implementation>
@@ -813,8 +837,7 @@ ParseArgument(parsedArgument)
   
   set maxLength = methodArgumentsLength
   if maxLength < mergedArguments set maxLength = mergedArguments
-      
-  
+        
   if methodArgumentsLength > 0 {
     for argsProcessed=1:1:maxLength {       
       set methodArgument = $select(argsProcessed > methodArgumentsLength 
@@ -864,11 +887,10 @@ ParseArgument(parsedArgument)
 
   for {
     set key = $order(requestArguments(key))
-    quit:key=""
-    
+    quit:key=""    
     
     set keyGroup = $$$KeyGroup(key)
-    set methodArgument = ..FindDescribedArgumentByName(keyGroup)
+    set methodArgument = ..FindDescribedArgument(keyGroup)
     
     if '$isobject(methodArgument) {
       return $$$ERROR($$$GeneralError, "Formal spec doesn't match with request: "_keyGroup_" was not expected.")
@@ -1004,20 +1026,14 @@ ParseArgument(parsedArgument)
           #; Check for optional ClassName prefix
           set tClass = $classname()
           If tTarget [ ":" set tClass = $piece(tTarget,":"), tTarget = $Piece(tTarget,":",2)
-                              
+
           #; Dispatch
           #; Modified to add support for type resolution and query parameters
           set tPublicMethod = ##class(Method).%New(tClass, tTarget, .tArgs, %request)
           merge tMethodArguments = tPublicMethod.Arguments
           
-          set receivedData = ..OnReceivingData()
-          
-          if '$isobject(receivedData) || ($isobject(receivedData) && 'receivedData.%IsA("%DynamicObject"))  {
-            $$$ThrowOnError($$$ERROR($$$GeneralError, "OnReceivingData must return a %DynamicObject."))
-          } else {
-            set %frontier.Data = receivedData
-          }          
-                   
+          $$$ThrowOnError(..Setup(%frontier.Data))
+
           if tMethodArguments > 0 {
             set return = $classmethod(tClass, tTarget, tMethodArguments...)
           } else {            
@@ -1181,10 +1197,11 @@ Issue an 'Http' error</Description>
 ]]></Implementation>
 </Method>
 
-<Method name="OnReceivingData">
+<Method name="Setup">
 <ClassMethod>1</ClassMethod>
-<ReturnType>%DynamicObject</ReturnType>
-<Implementation><![CDATA[  return {}
+<FormalSpec>data:%DynamicObject</FormalSpec>
+<ReturnType>%Status</ReturnType>
+<Implementation><![CDATA[  return $$$OK
 ]]></Implementation>
 </Method>
 </Class>
@@ -1513,7 +1530,7 @@ Issue an 'Http' error</Description>
 </Property>
 <Property name="Plate">
 <Selectivity>10.0000%</Selectivity>
-<AverageFieldSize>4.8</AverageFieldSize>
+<AverageFieldSize>5</AverageFieldSize>
 </Property>
 <SQLMap name="IDKEY">
 <BlockCount>-4</BlockCount>
@@ -1573,12 +1590,12 @@ Issue an 'Http' error</Description>
 <AverageFieldSize>1.1</AverageFieldSize>
 </Property>
 <Property name="Class">
-<Selectivity>12.5000%</Selectivity>
-<AverageFieldSize>1.1</AverageFieldSize>
+<Selectivity>14.2857%</Selectivity>
+<AverageFieldSize>1</AverageFieldSize>
 </Property>
 <Property name="Name">
 <Selectivity>10.0000%</Selectivity>
-<AverageFieldSize>16.5</AverageFieldSize>
+<AverageFieldSize>13.9</AverageFieldSize>
 </Property>
 <SQLMap name="IDKEY">
 <BlockCount>-4</BlockCount>
@@ -1603,6 +1620,7 @@ Issue an 'Http' error</Description>
   <Route Url="/raw" Method="GET" Call="TestGETRawMode"/>
   <Route Url="/shared_data" Method="GET" Call="TestGETData"/>
   <Route Url="/stream" Method="GET" Call="TestGETStream"/>
+  <Route Url="/alias" Method="GET" Call="TestGETAliasedQueryParameter"/>
   <Route Url="/payload/single_object" Method="POST" Call="TestPOSTObjectPayloadSingle"/>
   <Route Url="/payload/object_with_query_params" Method="POST" Call="TestPOSTObjectPayloadQueryParams"/>  
   <Route Url="/payload/single_array" Method="POST" Call="TestPOSTArrayPayloadSingle"/>
@@ -1615,15 +1633,17 @@ Issue an 'Http' error</Description>
 ]]></Data>
 </XData>
 
-<Method name="OnReceivingData">
+<Method name="Setup">
 <Description>
-If you need to share something between methods. You can use this method to populate %frontier.Data.</Description>
+This method is reserved for setting up context configurations.</Description>
 <ClassMethod>1</ClassMethod>
-<ReturnType>%DynamicObject</ReturnType>
+<FormalSpec>data:%DynamicObject</FormalSpec>
+<ReturnType>%Status</ReturnType>
 <Implementation><![CDATA[
-  return {
-    "Message": "This 'Message' is shared between all methods."
-  }
+  
+  /// This 'data' object is shared between all methods. Accessible using %frontier.Data.
+  set data.Message = "This 'Message' is shared between all methods."
+  return $$$OK
 ]]></Implementation>
 </Method>
 
@@ -1719,7 +1739,7 @@ curl -H "Content-Type: application/json" http://localhost:57772/api/frontier/tes
 
 <Method name="TestGETData">
 <Description>
-This method uses the data object provided on OnReceivingData method.
+This method uses the data object provided on Setup method.
 The idea is to demonstrate how to access shared data.
 Call example: 
 /// curl -H "Content-Type: application/json" 'localhost:57772/api/frontier/test/shared_data' </Description>
@@ -1854,6 +1874,13 @@ curl -H "Content-Type: application/json" -X POST -d '{"username":"xyz","password
     "msg": (msg)
   }
   return sum
+]]></Implementation>
+</Method>
+
+<Method name="TestGETAliasedQueryParameter">
+<ClassMethod>1</ClassMethod>
+<FormalSpec>msg:%String(ALIAS="aliased_key")</FormalSpec>
+<Implementation><![CDATA[  return msg
 ]]></Implementation>
 </Method>
 </Class>
@@ -2263,6 +2290,14 @@ curl -H "Content-Type: application/json" -X POST -d '{"username":"xyz","password
 ]]></Implementation>
 </Method>
 
+<Method name="TestGETAliasedQueryParameter">
+<Implementation><![CDATA[
+  set resource = $$$FormatText("%1alias?aliased_key=whatever", ..WebApplicationName)
+  set expected = {"result":"whatever"}
+  return $$$AssertStatusOK(..AssertRequest(resource, expected), $$$FormatText("can retrieve the expected data from the resource %1", resource))
+]]></Implementation>
+</Method>
+
 <Method name="TestGETDynamicSQLResult">
 <Implementation><![CDATA[
   set resource = $$$FormatText("%1sql/dynamic", ..WebApplicationName)
@@ -2288,18 +2323,6 @@ curl -H "Content-Type: application/json" -X POST -d '{"username":"xyz","password
   do $$$AssertStatusOK(##class(Frontier.UnitTest.Util).MarshallSQLResult(rd, .array), "can read SQL result")
   set expected = {"results":(array)}
   return $$$AssertStatusOK(..AssertRequest(resource, expected.%ToJSON()), $$$FormatText("can retrieve the expected data from the resource %1", resource))
-]]></Implementation>
-</Method>
-
-<Method name="T">
-<ClassMethod>1</ClassMethod>
-<Implementation><![CDATA[
-  set t = ..%New(##class(Port.UnitTest.Manager).%New())
-  do t.OnBeforeAllTests()
-  do t.OnBeforeOneTest()
-  do t.TestGETQuerySQLResult()
-  do t.OnAfterOneTest()
-  do t.OnAfterAllTests()
 ]]></Implementation>
 </Method>
 </Class>
@@ -2412,14 +2435,14 @@ curl -H "Content-Type: application/json" -X POST -d '{"username":"xyz","password
 #define ltrim(%str)       $zstrip(%str, "<W")
 #define rtrim(%str)       $zstrip(%str, ">W")
 #define trim(%str)        $zstrip(%str, "<>W")
-#define trimQuote(%str)   $zstrip(%str, "*", $c(34))
+#define trimQuote(%str)   $zstrip(%str, "<>", $c(34))
 #define IsSQLQuery(%str)  ($$$ucase($extract($$$trim(%str), 6)) = "SELECT")
 #define KeyGroup(%requestKey)  $zstrip($zstrip(%requestKey, "<=N"), "=>N")
 #define KeyIndex(%requestKey)  $zstrip($zstrip(%requestKey, "<=N"), "<=A")
 ]]></Routine>
 
 
-<Project name="frontier" LastModified="2017-09-08 16:32:47.099205" Target="##class(UnitTest.Frontier.Router).T()" TargetType="2" HttpServer="http://localhost:57772">
+<Project name="frontier" LastModified="2017-09-11 10:05:00.232159" Target="##class(UnitTest.Frontier.Types).T()" TargetType="2" HttpServer="http://localhost:57772">
   <Items>
     <ProjectItem name="Frontier.ArgumentDescription" type="CLS"></ProjectItem>
     <ProjectItem name="Frontier.Context" type="CLS"></ProjectItem>

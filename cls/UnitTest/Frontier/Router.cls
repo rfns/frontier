@@ -178,6 +178,13 @@ Method TestGETStream()
   return $$$AssertStatusOK(..AssertRequest(resource, expected), $$$FormatText("can retrieve the expected data from the resource %1", resource))
 }
 
+Method TestGETAliasedQueryParameter()
+{
+  set resource = $$$FormatText("%1alias?aliased_key=whatever", ..WebApplicationName)
+  set expected = {"result":"whatever"}
+  return $$$AssertStatusOK(..AssertRequest(resource, expected), $$$FormatText("can retrieve the expected data from the resource %1", resource))
+}
+
 Method TestGETDynamicSQLResult()
 {
   set resource = $$$FormatText("%1sql/dynamic", ..WebApplicationName)
@@ -202,16 +209,6 @@ Method TestGETQuerySQLResult()
   do $$$AssertStatusOK(##class(Frontier.UnitTest.Util).MarshallSQLResult(rd, .array), "can read SQL result")
   set expected = {"results":(array)}
   return $$$AssertStatusOK(..AssertRequest(resource, expected.%ToJSON()), $$$FormatText("can retrieve the expected data from the resource %1", resource))
-}
-
-ClassMethod T()
-{
-  set t = ..%New(##class(Port.UnitTest.Manager).%New())
-  do t.OnBeforeAllTests()
-  do t.OnBeforeOneTest()
-  do t.TestGETQuerySQLResult()
-  do t.OnAfterOneTest()
-  do t.OnAfterAllTests()
 }
 
 }

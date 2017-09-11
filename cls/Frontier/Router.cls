@@ -92,20 +92,14 @@ ClassMethod DispatchRequest(pUrl As %String, pMethod As %String, pForwarded As %
           #; Check for optional ClassName prefix
           set tClass = $classname()
           If tTarget [ ":" set tClass = $piece(tTarget,":"), tTarget = $Piece(tTarget,":",2)
-                              
+
           #; Dispatch
           #; Modified to add support for type resolution and query parameters
           set tPublicMethod = ##class(Method).%New(tClass, tTarget, .tArgs, %request)
           merge tMethodArguments = tPublicMethod.Arguments
           
-          set receivedData = ..OnReceivingData()
-          
-          if '$isobject(receivedData) || ($isobject(receivedData) && 'receivedData.%IsA("%DynamicObject"))  {
-            $$$ThrowOnError($$$ERROR($$$GeneralError, "OnReceivingData must return a %DynamicObject."))
-          } else {
-            set %frontier.Data = receivedData
-          }          
-                   
+          $$$ThrowOnError(..Setup(%frontier.Data))
+
           if tMethodArguments > 0 {
             set return = $classmethod(tClass, tTarget, tMethodArguments...)
           } else {            
@@ -245,9 +239,9 @@ ClassMethod CaptureStack(Output stackText As %Stream.GlobalCharacter = "") As %S
   return $$$OK
 }
 
-ClassMethod OnReceivingData() As %DynamicObject
+ClassMethod Setup(data As %DynamicObject) As %Status
 {
-  return {}
+  return $$$OK
 }
 
 }
