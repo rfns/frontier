@@ -4,12 +4,9 @@ Class Frontier.Dynamic.Unmarshaller [ Abstract ]
 ClassMethod Unmarshall(className As %String, dynamicObject As %DynamicAbstractObject, Output registeredObject As %RegisteredObject = "") As %Status
 {
   
-  k ^mtempU
   if $isobject(dynamicObject) {   
     set dynamicType = $classname(dynamicObject)
-    set isCollection = ##class(Frontier.Types).IsCollection(className) || ##class(Frontier.Types).IsDynamicArray(className)
-    
-    set ^mtempU = $lb('isCollection, ##class(Frontier.Types).IsDynamicObject(dynamicType), ##class(Frontier.Types).IsInstantiable(className))
+    set isCollection = ##class(Frontier.Types).IsCollection(className) || ##class(Frontier.Types).IsDynamicArray(className)    
     
     if ##class(Frontier.Types).IsDynamicArray(dynamicType) {
       return ..MakeCollection(className, dynamicObject, .registeredObject)
