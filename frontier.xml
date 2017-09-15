@@ -62,8 +62,41 @@
 <InitialExpression>"utf-8"</InitialExpression>
 </Property>
 
+<Property name="RequestURL">
+<Type>%String</Type>
+</Property>
+
+<Property name="Method">
+<Type>%String</Type>
+</Property>
+
+<Property name="ClassName">
+<Type>%String</Type>
+</Property>
+
+<Property name="ArgumentValues">
+<Type>%String</Type>
+<MultiDimensional>1</MultiDimensional>
+</Property>
+
+<Property name="Stack">
+<Type>%String</Type>
+<Internal>1</Internal>
+</Property>
+
+<Property name="Error">
+<Type>%Status</Type>
+<Internal>1</Internal>
+<InitialExpression>$$$OK</InitialExpression>
+</Property>
+
 <Property name="SQL">
 <Type>Frontier.SQL</Type>
+<ReadOnly>1</ReadOnly>
+</Property>
+
+<Property name="ReporterManager">
+<Type>Frontier.Reporter.Manager</Type>
 <ReadOnly>1</ReadOnly>
 </Property>
 
@@ -79,6 +112,8 @@
   set i%Request = request
   set i%Response = response
   set i%SQL = ##class(Frontier.SQL).%New()
+  set i%ReporterManager = ##class(Frontier.Reporter.Manager).%New($this)
+  set i%ArgumentValues = 0
   set ..Data = ##class(%DynamicObject).%New()
   do ..Response.SetHeader("Content-Type", "application/json")
   set ..CharSet = "utf-8"  
@@ -375,10 +410,14 @@
 <TimeCreated>64531,58689.528672</TimeCreated>
 
 <Method name="Serialize">
+<Internal>1</Internal>
 <ClassMethod>1</ClassMethod>
 <FormalSpec>dynamic:%DynamicAbstractObject,parentKey:%String=""</FormalSpec>
+<ReturnType>%Status</ReturnType>
 <Implementation><![CDATA[
-  set isArray = ##class(Frontier.Types).IsDynamicArray($classname(dynamic))  
+  set sc = $$$OK
+  set results = ""
+  set isArray = ##class(Frontier.Types).IsDynamicArray($classname(dynamic))    
   
   if isArray {
     write "["
@@ -392,27 +431,27 @@
   while iterator.%GetNext(.key, .value) {
     write comma
     set comma = ","
-    if 'isArray write $$$ZENJSPROP(key)_":"
+    if 'isArray write $$$ZENJSONPROP(key, "s")_":"
     if $isobject(value) {
       set type = $classname(value)
       if ##class(Frontier.Types).IsDynamic(type) {         
-        do ..Serialize(value, key) 
+        set sc = $$$ADDSC(sc, ..Serialize(value, key))
       } elseif ##class(Frontier.Types).IsStream(type) {
         write $c(34)
         do WriteEscaped(value)
         write $c(34)
-      } elseif ##class(Frontier.Types).IsSQLProvider(type) {        
-        do value.RenderToJSON()
+      } elseif ##class(Frontier.Types).IsSQLProvider(type) {
+        $$$ThrowOnError(##class(Frontier.SQL.Serializer).Serialize(value.Results))
       }
     } else {
-      write $$$ZENJSVALUE(value)
+      write $$$ZENJSONVALUE(value, "s")
     }    
   }
   
   if isArray write "]"
   else  write "}"
   
-  return $$$OK
+  return sc
   
 WriteEscaped(v)
   while 'v.AtEnd { 
@@ -423,11 +462,12 @@ WriteEscaped(v)
 
 <Method name="SerializeToStream">
 <ClassMethod>1</ClassMethod>
-<FormalSpec>dynamic:%DynamicAbstractObject,*stream:%Stream.Object</FormalSpec>
+<FormalSpec>dynamic:%DynamicAbstractObject,*stream:%Stream.Object=""</FormalSpec>
 <ProcedureBlock>0</ProcedureBlock>
 <Implementation><![CDATA[
-  new currentMnemonic, alreadyRedirected
+  new currentMnemonic, alreadyRedirected, sc
   
+  set sc = $$$OK
   set isRedirected = 0
   
   set stream = ##class(%Stream.TmpBinary).%New()
@@ -437,7 +477,7 @@ WriteEscaped(v)
     set currentMnemonic = "^"_##class(%Device).GetMnemonicRoutine()
     use $io::("^"_$zname)
     do ##class(%Device).ReDirectIO(1)
-    do ..Serialize(dynamic)
+    $$$ThrowOnError(..Serialize(dynamic))
   } catch ex {
     set sc = ex.AsStatus()
   }
@@ -447,7 +487,7 @@ WriteEscaped(v)
     use $io::(currentMnemonic) 
   }
   
-  return $$$OK
+  return sc
   
 wstr(s) Do stream.Write(s) Quit
 wchr(a) Do stream.Write($char(a)) Quit
@@ -656,6 +696,116 @@ rchr(time) Quit ""
 </Class>
 
 
+<Class name="Frontier.Exception">
+<Super>%Exception.StatusException</Super>
+<TimeCreated>64225,38503.046031</TimeCreated>
+
+<Property name="NextException">
+<Type>Frontier.Exception</Type>
+</Property>
+
+<Method name="CreateFromStatus">
+<ClassMethod>1</ClassMethod>
+<FormalSpec>pSC:%Status,errorIndex:%Integer=1</FormalSpec>
+<ReturnType>Frontier.Exception</ReturnType>
+<Implementation><![CDATA[
+  #dim tException As %Exception.AbstractException
+  #dim tData As %List
+  #dim tInfo
+  
+  Set tException = $$$NULLOREF
+  
+  Do $SYSTEM.Status.DecomposeStatus(pSC,.tInfo, "pt-br")
+  If $DATA(tInfo(1)) {
+    // Build the exception object
+    Set tData="" For tI=1:1:9 Set tData=tData_$LB(tInfo(errorIndex,"param",tI))
+    Set tException = ..%New(tInfo(errorIndex,"code"),tInfo(errorIndex,"code"),$get(tInfo(errorIndex,"caller")),tData)
+    
+    // If there's an embedded error, construct that also
+    If $DATA(tInfo(errorIndex,"embeddedstatus")) {
+      Set tException.InnerException = ..CreateFromStatus(tInfo(errorIndex,"embeddedstatus"))
+    }
+    If $data(tInfo(errorIndex + 1)) Set tException.NextException=..CreateFromStatus(pSC, errorIndex + 1)
+  }
+  
+  Quit tException
+]]></Implementation>
+</Method>
+
+<Method name="ToDynamicObject">
+<ClassMethod>1</ClassMethod>
+<FormalSpec>exception:Frontier.Exception</FormalSpec>
+<ReturnType>%DynamicObject</ReturnType>
+<Implementation><![CDATA[
+  set de = ##class(%DynamicObject).%New()
+  set de.error = ..BuildObjectGraph(exception)
+  return de
+]]></Implementation>
+</Method>
+
+<Method name="CreateInfoObject">
+<ClassMethod>1</ClassMethod>
+<FormalSpec>exception:Frontier.Exception</FormalSpec>
+<Private>1</Private>
+<ReturnType>%DynamicObject</ReturnType>
+<Implementation><![CDATA[
+  set de = ##class(%DynamicObject).%New()    
+  set de.code = exception.Code
+  
+  set unfilteredErrorMessage = $System.Status.GetOneStatusText(exception.AsStatus(), 1)
+  set errorMessage = $select(unfilteredErrorMessage [ $char(13, 10) : $extract(unfilteredErrorMessage, 1, $find(unfilteredErrorMessage, $c(13,10)) - 3), 1: unfilteredErrorMessage)
+  if errorMessage?.ANPE1" > ".ANPE set errorMessage = $extract(errorMessage, 1, $find(errorMessage, " > ") - 2)
+  set de.message = errorMessage
+  return de
+]]></Implementation>
+</Method>
+
+<Method name="BuildObjectGraph">
+<ClassMethod>1</ClassMethod>
+<FormalSpec>exception:Frontier.Exception</FormalSpec>
+<Private>1</Private>
+<ReturnType>%DynamicObject</ReturnType>
+<Implementation><![CDATA[
+  set de = ..CreateInfoObject(exception)  
+  
+  if $isobject(exception.InnerException) {
+    set de.from = ..ToDynamicObject(exception.InnerException)
+  }
+  
+  if $isobject(exception) && ##class(%Dictionary.CompiledProperty).%ExistsId($classname(exception)_"||NextException") && $isobject(exception.NextException) {
+    set nextExceptions = ##class(%ListOfObjects).%New()
+    set de.next = nextExceptions
+    
+    set ex = exception.NextException
+    while ex {
+      do de.next.Insert(..CreateInfoObject(ex, 0))
+      set ex = ex.NextException
+    }
+  }
+  
+  return de
+]]></Implementation>
+</Method>
+
+<Method name="CaptureStack">
+<ClassMethod>1</ClassMethod>
+<FormalSpec>*stackText:%Stream.GlobalCharacter=""</FormalSpec>
+<ReturnType>%String</ReturnType>
+<Implementation><![CDATA[
+  set stackText = ##class(%Stream.GlobalCharacter).%New()
+    
+  do stackText.WriteLine("Runtime exception ")
+  set max = $stack(-1)
+  for loop=max:-1:1 {
+    set sc  = stackText.WriteLine($char(9)_"     at "_$stack(loop, "PLACE")_$stack(loop, "MCODE")_" (LV: "_loop_")")
+    if $$$ISERR(sc) return sc
+  }   
+  return stackText.Read()
+]]></Implementation>
+</Method>
+</Class>
+
+
 <Class name="Frontier.Method">
 <IncludeCode>frontier</IncludeCode>
 <Super>%RegisteredObject</Super>
@@ -664,7 +814,6 @@ rchr(time) Quit ""
 <Property name="MethodArguments">
 <Type>ArgumentDescription</Type>
 <Collection>list</Collection>
-<Private>1</Private>
 </Property>
 
 <Property name="MethodDescriptor">
@@ -694,10 +843,11 @@ rchr(time) Quit ""
 </Property>
 
 <Method name="%OnNew">
-<FormalSpec>className:%String,methodName:%String,RESTMethodArguments:%String,request:%CSP.Request</FormalSpec>
+<FormalSpec>className:%String,methodName:%String,RESTMethodArguments:%String=0,request:%CSP.Request=""</FormalSpec>
 <Private>1</Private>
 <ReturnType>%Status</ReturnType>
 <Implementation><![CDATA[
+  set requestQueryParams = 0
   $$$ThrowOnError(..AssertMethodExists(className, methodName))
   
   set ..MethodDescriptor = ##class(%Dictionary.CompiledMethod).%OpenId(className_"||"_methodName)  
@@ -705,11 +855,13 @@ rchr(time) Quit ""
   $$$ThrowOnError(..DescribeArguments())
   $$$ThrowOnError(..ParseReturnTypeParameters())
   
-  merge requestQueryParams = request.Data
-  $$$ThrowOnError(..MergeArguments(.RESTMethodArguments, .requestQueryParams, .mergedArguments))
-    
-  set ..Payload = request.Content
-  set ..HttpMethod = request.Method
+  if $isobject(request) {
+    set ..Payload = request.Content
+    set ..HttpMethod = request.Method
+    merge requestQueryParams = request.Data
+  }
+  
+  $$$ThrowOnError(..MergeArguments(.RESTMethodArguments, .requestQueryParams, .mergedArguments))    
   
   $$$ThrowOnError(..Sequentialize(.mergedArguments))
   quit $$$OK
@@ -739,7 +891,7 @@ ParseArgument(parsedArgument)
   if argument '= "" {
     set parsedArgument = ##class(Frontier.ArgumentDescription).%New()
     if argument [ "..." set parsedArgument.Arity = 1
-    set parsedArgument.Name = $replace($piece(argument, ":", 1), "...", "")
+    set parsedArgument.Name = $piece($replace($piece(argument, ":", 1), "...", ""), "=", 1)
     set parsedArgument.DefaultValue = $piece(argument, "=", 2)    
     set parsedArgument.Index = currentIndex
     set preType = $piece(argument, ":", 2)
@@ -928,9 +1080,272 @@ ParseArgument(parsedArgument)
 </Class>
 
 
+<Class name="Frontier.Reporter">
+<Super>%RegisteredObject</Super>
+<TimeCreated>64537,40798.410075</TimeCreated>
+
+<Method name="Setup">
+<FormalSpec>context:Frontier.Context</FormalSpec>
+<ReturnType>%Status</ReturnType>
+<Implementation><![CDATA[  return $$$OK
+]]></Implementation>
+</Method>
+
+<Method name="Report">
+<FormalSpec>context:Frontier.Context</FormalSpec>
+<ReturnType>%Status</ReturnType>
+<Implementation><![CDATA[  return $$$OK
+]]></Implementation>
+</Method>
+</Class>
+
+
+<Class name="Frontier.Reporter.Email">
+<Description>
+This class demonstrates how to create a reporter that sends an e-mail when a request error occurs.
+If you want to see it working, create another class extending from this one and fill
+the fields that aren't private, or you can instantiate it and change it's values manually.</Description>
+<Super>Frontier.Reporter</Super>
+<TimeCreated>64538,34157.457443</TimeCreated>
+
+<Property name="Mail">
+<Type>%Net.MailMessage</Type>
+<Private>1</Private>
+</Property>
+
+<Property name="SMTPServer">
+<Type>%Net.SMTP</Type>
+<Private>1</Private>
+</Property>
+
+<Property name="Authenticator">
+<Type>%Net.Authenticator</Type>
+<Private>1</Private>
+</Property>
+
+<Property name="SMTPServerLocation">
+<Type>%String</Type>
+<InitialExpression>"your smtp server"</InitialExpression>
+</Property>
+
+<Property name="SMTPServerPort">
+<Type>%Integer</Type>
+<InitialExpression>25</InitialExpression>
+</Property>
+
+<Property name="SenderEmail">
+<Type>%String</Type>
+<InitialExpression>"youremail@host.com"</InitialExpression>
+</Property>
+
+<Property name="SenderPassword">
+<Type>%String</Type>
+<InitialExpression>"yourpasssword"</InitialExpression>
+</Property>
+
+<Property name="DestinationEmail">
+<Type>%String</Type>
+<InitialExpression>"dest@host.com"</InitialExpression>
+</Property>
+
+<Property name="TemplateLocation">
+<Type>%String</Type>
+<InitialExpression>"/the/email/template.html"</InitialExpression>
+</Property>
+
+<Property name="SSLConfiguration">
+<Type>%String</Type>
+</Property>
+
+<Property name="UseSTARTTLS">
+<Type>%Boolean</Type>
+</Property>
+
+<Method name="%OnNew">
+<ReturnType>%Status</ReturnType>
+<Implementation><![CDATA[
+  set ..SMTPServer = ##class(%Net.SMTP).%New()
+  set ..Authenticator = ##class(%Net.Authenticator).%New()
+  set ..Mail = ##class(%Net.MailMessage).%New()
+  set ..Mail.IsHTML = 1
+  set ..SMTPServer.authenticator = ..Authenticator
+  $$$QuitOnError(..SetupAccount())
+  return $$$OK
+]]></Implementation>
+</Method>
+
+<Method name="Setup">
+<Internal>1</Internal>
+<FormalSpec>context:Frontier.Context</FormalSpec>
+<ReturnType>%Status</ReturnType>
+<Implementation><![CDATA[
+  $$$QuitOnError(..SetupSMTPServer())
+  $$$QuitOnError(..SetupAuthenticator())
+  $$$QuitOnError(..SetupMail(context))
+  return $$$OK
+]]></Implementation>
+</Method>
+
+<Method name="SetupSMTPServer">
+<ReturnType>%Status</ReturnType>
+<Implementation><![CDATA[
+  set ..SMTPServer.smtpserver = ..SMTPServerLocation
+  set ..SMTPServer.port = ..SMTPServerPort
+  set ..SMTPServer.SSLConfiguration = ..SSLConfiguration
+  set ..SMTPServer.UseSTARTTLS = ..UseSTARTTLS
+  return $$$OK
+]]></Implementation>
+</Method>
+
+<Method name="SetupAuthenticator">
+<ReturnType>%Status</ReturnType>
+<Implementation><![CDATA[
+  set ..Authenticator.UserName = ..SenderEmail
+  set ..Authenticator.Password = ..SenderPassword
+  return $$$OK
+]]></Implementation>
+</Method>
+
+<Method name="SetupMail">
+<FormalSpec>context:Frontier.Context</FormalSpec>
+<ReturnType>%Status</ReturnType>
+<Implementation><![CDATA[
+  set ..Mail.From = ..SenderEmail
+  do ..Mail.To.Insert(..DestinationEmail)      
+  return $$$OK
+]]></Implementation>
+</Method>
+
+<Method name="Report">
+<FormalSpec>context:Frontier.Context</FormalSpec>
+<ReturnType>%Status</ReturnType>
+<Implementation><![CDATA[
+  set ..Mail.Subject = $$$FormatText("[Error Report] - %1", $System.Status.GetErrorText(context.Error))
+  $$$QuitOnError(..Mail.TextData.Write(..ReplacePlaceholders(context)))
+  return ..SMTPServer.Send(..Mail)
+]]></Implementation>
+</Method>
+
+<Method name="ReplacePlaceholders">
+<FormalSpec>context:Frontier.Context</FormalSpec>
+<Private>1</Private>
+<ReturnType>%String</ReturnType>
+<Implementation><![CDATA[
+  set method = ##class(Frontier.Method).%New(context.ClassName, context.Method)  
+  set template = ##class(%Stream.FileCharacter).%New()
+  
+  $$$QuitOnError(template.LinkToFile(..TemplateLocation))  
+  
+  set formatParameters = 6
+  set formatParameters(1) = $System.Status.GetErrorText(context.Error)
+  set formatParameters(2) = context.RequestURL
+  set formatParameters(3) = context.ClassName
+  set formatParameters(4) = context.Method
+  if context.ArgumentValues '= 0  {
+    for i=1:1:context.ArgumentValues {
+      set methodArgument = method.MethodArguments.GetAt(i)
+      set argumentName = methodArgument.Name
+      set argumentValue = context.ArgumentValues(i)
+      set argumentType = methodArgument.Type
+      if argumentType = "" set argumentType = "<i>n/a</i>"
+      set formatParameters(5) = $$$FormatText("%1 %2:%3: %4<br>", $get(formatParameters(5)), argumentName, argumentType, argumentValue)
+    }
+  } else {
+    set formatParameters(5) = "<i>none</i>"
+  }
+  set formatParameters(6) = $replace(context.Stack, $c(10), "<br>")
+  return $$$FormatText(template.Read(), formatParameters...)
+]]></Implementation>
+</Method>
+
+<Method name="SetupAccount">
+<ReturnType>%Status</ReturnType>
+<Implementation><![CDATA[  return $$$OK
+]]></Implementation>
+</Method>
+</Class>
+
+
+<Class name="Frontier.Reporter.Manager">
+<Super>%RegisteredObject</Super>
+<TimeCreated>64538,33046.39632</TimeCreated>
+
+<Property name="Reporters">
+<Type>Frontier.Reporter</Type>
+<Collection>list</Collection>
+<Private>1</Private>
+</Property>
+
+<Property name="Context">
+<Type>Frontier.Context</Type>
+<Private>1</Private>
+</Property>
+
+<Method name="%OnNew">
+<FormalSpec>context:Frontier.Context</FormalSpec>
+<ReturnType>%Status</ReturnType>
+<Implementation><![CDATA[
+  set ..Context = context
+  return $$$OK
+]]></Implementation>
+</Method>
+
+<Method name="AddReporter">
+<FormalSpec>reporter:Frontier.Reporter</FormalSpec>
+<ReturnType>%Status</ReturnType>
+<Implementation><![CDATA[
+  $$$QuitOnError(reporter.Setup(..Context))
+  $$$QuitOnError(..Reporters.Insert(reporter))
+  return $$$OK
+]]></Implementation>
+</Method>
+
+<Method name="Report">
+<ReturnType>%Status</ReturnType>
+<Implementation><![CDATA[
+  set sc = $$$OK
+  if $$$ISOK(..Context.Error) return $$$OK
+  
+  for i=1:1:..Reporters.Count() {
+    set reporter = ..Reporters.GetAt(i)
+    set sc = $$$ADDSC(sc, reporter.Report(..Context))
+  }  
+  return sc
+]]></Implementation>
+</Method>
+
+<Method name="SetupReporters">
+<ReturnType>%Status</ReturnType>
+<Implementation><![CDATA[
+  set sc = $$$OK
+  
+  for i=1:1:..Reporters.Count() {
+    set reporter = ..Reporters.GetAt(i)
+    set sc = $$$ADDSC(reporter.Setup(..Context), sc)
+  }  
+  return $$$OK
+]]></Implementation>
+</Method>
+</Class>
+
+
 <Class name="Frontier.Router">
 <Super>%CSP.REST</Super>
 <TimeCreated>64492,32085.189445</TimeCreated>
+
+<Method name="Page">
+<ClassMethod>1</ClassMethod>
+<FormalSpec>skipheader:%Boolean=1</FormalSpec>
+<ProcedureBlock>0</ProcedureBlock>
+<ReturnType>%Status</ReturnType>
+<Implementation><![CDATA[
+  new %frontier
+  set %frontier = ##class(Frontier.Context).%New(%session, %request, %response)  
+  $$$QuitOnError(##super(skipheader))
+  do ..OnPostHTTP()
+  return $$$OK
+]]></Implementation>
+</Method>
 
 <Method name="DispatchRequest">
 <ClassMethod>1</ClassMethod>
@@ -950,12 +1365,9 @@ ParseArgument(parsedArgument)
   #dim tArgs,tClass,tMatchUrl,tMapEntry,tRegEx,tCall,tForward,tAccess,tSupportedVerbs,tTarget,tType As %String
   #dim tI,tIndex As %Integer
   #dim tResourceMatched,tContinue As %Boolean
-  #dim tMethodMatched As %Boolean
-  
-  new %frontier
-  set %frontier = ..InitContext(%session, %request, %response)  
+  #dim tMethodMatched As %Boolean    
     
-   try {       
+   try {    
     set (tResourceMatched,tMethodMatched) = 0    
                 
     #; Extract the match url from the application name
@@ -1032,9 +1444,15 @@ ParseArgument(parsedArgument)
           set tPublicMethod = ##class(Method).%New(tClass, tTarget, .tArgs, %request)
           merge tMethodArguments = tPublicMethod.Arguments
           
-          $$$ThrowOnError(..Setup(%frontier.Data))
+          set %frontier.Method = tTarget
+          set %frontier.RequestURL = %request.URL
+          set %frontier.ClassName = $classname()
+          
+          $$$ThrowOnError(..OnDataSet(%frontier.Data))
+          $$$ThrowOnError(..OnSetup())
 
           if tMethodArguments > 0 {
+            merge %frontier.ArgumentValues = tMethodArguments
             set return = $classmethod(tClass, tTarget, tMethodArguments...)
           } else {            
             set return = $classmethod(tClass, tTarget)
@@ -1065,13 +1483,11 @@ ParseArgument(parsedArgument)
       return ..Http405(tSupportedVerbs) Quit
     }
   } catch (e) {
-    do ..CaptureStack(.stack)
     if tHttpStatus < 300 set tHttpStatus = ..#HTTP500INTERNALSERVERERROR
-    
-    do ..ReportHttpStatusCode(tHttpStatus, e.AsStatus(), .json)
-    set json.stack = stack.Read()
-    
-    do json.%ToJSON(, "aelo")
+    set exceptionJSON = ##class(Exception).ToDynamicObject(e)  
+    set %frontier.Error = e.AsStatus()
+    set %frontier.Stack = ##class(Exception).CaptureStack() 
+    write exceptionJSON.%ToJSON()
   }   
   return $$$OK
 ]]></Implementation>
@@ -1082,7 +1498,8 @@ ParseArgument(parsedArgument)
 <FormalSpec><![CDATA[returnedData:%CacheString,method:Frontier.Router,&returnTypeParams=""]]></FormalSpec>
 <ReturnType>%Status</ReturnType>
 <Implementation><![CDATA[
- 
+  
+  set sc = $$$OK
   set response = {}
   
   // Enables device writing.
@@ -1101,10 +1518,12 @@ ParseArgument(parsedArgument)
         set stream = returnedData set returnedData = response
         set response.content = stream
       } elseif isSQLProvider {
-        set results = returnedData set returnedData = response
-        set response.results = results
+        set provider = returnedData
+        $$$QuitOnError(provider.Execute())
+        set response.results = provider
+      } else {      
+        $$$QuitOnError(##class(Frontier.Dynamic.Marshaller).Marshall(returnedData, .response))
       }
-      $$$QuitOnError(##class(Frontier.Dynamic.Marshaller).Marshall(returnedData, .response))
     } else {
       return $$$ERROR($$$GeneralError, "Cannot serialize system class instances.")
     }
@@ -1116,92 +1535,31 @@ ParseArgument(parsedArgument)
   }
   // We must use a custom serializer because the current %ToJSON implementation cannot serialize
   // mixed instances.
-  do ##class(Frontier.Dynamic.Serializer).Serialize(response)
-  return $$$OK
+  return ##class(Frontier.Dynamic.Serializer).Serialize(response)
 ]]></Implementation>
 </Method>
 
-<Method name="outputStatus">
-<Description>
-This method takes a status, renders it as json (if requested) and outputs the result</Description>
-<Internal>1</Internal>
+<Method name="OnSetup">
 <ClassMethod>1</ClassMethod>
-<FormalSpec>pSC:%Status,*tJSON:%ZEN.proxyObject=""</FormalSpec>
 <ReturnType>%Status</ReturnType>
-<Implementation><![CDATA[
-  #dim tSC As %Status = $$$OK
-  #dim e As %Exception.AbstractException   
-   
-  try {      
-    if ..AcceptsContentType("application/json") {
-      Set %response.ContentType = ..#CONTENTTYPEJSON        
-      #; Convert the exception to a status and render to JSON
-      
-      set tSC = ..StatusToProxyObject(pSC, .tJSON)
-      if $$$ISERR(tSC) return tSC
-      #; Write the JSON to the output device
-      if $$$ISERR(tSC) return tSC            
-    } else {            
-      #; Set plain text
-      set %response.ContentType = ..#CONTENTTYPETEXT
-      
-      #; Write out a simple text message
-      do ##class(%Exception.StatusException).CreateFromStatus(pSC).OutputToDevice()
-    }        
-  } catch (e) {        
-    #; Oops
-    set tSC = e.AsStatus()
-  }
-  return $$$OK
+<Implementation><![CDATA[  return $$$OK
 ]]></Implementation>
 </Method>
 
-<Method name="ReportHttpStatusCode">
-<Description>
-Issue an 'Http' error</Description>
-<ClassMethod>1</ClassMethod>
-<FormalSpec>pHttpStatus,pSC:%Status=$$$OK,*pData:%ZEN.proxyObject=""</FormalSpec>
-<ReturnType>%Status</ReturnType>
-<Implementation><![CDATA[
-    Set %response.Status=pHttpStatus
-    
-    If $$$ISERR(pSC) Do ..outputStatus(pSC, .pData)
-        
-    Quit $$$OK
-]]></Implementation>
-</Method>
-
-<Method name="InitContext">
-<ClassMethod>1</ClassMethod>
-<FormalSpec>session:%CSP.Session,request:%CSP.Request,response:%CSP.Response</FormalSpec>
-<Private>1</Private>
-<ReturnType>Frontier.Context</ReturnType>
-<Implementation><![CDATA[  return ##class(Frontier.Context).%New(session, request, response)
-]]></Implementation>
-</Method>
-
-<Method name="CaptureStack">
-<ClassMethod>1</ClassMethod>
-<FormalSpec>*stackText:%Stream.GlobalCharacter=""</FormalSpec>
-<ReturnType>%Status</ReturnType>
-<Implementation><![CDATA[
-  set stackText = ##class(%Stream.GlobalCharacter).%New()
-    
-  do stackText.WriteLine("Runtime exception ")
-  set max = $stack(-1)
-  for loop=max:-1:1 {
-    set sc  = stackText.WriteLine($char(9)_"     at "_$stack(loop, "PLACE")_$stack(loop, "MCODE")_" (Level: "_loop_")")
-    if $$$ISERR(sc) return sc
-  }   
-  return $$$OK
-]]></Implementation>
-</Method>
-
-<Method name="Setup">
+<Method name="OnDataSet">
 <ClassMethod>1</ClassMethod>
 <FormalSpec>data:%DynamicObject</FormalSpec>
 <ReturnType>%Status</ReturnType>
 <Implementation><![CDATA[  return $$$OK
+]]></Implementation>
+</Method>
+
+<Method name="OnPostHTTP">
+<Final>1</Final>
+<ClassMethod>1</ClassMethod>
+<Implementation><![CDATA[
+  do %frontier.ReporterManager.Report() 
+  kill %frontier
 ]]></Implementation>
 </Method>
 </Class>
@@ -1212,71 +1570,8 @@ Issue an 'Http' error</Description>
 <TimeCreated>64531,35746.997056</TimeCreated>
 
 <Method name="Prepare">
-<FormalSpec>statement:%String</FormalSpec>
-<Implementation><![CDATA[  return ##class(Frontier.SQL.Provider).%New(statement)
-]]></Implementation>
-</Method>
-</Class>
-
-
-<Class name="Frontier.SQL.DeviceOutputAdapter">
-<Super>%ZEN.Auxiliary.altJSONSQLProvider</Super>
-<TimeCreated>64532,54699.043149</TimeCreated>
-
-<Method name="%DrawJSON">
-<Internal>1</Internal>
-<ReturnType>%Status</ReturnType>
-<Implementation><![CDATA[
-  set sc = $$$OK
-  set ..contentType = "array"
-  set key = ""
-  
-  try {    
-    while ..parameters.GetNext(.key) {
-      set value = ..parameters.GetAt(key).value
-      Set parameters(key) = $$$ZENVAL(value)
-    }        
-    
-    set queryInfo = ##class(%ZEN.Auxiliary.QueryInfo).%New()     
-    merge queryInfo.parms = parameters
-    set resultSet = ..%CreateResultSet(.sc, queryInfo)
-    if $$$ISERR(sc) || '$isobject(resultSet) write "null" quit
-    
-    kill columnInfo
-    
-    if resultSet.%IsA("%Library.ResultSet") {
-      set columnsCount = resultSet.GetColumnCount()
-      for c = 1:1:columnsCount {
-       Set columnInfo(c,"name") = resultSet.GetColumnHeader(c)
-      }
-    } else {
-      set columnsCount = resultSet.%ResultColumnCount
-      for c = 1:1:columnsCount {
-        set columnInfo(c,"name") = resultSet.%Metadata.columns.GetAt(c).label
-      }
-    }   
-    
-    set arrayNode = []    
-    Set row = 0
-    
-    while (resultSet.%Next(.sc) && ((..maxRows = 0) || (row < ..maxRows))) {
-      quit:$$$ISERR(sc)
-      set row = row + 1
-      set node = {}
-      for c = 1:1:resultSet.%ResultColumnCount {
-        set value = resultSet.%GetData(c)
-        
-        if ($isvalidnum(value) && ($e(value) '= 0)) do node.%Set($get(columnInfo(c,"name")),$num(value),"number")
-        else  do node.%Set($get(columnInfo(c,"name")),value)
-      }
-      Do arrayNode.%Push(node)
-    }   
-    do arrayNode.%ToJSON()    
-  } catch ex {
-    Write "null"
-    Set tSC = ex.AsStatus()  
-  }
-  return $$$OK
+<FormalSpec>SQLExpression:%String</FormalSpec>
+<Implementation><![CDATA[  return ##class(Frontier.SQL.Provider).%New(SQLExpression)
 ]]></Implementation>
 </Method>
 </Class>
@@ -1287,35 +1582,56 @@ Issue an 'Http' error</Description>
 <Super>%RegisteredObject</Super>
 <TimeCreated>64531,36463.732591</TimeCreated>
 
-<Property name="SQLProvider">
-<Type>Frontier.SQL.DeviceOutputAdapter</Type>
+<Property name="QueryClass">
+<Type>%String</Type>
 <Private>1</Private>
+</Property>
+
+<Property name="QueryName">
+<Type>%String</Type>
+<Private>1</Private>
+</Property>
+
+<Property name="SQL">
+<Type>%String</Type>
+<Private>1</Private>
+</Property>
+
+<Property name="QueryParameters">
+<Type>%String</Type>
+<MultiDimensional>1</MultiDimensional>
+<Private>1</Private>
+</Property>
+
+<Property name="Mode">
+<Type>%Integer</Type>
+<InitialExpression>1</InitialExpression>
+<Private>1</Private>
+</Property>
+
+<Property name="Error">
+<Type>%Status</Type>
+<Internal>1</Internal>
+<InitialExpression>$$$OK</InitialExpression>
+</Property>
+
+<Property name="StatementExecuted">
+<Type>%Boolean</Type>
+<InitialExpression>0</InitialExpression>
+</Property>
+
+<Property name="Results">
+<Type>%SQL.StatementResult</Type>
+<Internal>1</Internal>
+<ReadOnly>1</ReadOnly>
 </Property>
 
 <Method name="%OnNew">
 <FormalSpec>statement:%String</FormalSpec>
 <ReturnType>%Status</ReturnType>
 <Implementation><![CDATA[
-  $$$ThrowOnError(..CreateProvider(statement))
-  return $$$OK
-]]></Implementation>
-</Method>
-
-<Method name="CreateProvider">
-<FormalSpec>statement:%String</FormalSpec>
-<Private>1</Private>
-<ReturnType>%Status</ReturnType>
-<Implementation><![CDATA[
-   
-  set ..SQLProvider = ##class(Frontier.SQL.DeviceOutputAdapter).%New()
-  set ..SQLProvider.maxRows = 0
   
-  if $length(statement, ":") = 2 {   
-    set ..SQLProvider.queryClass = $piece(statement, ":")
-    set ..SQLProvider.queryName = $piece(statement, ":", 2)
-  } elseif $extract($$$ucase($$$trim(statement)), 1, 6) = "SELECT" {
-    set ..SQLProvider.sql = statement    
-  }
+  $$$ThrowOnError(..HandleSQLExpression(statement))
   return $$$OK
 ]]></Implementation>
 </Method>
@@ -1324,20 +1640,150 @@ Issue an 'Http' error</Description>
 <FormalSpec>params...:%String</FormalSpec>
 <ReturnType>Frontier.SQL.Provider</ReturnType>
 <Implementation><![CDATA[
-  do ..SQLProvider.parameters.Clear()
-  
-  for i=1:1:params {
-    set parameter = ##class(%ZEN.Auxiliary.parameter).%New()
-    set parameter.value = params(i)
-    do ..SQLProvider.parameters.SetAt(parameter, i)
-  }
+  $$$ThrowOnError(..SetQueryParameters(params...))
   return $this
 ]]></Implementation>
 </Method>
 
-<Method name="RenderToJSON">
+<Method name="Mode">
+<FormalSpec>selectMode:%Integer=1</FormalSpec>
+<ReturnType>Frontier.SQL.Provider</ReturnType>
+<Implementation><![CDATA[
+  set ..Mode = selectMode
+  return $this
+]]></Implementation>
+</Method>
+
+<Method name="Execute">
 <ReturnType>%Status</ReturnType>
-<Implementation><![CDATA[  return ..SQLProvider.%DrawJSON()
+<Implementation><![CDATA[
+  set ..StatementExecuted = 1
+  return ..CreateAndExecute()
+]]></Implementation>
+</Method>
+
+<Method name="HandleSQLExpression">
+<FormalSpec>SQLExpression:%String</FormalSpec>
+<Private>1</Private>
+<ReturnType>%Status</ReturnType>
+<Implementation><![CDATA[
+   
+  if $length(SQLExpression, ":") = 2 {   
+    set ..QueryClass = $piece(SQLExpression, ":")
+    set ..QueryName = $piece(SQLExpression, ":", 2)
+  } elseif $extract($$$ucase($$$trim(SQLExpression)), 1, 6) = "SELECT" {
+    set ..SQL = SQLExpression
+  }
+  return $$$OK
+]]></Implementation>
+</Method>
+
+<Method name="SetQueryParameters">
+<FormalSpec><![CDATA[&parameters...:%String]]></FormalSpec>
+<ReturnType>%Status</ReturnType>
+<Implementation><![CDATA[
+  if parameters '= 0 && 'parameters?.N && ($order(parameters(""), -1) '= parameters) {
+    return $$$ERROR($$$GeneralError, "Invalid parameter spec.")
+  }
+  
+  kill i%QueryParameters
+  set i%QueryParameters = parameters
+  
+  merge i%QueryParameters = parameters
+  return $$$OK
+]]></Implementation>
+</Method>
+
+<Method name="CreateAndExecute">
+<Private>1</Private>
+<ReturnType>%Status</ReturnType>
+<Implementation><![CDATA[
+  
+  set sc = $$$OK
+  merge parameters = ..QueryParameters
+  
+  set statement = ##class(%SQL.Statement).%New()
+  set statement.%SelectMode = ..Mode  
+  
+  if ..QueryClass '= "" && (..QueryName '= "") {    
+    set sc = statement.%PrepareClassQuery(..QueryClass, ..QueryName)    
+  } elseif ..SQL '= "" {
+    set sc = statement.%Prepare(..SQL)
+  }  
+  
+  set results = statement.%Execute(parameters...)
+  
+  if results.%SQLCODE '= 0 {
+    set sc = ##class(%Exception.SQL).CreateFromSQLCODE(results.%SQLCODE, results.%Message).AsStatus()
+  }
+  set i%Results = results
+  return sc
+]]></Implementation>
+</Method>
+</Class>
+
+
+<Class name="Frontier.SQL.Serializer">
+<Abstract>1</Abstract>
+<IncludeCode>frontier,%ZEN.Utils</IncludeCode>
+<TimeCreated>64539,50921.256251</TimeCreated>
+
+<Method name="Serialize">
+<ClassMethod>1</ClassMethod>
+<FormalSpec>results:%SQL.Statement</FormalSpec>
+<ReturnType>%Status</ReturnType>
+<Implementation><![CDATA[
+  set sc = $$$OK
+  $$$QuitOnError(..FetchColumnNames(results.%GetMetadata(), .columnNames))
+  
+  set data = ##class(%Stream.GlobalCharacter).%New()
+  
+  do data.Write("[")
+  
+  set itemComma = ""
+  set propertyComma = ""
+  
+  try {               
+    while results.%Next(.sc) {
+      $$$ThrowOnError(data.Write(itemComma))
+      
+      set itemComma = ","
+      set propertyComma = ""
+      
+      do data.Write("{")
+      $$$ThrowOnError(sc)      
+      
+      for c=1:1:columnNames {
+        set columnName = columnNames(c)
+        set value = results.%Get(columnName)        
+        
+        $$$ThrowOnError(data.Write(propertyComma))
+        $$$ThrowOnError(data.Write($$$ZENJSONPAIR(columnName, value, "s")))
+        set propertyComma = ","
+      }
+      $$$ThrowOnError(data.Write("}"))
+    }   
+    $$$ThrowOnError(data.Write("]"))
+    $$$ThrowOnError(data.OutputToDevice())    
+  } catch ex {
+    write "null"
+    set sc = ex.AsStatus()
+  }
+  return sc
+]]></Implementation>
+</Method>
+
+<Method name="FetchColumnNames">
+<ClassMethod>1</ClassMethod>
+<FormalSpec>metadata:%SQL.StatementMetadata,*columnNames:%String</FormalSpec>
+<Private>1</Private>
+<ReturnType>%Status</ReturnType>
+<Implementation><![CDATA[
+  
+  set columns = metadata.columns
+  set columnNames = columns.Count()
+  for i=1:1:columnNames set columnNames(i) = columns.GetAt(i).label
+  return $$$OK
 ]]></Implementation>
 </Method>
 </Class>
@@ -1351,7 +1797,7 @@ Issue an 'Http' error</Description>
 <ClassMethod>1</ClassMethod>
 <FormalSpec>className:%String</FormalSpec>
 <ReturnType>%Boolean</ReturnType>
-<Implementation><![CDATA[  quit ..IsTypeOf(className, "%RegisteredObject", 0, "")
+<Implementation><![CDATA[  quit ..IsTypeOf(className, "%RegisteredObject")
 ]]></Implementation>
 </Method>
 
@@ -1359,7 +1805,7 @@ Issue an 'Http' error</Description>
 <ClassMethod>1</ClassMethod>
 <FormalSpec>className:%String</FormalSpec>
 <ReturnType>%Boolean</ReturnType>
-<Implementation><![CDATA[  quit ..IsTypeOf(className, "%Persistent", 0, "")
+<Implementation><![CDATA[  quit ..IsTypeOf(className, "%Persistent")
 ]]></Implementation>
 </Method>
 
@@ -1367,7 +1813,7 @@ Issue an 'Http' error</Description>
 <ClassMethod>1</ClassMethod>
 <FormalSpec>className:%String</FormalSpec>
 <ReturnType>%Boolean</ReturnType>
-<Implementation><![CDATA[  quit ..IsTypeOf(className, "%DataType", 0, "datatype")
+<Implementation><![CDATA[  quit ..IsTypeOf(className, "%DataType")
 ]]></Implementation>
 </Method>
 
@@ -1375,7 +1821,7 @@ Issue an 'Http' error</Description>
 <ClassMethod>1</ClassMethod>
 <FormalSpec>className:%String</FormalSpec>
 <ReturnType>%Boolean</ReturnType>
-<Implementation><![CDATA[  quit ..IsTypeOf(className, "%Stream.Object", 0, "")
+<Implementation><![CDATA[  quit ..IsTypeOf(className, "%Stream.Object")
 ]]></Implementation>
 </Method>
 
@@ -1383,7 +1829,7 @@ Issue an 'Http' error</Description>
 <ClassMethod>1</ClassMethod>
 <FormalSpec>className:%String</FormalSpec>
 <ReturnType>%Boolean</ReturnType>
-<Implementation><![CDATA[  quit ..IsTypeOf(className, "%Collection.AbstractIterator", 0, "")
+<Implementation><![CDATA[  quit ..IsTypeOf(className, "%Collection.AbstractIterator")
 ]]></Implementation>
 </Method>
 
@@ -1391,7 +1837,7 @@ Issue an 'Http' error</Description>
 <ClassMethod>1</ClassMethod>
 <FormalSpec>className:%String</FormalSpec>
 <ReturnType>%Boolean</ReturnType>
-<Implementation><![CDATA[  quit ..IsTypeOf(className, "%SerialObject", 0, "serial")
+<Implementation><![CDATA[  quit ..IsTypeOf(className, "%SerialObject")
 ]]></Implementation>
 </Method>
 
@@ -1399,7 +1845,7 @@ Issue an 'Http' error</Description>
 <ClassMethod>1</ClassMethod>
 <FormalSpec>className:%String</FormalSpec>
 <ReturnType>%Boolean</ReturnType>
-<Implementation><![CDATA[  return ..IsTypeOf(className, "%DynamicAbstractObject", 0)
+<Implementation><![CDATA[  return ..IsTypeOf(className, "%DynamicAbstractObject")
 ]]></Implementation>
 </Method>
 
@@ -1407,7 +1853,7 @@ Issue an 'Http' error</Description>
 <ClassMethod>1</ClassMethod>
 <FormalSpec>className:%String</FormalSpec>
 <ReturnType>%Boolean</ReturnType>
-<Implementation><![CDATA[  return ..IsTypeOf(className, "%DynamicArray", 0)
+<Implementation><![CDATA[  return ..IsTypeOf(className, "%DynamicArray")
 ]]></Implementation>
 </Method>
 
@@ -1415,7 +1861,7 @@ Issue an 'Http' error</Description>
 <ClassMethod>1</ClassMethod>
 <FormalSpec>className:%String</FormalSpec>
 <ReturnType>%Boolean</ReturnType>
-<Implementation><![CDATA[  return ..IsTypeOf(className, "%DynamicObject", 0)
+<Implementation><![CDATA[  return ..IsTypeOf(className, "%DynamicObject")
 ]]></Implementation>
 </Method>
 
@@ -1423,7 +1869,7 @@ Issue an 'Http' error</Description>
 <ClassMethod>1</ClassMethod>
 <FormalSpec>className:%String</FormalSpec>
 <ReturnType>%Boolean</ReturnType>
-<Implementation><![CDATA[  return ..IsTypeOf(className, "%ZEN.proxyObject", 0)
+<Implementation><![CDATA[  return ..IsTypeOf(className, "%ZEN.proxyObject")
 ]]></Implementation>
 </Method>
 
@@ -1431,22 +1877,20 @@ Issue an 'Http' error</Description>
 <ClassMethod>1</ClassMethod>
 <FormalSpec>className:%String</FormalSpec>
 <ReturnType>%Boolean</ReturnType>
-<Implementation><![CDATA[  return ..IsTypeOf(className, "Frontier.SQL.Provider", 0)
+<Implementation><![CDATA[  return ..IsTypeOf(className, "Frontier.SQL.Provider")
 ]]></Implementation>
 </Method>
 
 <Method name="IsTypeOf">
 <Final>1</Final>
 <ClassMethod>1</ClassMethod>
-<FormalSpec>className:%String,expectedType:%String,whenNull:%String=0,expectedClassType:%String=""</FormalSpec>
+<FormalSpec>className:%String,expectedType:%String</FormalSpec>
 <Private>1</Private>
 <ReturnType>%Boolean</ReturnType>
 <Implementation><![CDATA[
   
-  #define NormalizeClassName(%cn) if $l(%cn, ".") = 1 && ($e(%cn) = "%") set %cn = "%Library."_$e(%cn, 2, *)
-  
-  set isExpectedType = whenNull
-  if className = "" quit isExpectedType
+  #define NormalizeClassName(%cn) if $l(%cn, ".") = 1 && ($e(%cn) = "%") set %cn = "%Library."_$e(%cn, 2, *)   
+  if className = "" quit 0
   
   $$$NormalizeClassName(className)
   $$$NormalizeClassName(expectedType)  
@@ -1454,36 +1898,7 @@ Issue an 'Http' error</Description>
   if className = expectedType return 1
   
   // Uses default %Extends method to check for common cases and improve performance.
-  set matches = ##class(%Dictionary.CompiledClass).%ExistsId(className) && $classmethod(className, "%Extends", expectedType)
-  if matches = 1 return matches
-  
-  // Now we check classes that are custom data types.
-  set definition = ##class(%Dictionary.CompiledClass).%OpenId(className)
-  if $isobject(definition) {
-    // This should contain one of: "serial" or "datatype".
-    set isExpectedType = (definition.Super [ expectedType || (expectedClassType '= "" && (definition.ClassType = expectedClassType)))
-    // If we did not find it, we must traverse the inheritance up to the super.
-    if 'isExpectedType {
-      if definition.Super [ "," {
-        if definition.Inheritance '= "right" {
-          for i=1:1:$length(definition.Super, ",") {     
-            set superClass = $piece(definition.Super, ",", i)
-            set isExpectedType = ..IsTypeOf(superClass, expectedType, whenNull, expectedClassType)
-            if isExpectedType return isExpectedType
-          }
-        } else {
-          for i=$length(definition.Super, ","):-1:1 {     
-            set superClass = $piece(definition.Super, ",", i)
-            set isExpectedType = ..IsTypeOf(superClass, expectedType, whenNull, expectedClassType)            
-            if isExpectedType return isExpectedType
-          }          
-        }
-      } else {
-        set isExpectedType = ..IsTypeOf(definition.Super, expectedType, whenNull, expectedClassType)
-      }
-    }       
-  }  
-  return isExpectedType
+  return ##class(%Dictionary.CompiledClass).%ExistsId(className) && $classmethod(className, "%Extends", expectedType)
 ]]></Implementation>
 </Method>
 </Class>
@@ -1530,7 +1945,7 @@ Issue an 'Http' error</Description>
 </Property>
 <Property name="Plate">
 <Selectivity>10.0000%</Selectivity>
-<AverageFieldSize>5</AverageFieldSize>
+<AverageFieldSize>4.9</AverageFieldSize>
 </Property>
 <SQLMap name="IDKEY">
 <BlockCount>-4</BlockCount>
@@ -1552,6 +1967,15 @@ Issue an 'Http' error</Description>
 <Cardinality>one</Cardinality>
 <Inverse>Students</Inverse>
 <Relationship>1</Relationship>
+</Property>
+
+<Property name="BirthDate">
+<Type>%Date</Type>
+</Property>
+
+<Property name="SomeValue">
+<Type>%String</Type>
+<InitialExpression>"0032323"</InitialExpression>
 </Property>
 
 <Query name="PaginatedStudents">
@@ -1580,6 +2004,12 @@ Issue an 'Http' error</Description>
 <Value name="3">
 <Value>Class</Value>
 </Value>
+<Value name="4">
+<Value>BirthDate</Value>
+</Value>
+<Value name="5">
+<Value>SomeValue</Value>
+</Value>
 </Data>
 <Property name="%%CLASSNAME">
 <Selectivity>100.0000%</Selectivity>
@@ -1589,18 +2019,80 @@ Issue an 'Http' error</Description>
 <Selectivity>1</Selectivity>
 <AverageFieldSize>1.1</AverageFieldSize>
 </Property>
+<Property name="BirthDate">
+<Selectivity>10.0000%</Selectivity>
+<AverageFieldSize>5</AverageFieldSize>
+</Property>
 <Property name="Class">
 <Selectivity>14.2857%</Selectivity>
 <AverageFieldSize>1</AverageFieldSize>
 </Property>
 <Property name="Name">
 <Selectivity>10.0000%</Selectivity>
-<AverageFieldSize>13.9</AverageFieldSize>
+<AverageFieldSize>15.4</AverageFieldSize>
+</Property>
+<Property name="SomeValue">
+<Selectivity>100.0000%</Selectivity>
+<AverageFieldSize>7</AverageFieldSize>
 </Property>
 <SQLMap name="IDKEY">
 <BlockCount>-4</BlockCount>
 </SQLMap>
 </Storage>
+</Class>
+
+
+<Class name="Frontier.UnitTest.Reporter.Email">
+<Super>Frontier.Reporter.Email</Super>
+<TimeCreated>64538,36222.588241</TimeCreated>
+
+<Method name="SetupAccount">
+<ReturnType>%Status</ReturnType>
+<Implementation><![CDATA[
+  // If you want to test this reporter you need to configure the following properties.
+  set ..SMTPServerLocation = "smtp.youremailhost.com"
+  set ..SMTPServerPort = 25 // Your SMTP server port
+  set ..SenderEmail = "sender_email@email.com"
+  set ..SenderPassword = "sender_password"
+  set ..DestinationEmail = "destination@email.com"
+  set ..TemplateLocation = "/InterSystems/Cache/CSP/user/email-template.html"
+  set ..SSLConfiguration = "SSL Configuration name"
+  set ..UseSTARTTLS = 1 // 1, "" or 0
+  return $$$OK
+]]></Implementation>
+</Method>
+</Class>
+
+
+<Class name="Frontier.UnitTest.Reporter.Mock">
+<Super>Frontier.Reporter</Super>
+<TimeCreated>64540,40870.642496</TimeCreated>
+
+<Property name="ExpectedSetupStatus">
+<Type>%Status</Type>
+</Property>
+
+<Property name="ExpectedReportStatus">
+<Type>%Status</Type>
+</Property>
+
+<Method name="Setup">
+<FormalSpec>context:Frontier.Context</FormalSpec>
+<ReturnType>%Status</ReturnType>
+<Implementation><![CDATA[
+  set ^||Frontier.UnitTest.Spy("Setup", $this) = context
+  return ..ExpectedSetupStatus
+]]></Implementation>
+</Method>
+
+<Method name="Report">
+<FormalSpec>context:Frontier.Context</FormalSpec>
+<ReturnType>%Status</ReturnType>
+<Implementation><![CDATA[
+  set ^||Frontier.UnitTest.Spy("Report", $this) = context
+  return ..ExpectedReportStatus
+]]></Implementation>
+</Method>
 </Class>
 
 
@@ -1633,16 +2125,31 @@ Issue an 'Http' error</Description>
 ]]></Data>
 </XData>
 
-<Method name="Setup">
+<Method name="OnDataSet">
 <Description>
-This method is reserved for setting up context configurations.</Description>
+Use this method to share data between methods.</Description>
 <ClassMethod>1</ClassMethod>
 <FormalSpec>data:%DynamicObject</FormalSpec>
 <ReturnType>%Status</ReturnType>
 <Implementation><![CDATA[
-  
   /// This 'data' object is shared between all methods. Accessible using %frontier.Data.
   set data.Message = "This 'Message' is shared between all methods."
+  return $$$OK
+]]></Implementation>
+</Method>
+
+<Method name="OnSetup">
+<Description>
+This method is reserved for setting up configurations.</Description>
+<ClassMethod>1</ClassMethod>
+<ReturnType>%Status</ReturnType>
+<Implementation><![CDATA[
+   
+  // Reporters should be used to signal the developer about request errors.
+  // Uncomment the line below and configure the parameters by rewriting the Configure method from the indicated class below.  
+  
+  // $$$QuitOnError(%frontier.ReporterManager.AddReporter(##class(Frontier.UniTest.Reporter.Email).%New()))
+  
   return $$$OK
 ]]></Implementation>
 </Method>
@@ -1662,7 +2169,7 @@ curl -H "Content-Type: application/json" 'localhost:57772/api/frontier/test/rout
 
 <Method name="TestGETOneQueryParameter">
 <Description>
-Query parameters are also supported. And are fetch if the parameter name matches the URL query name.
+Query parameters are also supported and are fetched if the parameter name matches the URL query name.
 Call example:
 curl -H "Content-Type: application/json" 'localhost:57772/api/frontier/test/query_params?msg=hello'
 {result":"hello"}</Description>
@@ -1692,34 +2199,37 @@ curl -H "Content-Type: application/json" 'localhost:57772/api/frontier/test/rest
 </Method>
 
 <Method name="TestGETDynamicSQLResult">
-<Description>
-Support of SQL is implemented as well. This example demonstrates how easy it's to create a paginated query.
-For SQL, the usage of of Prepare() from frontier.SQL API is required.</Description>
+<Description><![CDATA[
+Dynamic SQL queries can be returned as long as the Frontier SQL API is used.
+For SQL, the usage of Prepare() from frontier.SQL API is required.
+Call example:
+curl -H "Content-Type: application/json" 'http://localhost:57772/api/frontier/test/sql/dynamic?page=1&rows=5']]></Description>
 <ClassMethod>1</ClassMethod>
 <FormalSpec>page:%Integer=1,rows:%Integer=5</FormalSpec>
 <ReturnType>Frontier.SQL.Provider</ReturnType>
 <Implementation><![CDATA[
   set offset = (page * rows) - (rows - 1)
-  set limit = page * rows
+  set limit = page * rows  
   
   return %frontier.SQL.Prepare(
     "SELECT *, %VID as Index FROM (SELECT * FROM FRONTIER_UNITTEST_FIXTURES.STUDENT) WHERE %VID BETWEEN ? AND ?"
-  ).Parameters(offset, limit)
+  ).Parameters(offset, limit).Mode(2)
 ]]></Implementation>
 </Method>
 
 <Method name="TestGETQuerySQLResult">
-<Description>
-Support of SQL is implemented as well. This example demonstrates how easy it's to create a paginated query.
-For SQL, the usage of of Prepare() from frontier.SQL API is required.</Description>
+<Description><![CDATA[
+The same applies for named (cached) SQL queries. Notice that they can be called by providing
+the class:queryname instead of a dynamic SQL.
+curl -H "Content-Type: application/json" 'http://localhost:57772/api/frontier/test/sql/query?page=1&rows=5']]></Description>
 <ClassMethod>1</ClassMethod>
 <FormalSpec>page:%Integer=1,rows:%Integer=5</FormalSpec>
 <ReturnType>Frontier.SQL.Provider</ReturnType>
 <Implementation><![CDATA[
   set offset = (page * rows) - (rows - 1)
-  set limit = page * rows
-  
-  return %frontier.SQL.Prepare("Frontier.UnitTest.Fixtures.Student:PaginatedStudents").Parameters(offset, limit)
+  set limit = page * rows     
+    
+  return %frontier.SQL.Prepare("Frontier.UnitTest.Fixtures.Student:PaginatedStudents").Parameters(offset, limit).Mode(2)
 ]]></Implementation>
 </Method>
 
@@ -1751,7 +2261,9 @@ Call example:
 
 <Method name="TestGETStream">
 <Description>
-Streams can be serialized as well.</Description>
+This method demonstrates how %Stream.Object based instances are treated.
+Call example: 
+curl -H "Content-Type: application/json" 'http://localhost:57772/api/frontier/test/stream'</Description>
 <ClassMethod>1</ClassMethod>
 <ReturnType>%Stream.Object</ReturnType>
 <Implementation><![CDATA[
@@ -1777,6 +2289,7 @@ curl -H "Content-Type: application/json" -X POST -d '{"username":"xyz","password
 <Method name="TestPOSTObjectPayloadQueryParams">
 <Description>
 Request can have a payload along with a query parameter.
+Call example:
 curl -H "Content-Type: application/json" -X POST -d '{"username":"xyz","password":"xyz"}' 'http://localhost:57772/api/frontier/test/payload/object_with_query_params?msg=hello'</Description>
 <ClassMethod>1</ClassMethod>
 <FormalSpec>msg:%String="",payload:%DynamicObject</FormalSpec>
@@ -1878,6 +2391,10 @@ curl -H "Content-Type: application/json" -X POST -d '{"username":"xyz","password
 </Method>
 
 <Method name="TestGETAliasedQueryParameter">
+<Description>
+For compability with existing clients that use query parameters with symbols. For such cases
+ALIAS can be used to make it compatible. If the expected alias is not found then Frontier will 
+fall back to using the argument name instead.</Description>
 <ClassMethod>1</ClassMethod>
 <FormalSpec>msg:%String(ALIAS="aliased_key")</FormalSpec>
 <Implementation><![CDATA[  return msg
@@ -2074,6 +2591,111 @@ curl -H "Content-Type: application/json" -X POST -d '{"username":"xyz","password
 </Class>
 
 
+<Class name="UnitTest.Frontier.Reporter.Manager">
+<Super>Port.UnitTest.TestCase</Super>
+<TimeCreated>64540,38890.678512</TimeCreated>
+
+<Property name="Context">
+<Type>Frontier.Context</Type>
+</Property>
+
+<Property name="ReporterManager">
+<Type>Frontier.Reporter.Manager</Type>
+</Property>
+
+<Property name="SetupStatuses">
+<Type>%Status</Type>
+<InitialExpression>$lb(1, ..CreateError(), 1, 1, ..CreateError(), ..CreateError())</InitialExpression>
+</Property>
+
+<Property name="ReportStatuses">
+<Type>%Status</Type>
+<InitialExpression>$lb(..CreateError(), ..CreateError(), ..CreateError(), 1, 1)</InitialExpression>
+</Property>
+
+<Property name="MockIds">
+<Type>%String</Type>
+<MultiDimensional>1</MultiDimensional>
+</Property>
+
+<Method name="OnBeforeOneTest">
+<ReturnType>%Status</ReturnType>
+<Implementation><![CDATA[
+  set session = ##class(%CSP.Session).%New("t3st1ng")
+  set request = ##class(%CSP.Request).%New()
+  set response = ##class(%CSP.Response).%New()
+  set ..Context = ##class(Frontier.Context).%New(session, request, response)
+  set ..Context.Error = ..CreateError()
+  set ..ReporterManager = ..Context.ReporterManager
+  return $$$OK
+]]></Implementation>
+</Method>
+
+<Method name="CreateError">
+<ClassMethod>1</ClassMethod>
+<ReturnType>%Status</ReturnType>
+<Implementation><![CDATA[  return $$$ERROR($$$GeneralError, "dummy error")
+]]></Implementation>
+</Method>
+
+<Method name="OnAfterOneTest">
+<ReturnType>%Status</ReturnType>
+<Implementation><![CDATA[
+  set ..ReporterManager = ""
+  set ..Context = ""
+  kill ..MockIds
+  return $$$OK
+]]></Implementation>
+</Method>
+
+<Method name="TestAddReporter">
+<FormalSpec>skipAssertion:%Boolean=0</FormalSpec>
+<ReturnType>%Status</ReturnType>
+<Implementation><![CDATA[
+  for i=1:1:$ll(..SetupStatuses) {
+    set expectedSetupStatus = $lg(..SetupStatuses, i)
+    set expectedReportStatus = $lg(..ReportStatuses, i)
+    set mockReporter = ##class(Frontier.UnitTest.Reporter.Mock).%New()
+    set ..MockIds(i) = mockReporter
+    set mockReporter.ExpectedSetupStatus = expectedSetupStatus
+    set mockReporter.ExpectedReportStatus = expectedReportStatus
+    set returnedStatus = ..ReporterManager.AddReporter(mockReporter)
+    set matchInstance = (^||Frontier.UnitTest.Spy("Setup", ..MockIds(i)) '= "")
+    if 'skipAssertion {
+      if (returnedStatus '= expectedSetupStatus) return $$$AssertTrue(0, "returns each reporter's Setup status")      
+      if 'matchInstance return $$$AssertTrue(matchInstance, "Report received context.")
+    }
+  }
+  return $$$OK
+]]></Implementation>
+</Method>
+
+<Method name="TestReport">
+<ReturnType>%Status</ReturnType>
+<Implementation><![CDATA[
+  
+  set sc = ..TestAddReporter(1)
+  if $$$ISERR(sc) return $$$AssertSkipped("failed to add dummy reporters")
+  
+  set sc = ..ReporterManager.Report()
+  set errorCount = $$$GETERRORCOUNT(sc)
+  // 2 because Setup failures nullifies reporters so they never can be used.
+  // We actually have only 2 reporters added.
+  if errorCount '= 2 do $$$AssertTrue(errorCount '= 2, "appends reporter errors.")
+  
+  for i=1:1:$ll(..ReportStatuses) {
+    // Skip reports that couldn't be added. We only need to know about reporters ready to call the Report method.
+    // Even if the Report method fails itself.
+    if $data(^||Frontier.UnitTest.Spy("Report", ..MockIds(i))) {
+      set matchInstance = (^||Frontier.UnitTest.Spy("Report", ..MockIds(i)) '= "")
+      if 'matchInstance return $$$AssertTrue(matchInstance, "Report received context.")
+    }
+  }
+]]></Implementation>
+</Method>
+</Class>
+
+
 <Class name="UnitTest.Frontier.Router">
 <Super>Port.UnitTest.TestCase</Super>
 <TimeCreated>64499,42651.978954</TimeCreated>
@@ -2158,7 +2780,7 @@ curl -H "Content-Type: application/json" -X POST -d '{"username":"xyz","password
   }
   
   if responseText '= expectedText {
-    return $$$ERROR($$$GeneralError, $$$FormatText("The received content mismatches with the expected one: %1 '= %2", responseText, expectedText))
+    return $$$ERROR($$$GeneralError, $$$FormatText("The received content mismatches with the expected one: %1%2 '= %3%2", $c(10,13), responseText, $c(10,13), expectedText))
   }  
   
   return $$$OK
@@ -2303,6 +2925,7 @@ curl -H "Content-Type: application/json" -X POST -d '{"username":"xyz","password
   set resource = $$$FormatText("%1sql/dynamic", ..WebApplicationName)
   
   set sd = ##class(%SQL.Statement).%New()
+  set sd.%SelectMode = 2
   do sd.%Prepare("SELECT *, %VID as Index FROM (SELECT * FROM FRONTIER_UNITTEST_FIXTURES.STUDENT) WHERE %VID BETWEEN ? AND ?")
   set rd = sd.%Execute(1, 5)
   
@@ -2317,12 +2940,25 @@ curl -H "Content-Type: application/json" -X POST -d '{"username":"xyz","password
   set resource = $$$FormatText("%1sql/query", ..WebApplicationName)
   
   set sd = ##class(%SQL.Statement).%New()
+  set sd.%SelectMode = 2
   do sd.%PrepareClassQuery("Frontier.UnitTest.Fixtures.Student", "PaginatedStudents")
   set rd = sd.%Execute(1, 5)
   
   do $$$AssertStatusOK(##class(Frontier.UnitTest.Util).MarshallSQLResult(rd, .array), "can read SQL result")
   set expected = {"results":(array)}
   return $$$AssertStatusOK(..AssertRequest(resource, expected.%ToJSON()), $$$FormatText("can retrieve the expected data from the resource %1", resource))
+]]></Implementation>
+</Method>
+
+<Method name="T">
+<ClassMethod>1</ClassMethod>
+<Implementation><![CDATA[
+  set t = ..%New(##class(Port.UnitTest.Manager).%New())
+  do t.OnBeforeAllTests()
+  do t.OnBeforeOneTest()
+  do t.TestGETDynamicSQLResult()
+  do t.OnAfterOneTest()
+  do t.OnAfterAllTests()
 ]]></Implementation>
 </Method>
 </Class>
@@ -2429,6 +3065,50 @@ curl -H "Content-Type: application/json" -X POST -d '{"username":"xyz","password
 </Class>
 
 
+<CSP name="email-template.html" application="/csp/dev/" default="1"><![CDATA[
+<!DOCTYPE html>
+<html>
+<body style="font-family: monospace, 'Courier New', Verdana, sans-serif;">
+  <table border=0>
+    <thead>
+      <tr>
+        <th colspan="2" style="font-size: 16px; width: 560px; text-align: center; background-color: #c11b1b; color: #fff9f9;">
+          REQUEST ERROR REPORT
+        </th>
+      </tr>
+    </thead>
+    <tbody>
+      <tr>
+        <th style="text-align: left; background-color: #c11b1b; color: #fff9f9; padding: 5px;">Description</th>
+        <td style="font-family: Consolas, Geneva, sans-serif; width: 400px; text-align: left;">%1</td>
+      </tr>
+      <tr>
+        <th style="text-align: left; background-color: #c11b1b; color: #fff9f9; padding: 5px;">URL</th>
+        <td style="font-family: Consolas, Geneva, sans-serif; width: 400px; text-align: left;">%2</td>
+      </tr>
+      <tr>
+        <th style="text-align: left; background-color: #c11b1b; color: #fff9f9; padding: 5px;">Class</th>
+        <td style="font-family: Consolas, Geneva, sans-serif; width: 400px; text-align: left;">%3</td>
+      </tr>
+      <tr>
+        <th style="text-align: left; background-color: #c11b1b; color: #fff9f9; padding: 5px;">Method</th>
+        <td align="left">%4</td>
+      </tr>
+      <tr>
+        <th style="text-align: left; background-color: #c11b1b; color: #fff9f9; padding: 5px;">Arguments</th>
+        <td align="left">%5</td>
+      </tr>
+      <tr>
+        <th style="text-align: center; background-color: #c11b1b; color: #fff9f9; padding: 5px;">Stack</th>
+        <td align="left">%6</td>
+      </tr>
+ </body>
+ </html>
+  </tbody>
+</table>
+]]></CSP>
+
+
 <Routine name="frontier" type="INC"><![CDATA[
 #include %ZEN.Utils
 
@@ -2442,26 +3122,34 @@ curl -H "Content-Type: application/json" -X POST -d '{"username":"xyz","password
 ]]></Routine>
 
 
-<Project name="frontier" LastModified="2017-09-11 10:05:00.232159" Target="##class(UnitTest.Frontier.Types).T()" TargetType="2" HttpServer="http://localhost:57772">
+<Project name="frontier" LastModified="2017-09-15 11:28:51.093619" Target="##class(UnitTest.Frontier.Router).T()" TargetType="2" HttpServer="http://localhost:57772">
   <Items>
     <ProjectItem name="Frontier.ArgumentDescription" type="CLS"></ProjectItem>
     <ProjectItem name="Frontier.Context" type="CLS"></ProjectItem>
     <ProjectItem name="Frontier.Dynamic.Marshaller" type="CLS"></ProjectItem>
     <ProjectItem name="Frontier.Dynamic.Serializer" type="CLS"></ProjectItem>
     <ProjectItem name="Frontier.Dynamic.Unmarshaller" type="CLS"></ProjectItem>
+    <ProjectItem name="Frontier.Exception" type="CLS"></ProjectItem>
     <ProjectItem name="Frontier.Method" type="CLS"></ProjectItem>
+    <ProjectItem name="Frontier.Reporter" type="CLS"></ProjectItem>
+    <ProjectItem name="Frontier.Reporter.Email" type="CLS"></ProjectItem>
+    <ProjectItem name="Frontier.Reporter.Manager" type="CLS"></ProjectItem>
     <ProjectItem name="Frontier.Router" type="CLS"></ProjectItem>
     <ProjectItem name="Frontier.SQL" type="CLS"></ProjectItem>
-    <ProjectItem name="Frontier.SQL.DeviceOutputAdapter" type="CLS"></ProjectItem>
     <ProjectItem name="Frontier.SQL.Provider" type="CLS"></ProjectItem>
+    <ProjectItem name="Frontier.SQL.Serializer" type="CLS"></ProjectItem>
     <ProjectItem name="Frontier.Types" type="CLS"></ProjectItem>
     <ProjectItem name="Frontier.UnitTest.Fixtures.Class" type="CLS"></ProjectItem>
     <ProjectItem name="Frontier.UnitTest.Fixtures.Student" type="CLS"></ProjectItem>
+    <ProjectItem name="Frontier.UnitTest.Reporter.Email" type="CLS"></ProjectItem>
+    <ProjectItem name="Frontier.UnitTest.Reporter.Mock" type="CLS"></ProjectItem>
     <ProjectItem name="Frontier.UnitTest.Router" type="CLS"></ProjectItem>
     <ProjectItem name="Frontier.UnitTest.Util" type="CLS"></ProjectItem>
     <ProjectItem name="Frontier.UnitTest.WebApplicationInstaller" type="CLS"></ProjectItem>
+    <ProjectItem name="UnitTest.Frontier.Reporter.Manager" type="CLS"></ProjectItem>
     <ProjectItem name="UnitTest.Frontier.Router" type="CLS"></ProjectItem>
     <ProjectItem name="UnitTest.Frontier.Types" type="CLS"></ProjectItem>
+    <ProjectItem name="csp/dev/email-template.html" type="CSP"></ProjectItem>
     <ProjectItem name="frontier.INC" type="MAC"></ProjectItem>
   </Items>
 </Project>

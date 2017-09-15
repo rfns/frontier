@@ -24,12 +24,23 @@ XData UrlMap [ XMLNamespace = "http://github.com/rfns/frontier" ]
  </Routes>
 }
 
-/// This method is reserved for setting up context configurations.
-ClassMethod Setup(data As %DynamicObject) As %Status
+/// Use this method to share data between methods.
+ClassMethod OnDataSet(data As %DynamicObject) As %Status
 {
-  
   /// This 'data' object is shared between all methods. Accessible using %frontier.Data.
   set data.Message = "This 'Message' is shared between all methods."
+  return $$$OK
+}
+
+/// This method is reserved for setting up configurations.
+ClassMethod OnSetup() As %Status
+{
+   
+  // Reporters should be used to signal the developer about request errors.
+  // Uncomment the line below and configure the parameters by rewriting the Configure method from the indicated class below.  
+  
+  // $$$QuitOnError(%frontier.ReporterManager.AddReporter(##class(Frontier.UniTest.Reporter.Email).%New()))
+  
   return $$$OK
 }
 
@@ -42,7 +53,7 @@ ClassMethod TestGETRouteParams(class As Frontier.UnitTest.Fixtures.Class) As %St
   return class
 }
 
-/// Query parameters are also supported. And are fetch if the parameter name matches the URL query name.
+/// Query parameters are also supported and are fetched if the parameter name matches the URL query name.
 /// Call example:
 /// curl -H "Content-Type: application/json" 'localhost:57772/api/frontier/test/query_params?msg=hello'
 /// {result":"hello"}
@@ -63,26 +74,29 @@ ClassMethod TestGETRestParametersSum(n... As %String) As %Integer
   return sum
 }
 
-/// Support of SQL is implemented as well. This example demonstrates how easy it's to create a paginated query.
-/// For SQL, the usage of of Prepare() from frontier.SQL API is required.
+/// Dynamic SQL queries can be returned as long as the Frontier SQL API is used.
+/// For SQL, the usage of Prepare() from frontier.SQL API is required.
+/// Call example:
+/// curl -H "Content-Type: application/json" 'http://localhost:57772/api/frontier/test/sql/dynamic?page=1&rows=5'
 ClassMethod TestGETDynamicSQLResult(page As %Integer = 1, rows As %Integer = 5) As Frontier.SQL.Provider
 {
   set offset = (page * rows) - (rows - 1)
-  set limit = page * rows
+  set limit = page * rows  
   
   return %frontier.SQL.Prepare(
     "SELECT *, %VID as Index FROM (SELECT * FROM FRONTIER_UNITTEST_FIXTURES.STUDENT) WHERE %VID BETWEEN ? AND ?"
-  ).Parameters(offset, limit)
+  ).Parameters(offset, limit).Mode(2)
 }
 
-/// Support of SQL is implemented as well. This example demonstrates how easy it's to create a paginated query.
-/// For SQL, the usage of of Prepare() from frontier.SQL API is required.
+/// The same applies for named (cached) SQL queries. Notice that they can be called by providing
+/// the class:queryname instead of a dynamic SQL.
+/// curl -H "Content-Type: application/json" 'http://localhost:57772/api/frontier/test/sql/query?page=1&rows=5'
 ClassMethod TestGETQuerySQLResult(page As %Integer = 1, rows As %Integer = 5) As Frontier.SQL.Provider
 {
   set offset = (page * rows) - (rows - 1)
-  set limit = page * rows
-  
-  return %frontier.SQL.Prepare("Frontier.UnitTest.Fixtures.Student:PaginatedStudents").Parameters(offset, limit)
+  set limit = page * rows     
+    
+  return %frontier.SQL.Prepare("Frontier.UnitTest.Fixtures.Student:PaginatedStudents").Parameters(offset, limit).Mode(2)
 }
 
 /// There can be cases where the response should not be a JSON.
@@ -104,7 +118,9 @@ ClassMethod TestGETData() As %DynamicObject
   return %frontier.Data
 }
 
-/// Streams can be serialized as well.
+/// This method demonstrates how %Stream.Object based instances are treated.
+/// Call example: 
+/// curl -H "Content-Type: application/json" 'http://localhost:57772/api/frontier/test/stream'
 ClassMethod TestGETStream() As %Stream.Object
 {
   set stream = ##class(%Stream.GlobalCharacter).%New()
@@ -122,6 +138,7 @@ ClassMethod TestPOSTObjectPayloadSingle(payload As %DynamicObject) As %DynamicOb
 }
 
 /// Request can have a payload along with a query parameter.
+/// Call example:
 /// curl -H "Content-Type: application/json" -X POST -d '{"username":"xyz","password":"xyz"}' 'http://localhost:57772/api/frontier/test/payload/object_with_query_params?msg=hello'
 ClassMethod TestPOSTObjectPayloadQueryParams(msg As %String = "", payload As %DynamicObject) As %Status
 {
@@ -193,6 +210,9 @@ ClassMethod TestPOSTMixedRestParametersSum(msg As %String, data As %DynamicObjec
   return sum
 }
 
+/// For compability with existing clients that use query parameters with symbols. For such cases
+/// ALIAS can be used to make it compatible. If the expected alias is not found then Frontier will 
+/// fall back to using the argument name instead.
 ClassMethod TestGETAliasedQueryParameter(msg As %String(ALIAS="aliased_key"))
 {
   return msg

@@ -3,7 +3,7 @@ Include frontier
 Class Frontier.Method Extends %RegisteredObject
 {
 
-Property MethodArguments As list Of ArgumentDescription [ Private ];
+Property MethodArguments As list Of ArgumentDescription;
 
 Property MethodDescriptor As %Dictionary.CompiledMethod [ Private ];
 
@@ -15,8 +15,9 @@ Property HttpMethod As %String [ InitialExpression = "GET" ];
 
 Property Arguments As %CacheString [ InitialExpression = 0, MultiDimensional, ReadOnly ];
 
-Method %OnNew(className As %String, methodName As %String, RESTMethodArguments As %String, request As %CSP.Request) As %Status [ Private ]
+Method %OnNew(className As %String, methodName As %String, RESTMethodArguments As %String = 0, request As %CSP.Request = "") As %Status [ Private ]
 {
+  set requestQueryParams = 0
   $$$ThrowOnError(..AssertMethodExists(className, methodName))
   
   set ..MethodDescriptor = ##class(%Dictionary.CompiledMethod).%OpenId(className_"||"_methodName)  
@@ -24,11 +25,13 @@ Method %OnNew(className As %String, methodName As %String, RESTMethodArguments A
   $$$ThrowOnError(..DescribeArguments())
   $$$ThrowOnError(..ParseReturnTypeParameters())
   
-  merge requestQueryParams = request.Data
-  $$$ThrowOnError(..MergeArguments(.RESTMethodArguments, .requestQueryParams, .mergedArguments))
-    
-  set ..Payload = request.Content
-  set ..HttpMethod = request.Method
+  if $isobject(request) {
+    set ..Payload = request.Content
+    set ..HttpMethod = request.Method
+    merge requestQueryParams = request.Data
+  }
+  
+  $$$ThrowOnError(..MergeArguments(.RESTMethodArguments, .requestQueryParams, .mergedArguments))    
   
   $$$ThrowOnError(..Sequentialize(.mergedArguments))
   quit $$$OK
@@ -55,7 +58,7 @@ ParseArgument(parsedArgument)
   if argument '= "" {
     set parsedArgument = ##class(Frontier.ArgumentDescription).%New()
     if argument [ "..." set parsedArgument.Arity = 1
-    set parsedArgument.Name = $replace($piece(argument, ":", 1), "...", "")
+    set parsedArgument.Name = $piece($replace($piece(argument, ":", 1), "...", ""), "=", 1)
     set parsedArgument.DefaultValue = $piece(argument, "=", 2)    
     set parsedArgument.Index = currentIndex
     set preType = $piece(argument, ":", 2)

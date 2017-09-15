@@ -3,9 +3,11 @@ Include (frontier, %ZEN.Utils)
 Class Frontier.Dynamic.Serializer
 {
 
-ClassMethod Serialize(dynamic As %DynamicAbstractObject, parentKey As %String = "")
+ClassMethod Serialize(dynamic As %DynamicAbstractObject, parentKey As %String = "") As %Status [ Internal ]
 {
-  set isArray = ##class(Frontier.Types).IsDynamicArray($classname(dynamic))  
+  set sc = $$$OK
+  set results = ""
+  set isArray = ##class(Frontier.Types).IsDynamicArray($classname(dynamic))    
   
   if isArray {
     write "["
@@ -19,27 +21,27 @@ ClassMethod Serialize(dynamic As %DynamicAbstractObject, parentKey As %String = 
   while iterator.%GetNext(.key, .value) {
     write comma
     set comma = ","
-    if 'isArray write $$$ZENJSPROP(key)_":"
+    if 'isArray write $$$ZENJSONPROP(key, "s")_":"
     if $isobject(value) {
       set type = $classname(value)
       if ##class(Frontier.Types).IsDynamic(type) {         
-        do ..Serialize(value, key) 
+        set sc = $$$ADDSC(sc, ..Serialize(value, key))
       } elseif ##class(Frontier.Types).IsStream(type) {
         write $c(34)
         do WriteEscaped(value)
         write $c(34)
-      } elseif ##class(Frontier.Types).IsSQLProvider(type) {        
-        do value.RenderToJSON()
+      } elseif ##class(Frontier.Types).IsSQLProvider(type) {
+        $$$ThrowOnError(##class(Frontier.SQL.Serializer).Serialize(value.Results))
       }
     } else {
-      write $$$ZENJSVALUE(value)
+      write $$$ZENJSONVALUE(value, "s")
     }    
   }
   
   if isArray write "]"
   else  write "}"
   
-  return $$$OK
+  return sc
   
 WriteEscaped(v)
   while 'v.AtEnd { 
@@ -47,10 +49,11 @@ WriteEscaped(v)
   }
 }
 
-ClassMethod SerializeToStream(dynamic As %DynamicAbstractObject, Output stream As %Stream.Object) [ ProcedureBlock = 0 ]
+ClassMethod SerializeToStream(dynamic As %DynamicAbstractObject, Output stream As %Stream.Object = "") [ ProcedureBlock = 0 ]
 {
-  new currentMnemonic, alreadyRedirected
+  new currentMnemonic, alreadyRedirected, sc
   
+  set sc = $$$OK
   set isRedirected = 0
   
   set stream = ##class(%Stream.TmpBinary).%New()
@@ -60,7 +63,7 @@ ClassMethod SerializeToStream(dynamic As %DynamicAbstractObject, Output stream A
     set currentMnemonic = "^"_##class(%Device).GetMnemonicRoutine()
     use $io::("^"_$zname)
     do ##class(%Device).ReDirectIO(1)
-    do ..Serialize(dynamic)
+    $$$ThrowOnError(..Serialize(dynamic))
   } catch ex {
     set sc = ex.AsStatus()
   }
@@ -70,7 +73,7 @@ ClassMethod SerializeToStream(dynamic As %DynamicAbstractObject, Output stream A
     use $io::(currentMnemonic) 
   }
   
-  return $$$OK
+  return sc
   
 wstr(s) Do stream.Write(s) Quit
 wchr(a) Do stream.Write($char(a)) Quit

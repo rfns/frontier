@@ -1,9 +1,9 @@
 Class Frontier.SQL Extends %RegisteredObject
 {
 
-Method Prepare(statement As %String)
+Method Prepare(SQLExpression As %String)
 {
-  return ##class(Frontier.SQL.Provider).%New(statement)
+  return ##class(Frontier.SQL.Provider).%New(SQLExpression)
 }
 
 }

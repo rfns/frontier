@@ -1,6 +1,15 @@
 Class Frontier.Router Extends %CSP.REST
 {
 
+ClassMethod Page(skipheader As %Boolean = 1) As %Status [ ProcedureBlock = 0 ]
+{
+  new %frontier
+  set %frontier = ##class(Frontier.Context).%New(%session, %request, %response)  
+  $$$QuitOnError(##super(skipheader))
+  do ..OnPostHTTP()
+  return $$$OK
+}
+
 ClassMethod DispatchRequest(pUrl As %String, pMethod As %String, pForwarded As %Boolean = 0) As %Status
 {
  
@@ -16,12 +25,9 @@ ClassMethod DispatchRequest(pUrl As %String, pMethod As %String, pForwarded As %
   #dim tArgs,tClass,tMatchUrl,tMapEntry,tRegEx,tCall,tForward,tAccess,tSupportedVerbs,tTarget,tType As %String
   #dim tI,tIndex As %Integer
   #dim tResourceMatched,tContinue As %Boolean
-  #dim tMethodMatched As %Boolean
-  
-  new %frontier
-  set %frontier = ..InitContext(%session, %request, %response)  
+  #dim tMethodMatched As %Boolean    
     
-   try {       
+   try {    
     set (tResourceMatched,tMethodMatched) = 0    
                 
     #; Extract the match url from the application name
@@ -98,9 +104,15 @@ ClassMethod DispatchRequest(pUrl As %String, pMethod As %String, pForwarded As %
           set tPublicMethod = ##class(Method).%New(tClass, tTarget, .tArgs, %request)
           merge tMethodArguments = tPublicMethod.Arguments
           
-          $$$ThrowOnError(..Setup(%frontier.Data))
+          set %frontier.Method = tTarget
+          set %frontier.RequestURL = %request.URL
+          set %frontier.ClassName = $classname()
+          
+          $$$ThrowOnError(..OnDataSet(%frontier.Data))
+          $$$ThrowOnError(..OnSetup())
 
           if tMethodArguments > 0 {
+            merge %frontier.ArgumentValues = tMethodArguments
             set return = $classmethod(tClass, tTarget, tMethodArguments...)
           } else {            
             set return = $classmethod(tClass, tTarget)
@@ -131,20 +143,19 @@ ClassMethod DispatchRequest(pUrl As %String, pMethod As %String, pForwarded As %
       return ..Http405(tSupportedVerbs) Quit
     }
   } catch (e) {
-    do ..CaptureStack(.stack)
     if tHttpStatus < 300 set tHttpStatus = ..#HTTP500INTERNALSERVERERROR
-    
-    do ..ReportHttpStatusCode(tHttpStatus, e.AsStatus(), .json)
-    set json.stack = stack.Read()
-    
-    do json.%ToJSON(, "aelo")
+    set exceptionJSON = ##class(Exception).ToDynamicObject(e)  
+    set %frontier.Error = e.AsStatus()
+    set %frontier.Stack = ##class(Exception).CaptureStack() 
+    write exceptionJSON.%ToJSON()
   }   
   return $$$OK
 }
 
 ClassMethod DispatchResponse(returnedData As %CacheString, method As Frontier.Router, ByRef returnTypeParams = "") As %Status
 {
- 
+  
+  set sc = $$$OK
   set response = {}
   
   // Enables device writing.
@@ -163,10 +174,12 @@ ClassMethod DispatchResponse(returnedData As %CacheString, method As Frontier.Ro
         set stream = returnedData set returnedData = response
         set response.content = stream
       } elseif isSQLProvider {
-        set results = returnedData set returnedData = response
-        set response.results = results
+        set provider = returnedData
+        $$$QuitOnError(provider.Execute())
+        set response.results = provider
+      } else {      
+        $$$QuitOnError(##class(Frontier.Dynamic.Marshaller).Marshall(returnedData, .response))
       }
-      $$$QuitOnError(##class(Frontier.Dynamic.Marshaller).Marshall(returnedData, .response))
     } else {
       return $$$ERROR($$$GeneralError, "Cannot serialize system class instances.")
     }
@@ -178,70 +191,23 @@ ClassMethod DispatchResponse(returnedData As %CacheString, method As Frontier.Ro
   }
   // We must use a custom serializer because the current %ToJSON implementation cannot serialize
   // mixed instances.
-  do ##class(Frontier.Dynamic.Serializer).Serialize(response)
+  return ##class(Frontier.Dynamic.Serializer).Serialize(response)
+}
+
+ClassMethod OnSetup() As %Status
+{
+  return $$$OK
+}
+
+ClassMethod OnDataSet(data As %DynamicObject) As %Status
+{
   return $$$OK
 }
 
-/// This method takes a status, renders it as json (if requested) and outputs the result
-ClassMethod outputStatus(pSC As %Status, Output tJSON As %ZEN.proxyObject = "") As %Status [ Internal ]
+ClassMethod OnPostHTTP() [ Final ]
 {
-  #dim tSC As %Status = $$$OK
-  #dim e As %Exception.AbstractException   
-   
-  try {      
-    if ..AcceptsContentType("application/json") {
-      Set %response.ContentType = ..#CONTENTTYPEJSON        
-      #; Convert the exception to a status and render to JSON
-      
-      set tSC = ..StatusToProxyObject(pSC, .tJSON)
-      if $$$ISERR(tSC) return tSC
-      #; Write the JSON to the output device
-      if $$$ISERR(tSC) return tSC            
-    } else {            
-      #; Set plain text
-      set %response.ContentType = ..#CONTENTTYPETEXT
-      
-      #; Write out a simple text message
-      do ##class(%Exception.StatusException).CreateFromStatus(pSC).OutputToDevice()
-    }        
-  } catch (e) {        
-    #; Oops
-    set tSC = e.AsStatus()
-  }
-  return $$$OK
-}
-
-/// Issue an 'Http' error
-ClassMethod ReportHttpStatusCode(pHttpStatus, pSC As %Status = {$$$OK}, Output pData As %ZEN.proxyObject = "") As %Status
-{
-    Set %response.Status=pHttpStatus
-    
-    If $$$ISERR(pSC) Do ..outputStatus(pSC, .pData)
-        
-    Quit $$$OK
-}
-
-ClassMethod InitContext(session As %CSP.Session, request As %CSP.Request, response As %CSP.Response) As Frontier.Context [ Private ]
-{
-  return ##class(Frontier.Context).%New(session, request, response)
-}
-
-ClassMethod CaptureStack(Output stackText As %Stream.GlobalCharacter = "") As %Status
-{
-  set stackText = ##class(%Stream.GlobalCharacter).%New()
-    
-  do stackText.WriteLine("Runtime exception ")
-  set max = $stack(-1)
-  for loop=max:-1:1 {
-    set sc  = stackText.WriteLine($char(9)_"     at "_$stack(loop, "PLACE")_$stack(loop, "MCODE")_" (Level: "_loop_")")
-    if $$$ISERR(sc) return sc
-  }   
-  return $$$OK
-}
-
-ClassMethod Setup(data As %DynamicObject) As %Status
-{
-  return $$$OK
+  do %frontier.ReporterManager.Report() 
+  kill %frontier
 }
 
 }

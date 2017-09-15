@@ -5,6 +5,10 @@ Property Name As %String;
 
 Relationship Class As Class [ Cardinality = one, Inverse = Students ];
 
+Property BirthDate As %Date;
+
+Property SomeValue As %String [ InitialExpression = "0032323" ];
+
 Query PaginatedStudents(offset As %Integer, limit As %Integer) As %SQLQuery [ SqlProc ]
 {
   
@@ -23,6 +27,12 @@ Storage Default
 <Value name="3">
 <Value>Class</Value>
 </Value>
+<Value name="4">
+<Value>BirthDate</Value>
+</Value>
+<Value name="5">
+<Value>SomeValue</Value>
+</Value>
 </Data>
 <DataLocation>^Frontier.UnitTest.F50C.StudentD</DataLocation>
 <DefaultData>StudentDefaultData</DefaultData>
@@ -37,13 +47,21 @@ Storage Default
 <AverageFieldSize>1.1</AverageFieldSize>
 <Selectivity>1</Selectivity>
 </Property>
+<Property name="BirthDate">
+<AverageFieldSize>5</AverageFieldSize>
+<Selectivity>10.0000%</Selectivity>
+</Property>
 <Property name="Class">
-<AverageFieldSize>1.1</AverageFieldSize>
-<Selectivity>12.5000%</Selectivity>
+<AverageFieldSize>1</AverageFieldSize>
+<Selectivity>14.2857%</Selectivity>
 </Property>
 <Property name="Name">
-<AverageFieldSize>16.5</AverageFieldSize>
+<AverageFieldSize>15.4</AverageFieldSize>
 <Selectivity>10.0000%</Selectivity>
+</Property>
+<Property name="SomeValue">
+<AverageFieldSize>7</AverageFieldSize>
+<Selectivity>100.0000%</Selectivity>
 </Property>
 <SQLMap name="IDKEY">
 <BlockCount>-4</BlockCount>

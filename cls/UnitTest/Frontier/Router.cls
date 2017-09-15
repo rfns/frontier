@@ -62,7 +62,7 @@ Method AssertRequest(resource As %String, expected As %DynamicAbstractObject = "
   }
   
   if responseText '= expectedText {
-    return $$$ERROR($$$GeneralError, $$$FormatText("The received content mismatches with the expected one: %1 '= %2", responseText, expectedText))
+    return $$$ERROR($$$GeneralError, $$$FormatText("The received content mismatches with the expected one: %1%2 '= %3%2", $c(10,13), responseText, $c(10,13), expectedText))
   }  
   
   return $$$OK
@@ -190,6 +190,7 @@ Method TestGETDynamicSQLResult()
   set resource = $$$FormatText("%1sql/dynamic", ..WebApplicationName)
   
   set sd = ##class(%SQL.Statement).%New()
+  set sd.%SelectMode = 2
   do sd.%Prepare("SELECT *, %VID as Index FROM (SELECT * FROM FRONTIER_UNITTEST_FIXTURES.STUDENT) WHERE %VID BETWEEN ? AND ?")
   set rd = sd.%Execute(1, 5)
   
@@ -203,12 +204,23 @@ Method TestGETQuerySQLResult()
   set resource = $$$FormatText("%1sql/query", ..WebApplicationName)
   
   set sd = ##class(%SQL.Statement).%New()
+  set sd.%SelectMode = 2
   do sd.%PrepareClassQuery("Frontier.UnitTest.Fixtures.Student", "PaginatedStudents")
   set rd = sd.%Execute(1, 5)
   
   do $$$AssertStatusOK(##class(Frontier.UnitTest.Util).MarshallSQLResult(rd, .array), "can read SQL result")
   set expected = {"results":(array)}
   return $$$AssertStatusOK(..AssertRequest(resource, expected.%ToJSON()), $$$FormatText("can retrieve the expected data from the resource %1", resource))
+}
+
+ClassMethod T()
+{
+  set t = ..%New(##class(Port.UnitTest.Manager).%New())
+  do t.OnBeforeAllTests()
+  do t.OnBeforeOneTest()
+  do t.TestGETDynamicSQLResult()
+  do t.OnAfterOneTest()
+  do t.OnAfterAllTests()
 }
 
 }
