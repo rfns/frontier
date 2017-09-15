@@ -122,7 +122,7 @@ ClassMethod AssertMethodExists(className As %String, methodName As %String) As %
 
 Method Sequentialize(ByRef mergedArguments = 0) As %Status [ Private ]
 {
- 
+  #dim methodArgument As Frontier.ArgumentDescription
   #define TriggerPayloadFlag if ..HttpMethod = "POST" || (..HttpMethod = "PUT") || (..HttpMethod = "PATCH") set payloadFound = 1
   #define AssertSinglePayloadParameter throw:payloadFound=1 ##class(%Exception.StatusException).CreateFromStatus($$$ERROR($$$GeneralError, "Cannot have more than one payload for POST/PUT/PATCH requests."))
   
@@ -153,10 +153,17 @@ Method Sequentialize(ByRef mergedArguments = 0) As %Status [ Private ]
       }       
     
       if ##class(Frontier.Types).IsDynamic(methodArgument.Type) {
+        set unmarshallTo = methodArgument.Parameters.GetAt("UNMARSHALLTO")
         $$$AssertSinglePayloadParameter
         $$$TriggerPayloadFlag
         set value = $classmethod(methodArgument.Type, "%FromJSON", ..Payload)
-        if value = "" return $$$ERROR($$$GeneralError, $$$FormatText(jsonErrorMessage, methodArgument.Type))
+        if unmarshallTo '= "" {
+          set sc = ##class(Frontier.Dynamic.Unmarshaller).Unmarshall(unmarshallTo, value, .instance)
+          if $$$ISERR(sc) return sc
+          set value = instance
+        } else {
+          if value = "" return $$$ERROR($$$GeneralError, $$$FormatText(jsonErrorMessage, methodArgument.Type))
+        }
       } elseif ##class(Frontier.Types).IsZENProxyObject(methodArgument.Type) {
         $$$AssertSinglePayloadParameter
         $$$TriggerPayloadFlag

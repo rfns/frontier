@@ -510,10 +510,13 @@ rchr(time) Quit ""
 <FormalSpec>className:%String,dynamicObject:%DynamicAbstractObject,*registeredObject:%RegisteredObject=""</FormalSpec>
 <ReturnType>%Status</ReturnType>
 <Implementation><![CDATA[
- 
-  if $isobject(dynamicObject) {
+  
+  k ^mtempU
+  if $isobject(dynamicObject) {   
     set dynamicType = $classname(dynamicObject)
     set isCollection = ##class(Frontier.Types).IsCollection(className) || ##class(Frontier.Types).IsDynamicArray(className)
+    
+    set ^mtempU = $lb('isCollection, ##class(Frontier.Types).IsDynamicObject(dynamicType), ##class(Frontier.Types).IsInstantiable(className))
     
     if ##class(Frontier.Types).IsDynamicArray(dynamicType) {
       return ..MakeCollection(className, dynamicObject, .registeredObject)
@@ -973,7 +976,7 @@ ParseArgument(parsedArgument)
 <Private>1</Private>
 <ReturnType>%Status</ReturnType>
 <Implementation><![CDATA[
- 
+  #dim methodArgument As Frontier.ArgumentDescription
   #define TriggerPayloadFlag if ..HttpMethod = "POST" || (..HttpMethod = "PUT") || (..HttpMethod = "PATCH") set payloadFound = 1
   #define AssertSinglePayloadParameter throw:payloadFound=1 ##class(%Exception.StatusException).CreateFromStatus($$$ERROR($$$GeneralError, "Cannot have more than one payload for POST/PUT/PATCH requests."))
   
@@ -1004,10 +1007,17 @@ ParseArgument(parsedArgument)
       }       
     
       if ##class(Frontier.Types).IsDynamic(methodArgument.Type) {
+        set unmarshallTo = methodArgument.Parameters.GetAt("UNMARSHALLTO")
         $$$AssertSinglePayloadParameter
         $$$TriggerPayloadFlag
         set value = $classmethod(methodArgument.Type, "%FromJSON", ..Payload)
-        if value = "" return $$$ERROR($$$GeneralError, $$$FormatText(jsonErrorMessage, methodArgument.Type))
+        if unmarshallTo '= "" {
+          set sc = ##class(Frontier.Dynamic.Unmarshaller).Unmarshall(unmarshallTo, value, .instance)
+          if $$$ISERR(sc) return sc
+          set value = instance
+        } else {
+          if value = "" return $$$ERROR($$$GeneralError, $$$FormatText(jsonErrorMessage, methodArgument.Type))
+        }
       } elseif ##class(Frontier.Types).IsZENProxyObject(methodArgument.Type) {
         $$$AssertSinglePayloadParameter
         $$$TriggerPayloadFlag
@@ -2121,6 +2131,7 @@ the fields that aren't private, or you can instantiate it and change it's values
   <Route Url="/mixed/object" Method="GET" Call="TestGETMixedDynamicObject"/>
   <Route Url="/mixed/array" Method="GET" Call="TestGETMixedDynamicArray"/>
   <Route Url="/mixed/rest" Method="POST" Call="TestPOSTMixedRestParametersSum"/>
+  <Route Url="/unmarshall" Method="POST" Call="TestPOSTUnmarshallToClass"/>
  </Routes>
 ]]></Data>
 </XData>
@@ -2398,6 +2409,23 @@ fall back to using the argument name instead.</Description>
 <ClassMethod>1</ClassMethod>
 <FormalSpec>msg:%String(ALIAS="aliased_key")</FormalSpec>
 <Implementation><![CDATA[  return msg
+]]></Implementation>
+</Method>
+
+<Method name="TestPOSTUnmarshallToClass">
+<Description>
+It's also possible to save from a payload directly to a %Persistent instance as long as the payload
+has the same format as the %Persistent class. Just define the the parameter UNMASHALLTO with the class you want
+curl -H "Content-Type: application/json" -X POST -d '{"Plate": "R-2948","Students": [{"Name": "Rubens","BirthDate": "04/21/1970","SomeValue": 0}]}' 'http://localhost:57772/api/frontier/unmarshall'</Description>
+<ClassMethod>1</ClassMethod>
+<FormalSpec>class:%DynamicObject(UNMARSHALLTO="Frontier.UnitTest.Fixtures.Class")</FormalSpec>
+<ReturnType>Frontier.UnitTest.Fixtures.Student</ReturnType>
+<Implementation><![CDATA[
+  $$$ThrowOnError(class.%Save())
+  return {
+    "ok": 1,
+    "__id__": (class.%Id())
+  }
 ]]></Implementation>
 </Method>
 </Class>
@@ -3122,7 +3150,7 @@ fall back to using the argument name instead.</Description>
 ]]></Routine>
 
 
-<Project name="frontier" LastModified="2017-09-15 11:28:51.093619" Target="##class(UnitTest.Frontier.Router).T()" TargetType="2" HttpServer="http://localhost:57772">
+<Project name="frontier" LastModified="2017-09-15 17:44:13.998816" Target="##class(UnitTest.Frontier.Router).T()" TargetType="2" HttpServer="http://localhost:57772">
   <Items>
     <ProjectItem name="Frontier.ArgumentDescription" type="CLS"></ProjectItem>
     <ProjectItem name="Frontier.Context" type="CLS"></ProjectItem>

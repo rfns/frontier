@@ -21,6 +21,7 @@ XData UrlMap [ XMLNamespace = "http://github.com/rfns/frontier" ]
   <Route Url="/mixed/object" Method="GET" Call="TestGETMixedDynamicObject"/>
   <Route Url="/mixed/array" Method="GET" Call="TestGETMixedDynamicArray"/>
   <Route Url="/mixed/rest" Method="POST" Call="TestPOSTMixedRestParametersSum"/>
+  <Route Url="/unmarshall" Method="POST" Call="TestPOSTUnmarshallToClass"/>
  </Routes>
 }
 
@@ -216,6 +217,18 @@ ClassMethod TestPOSTMixedRestParametersSum(msg As %String, data As %DynamicObjec
 ClassMethod TestGETAliasedQueryParameter(msg As %String(ALIAS="aliased_key"))
 {
   return msg
+}
+
+/// It's also possible to save from a payload directly to a %Persistent instance as long as the payload
+/// has the same format as the %Persistent class. Just define the the parameter UNMASHALLTO with the class you want
+/// curl -H "Content-Type: application/json" -X POST -d '{"Plate": "R-2948","Students": [{"Name": "Rubens","BirthDate": "04/21/1970","SomeValue": 0}]}' 'http://localhost:57772/api/frontier/unmarshall'
+ClassMethod TestPOSTUnmarshallToClass(class As %DynamicObject(UNMARSHALLTO="Frontier.UnitTest.Fixtures.Class")) As Frontier.UnitTest.Fixtures.Student
+{
+  $$$ThrowOnError(class.%Save())
+  return {
+    "ok": 1,
+    "__id__": (class.%Id())
+  }
 }
 
 }
