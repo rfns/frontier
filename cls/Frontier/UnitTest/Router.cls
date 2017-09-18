@@ -38,9 +38,9 @@ ClassMethod OnSetup() As %Status
 {
    
   // Reporters should be used to signal the developer about request errors.
-  // Uncomment the line below and configure the parameters by rewriting the Configure method from the indicated class below.  
+  // Uncomment the line below and configure the parameters by rewriting the SetupAccount method from the indicated class below.
   
-  // $$$QuitOnError(%frontier.ReporterManager.AddReporter(##class(Frontier.UniTest.Reporter.Email).%New()))
+  // $$$QuitOnError(%frontier.ReporterManager.AddReporter(##class(Frontier.UnitTest.Reporter.Email).%New()))
   
   return $$$OK
 }
@@ -82,7 +82,7 @@ ClassMethod TestGETRestParametersSum(n... As %String) As %Integer
 ClassMethod TestGETDynamicSQLResult(page As %Integer = 1, rows As %Integer = 5) As Frontier.SQL.Provider
 {
   set offset = (page * rows) - (rows - 1)
-  set limit = page * rows  
+  set limit = page * rows
   
   return %frontier.SQL.Prepare(
     "SELECT *, %VID as Index FROM (SELECT * FROM FRONTIER_UNITTEST_FIXTURES.STUDENT) WHERE %VID BETWEEN ? AND ?"

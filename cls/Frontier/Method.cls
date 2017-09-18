@@ -58,27 +58,29 @@ ParseArgument(parsedArgument)
   if argument '= "" {
     set parsedArgument = ##class(Frontier.ArgumentDescription).%New()
     if argument [ "..." set parsedArgument.Arity = 1
-    set parsedArgument.Name = $piece($replace($piece(argument, ":", 1), "...", ""), "=", 1)
-    set parsedArgument.DefaultValue = $piece(argument, "=", 2)    
+    set parsedArgument.Name = $piece($replace($piece(argument, ":", 1), "...", ""), "=", 1)       
     set parsedArgument.Index = currentIndex
     set preType = $piece(argument, ":", 2)
     if preType [ "(" {
       set parsedArgument.Type = $extract(preType, 1, $find(preType, "(") - 2)
+      set parsedArgument.DefaultValue = $piece(preType, "=", *)
       set argumentParameters = $extract(preType, $find(preType, "("), $find(preType, ")") - 2)
       if '$find(argumentParameters, ",") set argumentParameters = argumentParameters_","
       for i=1:1:$length(argumentParameters, ",") {
         set argumentParameter = $piece(argumentParameters, ",", i)
+        quit:argumentParameter=""
         set parameterName = $piece(argumentParameter, "=")
         set parameterValue = $$$trimQuote($piece(argumentParameter, "=", 2))
         do parsedArgument.Parameters.SetAt(parameterValue, parameterName)
         if parameterName = "ALIAS" set parsedArgument.Alias = parameterValue
       }
     } else {
-      set parsedArgument.Type = preType
+      set parsedArgument.Type = $piece(preType, "=", 1)
+      set parsedArgument.DefaultValue = $piece(preType, "=", 2)
     }
-    quit 1
+    return 1
   }    
-  quit 0
+  return 0
 }
 
 Method FindDescribedArgument(identifier As %String) As Frontier.ArgumentDescription [ Internal, Private ]
@@ -150,7 +152,7 @@ Method Sequentialize(ByRef mergedArguments = 0) As %Status [ Private ]
       if value = "" {
         if 'methodArgument.Arity set value = methodArgument.DefaultValue
         else  set value = $get(mergedArguments(methodArgument.Index))
-      }       
+      }      
     
       if ##class(Frontier.Types).IsDynamic(methodArgument.Type) {
         set unmarshallTo = methodArgument.Parameters.GetAt("UNMARSHALLTO")
