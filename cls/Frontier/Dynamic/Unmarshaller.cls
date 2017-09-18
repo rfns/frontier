@@ -47,7 +47,7 @@ ClassMethod MakeObject(className As %String, dynamicObject As %DynamicAbstractOb
       set object = $System.OBJ.New(className)
     }
     set dynamicObjectPropertyValue = $property(dynamicObject, property.Name)
-    set isDataType = ##class(Frontier.Types).IsDataType(property.Type)
+    set isDataType = '$isobject(dynamicObjectPropertyValue) && ##class(Frontier.Types).IsDataType(property.Type)
     set isSerial = ##class(Frontier.Types).IsSerial(property.Type)
     if 'isDataType {      
       if $isobject(dynamicObjectPropertyValue) && dynamicObjectPropertyValue.%IsA("%DynamicObject") {
@@ -131,8 +131,8 @@ ClassMethod MakeCollection(collectionType As %String, dynamicCollection As %Dyna
   }
   
   // We must check for both occorences: 
-  // 1 - When this method is called within Deproxify.
-  // 2 - When this method is a first call.
+  // 1 - When this method is called internally, so we already have the instance and can simply Clear it.
+  // 2 - When we are generating it directly from a collection.
   if $isobject(collection) {
     do collection.Clear()
   } else {      

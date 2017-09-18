@@ -323,14 +323,14 @@
   for i=1:1:affectedProperties.Count() {    
     set propertyDescriptors = affectedProperties.GetAt(i)    
     if '$isobject(propertyDescriptors) continue    
-    if propertyDescriptors.Private || propertyDescriptors.Calculated || ($extract(propertyDescriptors.Name) = "%") continue
+    if propertyDescriptors.Private || propertyDescriptors.Internal || ($extract(propertyDescriptors.Name) = "%") continue    
     if $isobject(parentObject) && ($classname(parentObject) = propertyDescriptors.Type) && 
       (parentKey = propertyDescriptors.Name) && (propertyDescriptors.Cardinality '= "") {
       // Prevents the buffer from overflowing by skipping parent relationship serialization.
       // DO NOT DISABLE THIS FLAG WHEN SERIALIZING TO JSON!
       if '..DropCyclicReferences set $property(dynamicObject, parentKey) = i%Cache(parentObject)
       continue
-    }
+    }    
     set value = $property(object, propertyDescriptors.Name)
     if $isobject(value) {
       if value.%IsA("%RelationshipObject") {
@@ -339,19 +339,26 @@
       }
       if propertyDescriptors.Collection = "" {        
         if value.%Extends("%Stream.Object") {
-          set proxifiedChild = $System.OBJ.New($classname(value))
-          set sc = proxifiedChild.CopyFrom(value)
+          set dynamicChild = $System.OBJ.New($classname(value))
+          set sc = dynamicChild.CopyFrom(value)
           if $$$ISERR(sc) quit
         } else {          
-          set sc = ..MakeDynamicObject(value, .proxifiedChild)
+          set sc = ..MakeDynamicObject(value, .dynamicChild)
         }        
       } else {
-        set sc = ..MakeDynamicCollection(value, .proxifiedChild, parentKey, parentObject)          
+        set sc = ..MakeDynamicCollection(value, .dynamicChild, parentKey, parentObject)          
       }
       if $$$ISERR(sc) quit
-      set $property(dynamicObject, propertyDescriptors.Name) = proxifiedChild                  
+      set $property(dynamicObject, propertyDescriptors.Name) = dynamicChild                  
     } else {
-      set $property(dynamicObject, propertyDescriptors.Name) = $property(object, propertyDescriptors.Name)
+      set internalValue = $property(object, propertyDescriptors.Name)
+      set $property(dynamicObject, propertyDescriptors.Name) = internalValue
+      if ##class(%Dictionary.CompiledMethod).%ExistsId(propertyDescriptors.Type_"||LogicalToDisplay") {                
+        set externalValue = $classmethod(propertyDescriptors.Type, "LogicalToDisplay", internalValue)
+        if externalValue '= internalValue {
+          set $property(dynamicObject, propertyDescriptors.Name_"__x") = externalValue
+        }
+      }
     }      
   }  
   if object.%Extends("%Persistent") {
@@ -369,6 +376,7 @@
 <Private>1</Private>
 <ReturnType>%Status</ReturnType>
 <Implementation><![CDATA[
+  
   set sc = $$$OK   
   set startOffset = 0
   set cyclicReferenceTrap = 0
@@ -381,10 +389,9 @@
   }
    
   set key = ""
+  set item = collection.GetNext(.key)
   
-  while collection.GetNext(.key) {
-    set item = collection.GetAt(key)
-    
+  while key {  
     if $isobject(item) {
       if item.%IsA("%Collection.AbstractIterator") {
         set sc = ..MakeDynamicCollection(item , .value)
@@ -395,9 +402,10 @@
     } else {
       set value = item
     }
-    
     if 'cyclicReferenceTrap do dynamicCollection.%Set(key - startOffset, value)    
     if $$$ISERR(sc) quit
+    
+    set item = collection.GetNext(.key)
   }
   quit sc
 ]]></Implementation>
@@ -559,7 +567,7 @@ rchr(time) Quit ""
       set object = $System.OBJ.New(className)
     }
     set dynamicObjectPropertyValue = $property(dynamicObject, property.Name)
-    set isDataType = ##class(Frontier.Types).IsDataType(property.Type)
+    set isDataType = '$isobject(dynamicObjectPropertyValue) && ##class(Frontier.Types).IsDataType(property.Type)
     set isSerial = ##class(Frontier.Types).IsSerial(property.Type)
     if 'isDataType {      
       if $isobject(dynamicObjectPropertyValue) && dynamicObjectPropertyValue.%IsA("%DynamicObject") {
@@ -648,8 +656,8 @@ rchr(time) Quit ""
   }
   
   // We must check for both occorences: 
-  // 1 - When this method is called within Deproxify.
-  // 2 - When this method is a first call.
+  // 1 - When this method is called internally, so we already have the instance and can simply Clear it.
+  // 2 - When we are generating it directly from a collection.
   if $isobject(collection) {
     do collection.Clear()
   } else {      
@@ -3149,7 +3157,7 @@ curl -H "Content-Type: application/json" -X POST -d '{"Plate": "R-2948","Student
 ]]></Routine>
 
 
-<Project name="frontier" LastModified="2017-09-15 17:44:13.998816" Target="##class(UnitTest.Frontier.Router).T()" TargetType="2" HttpServer="http://localhost:57772">
+<Project name="frontier" LastModified="2017-09-18 16:13:32.725132" Target="##class(UnitTest.Frontier.Router).T()" TargetType="2" HttpServer="http://localhost:57772">
   <Items>
     <ProjectItem name="Frontier.ArgumentDescription" type="CLS"></ProjectItem>
     <ProjectItem name="Frontier.Context" type="CLS"></ProjectItem>

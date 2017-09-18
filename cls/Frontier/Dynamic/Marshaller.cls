@@ -95,14 +95,14 @@ Method MakeDynamicObject(object As %RegisteredObject, Output dynamicObject As %D
   for i=1:1:affectedProperties.Count() {    
     set propertyDescriptors = affectedProperties.GetAt(i)    
     if '$isobject(propertyDescriptors) continue    
-    if propertyDescriptors.Private || propertyDescriptors.Calculated || ($extract(propertyDescriptors.Name) = "%") continue
+    if propertyDescriptors.Private || propertyDescriptors.Internal || ($extract(propertyDescriptors.Name) = "%") continue    
     if $isobject(parentObject) && ($classname(parentObject) = propertyDescriptors.Type) && 
       (parentKey = propertyDescriptors.Name) && (propertyDescriptors.Cardinality '= "") {
       // Prevents the buffer from overflowing by skipping parent relationship serialization.
       // DO NOT DISABLE THIS FLAG WHEN SERIALIZING TO JSON!
       if '..DropCyclicReferences set $property(dynamicObject, parentKey) = i%Cache(parentObject)
       continue
-    }
+    }    
     set value = $property(object, propertyDescriptors.Name)
     if $isobject(value) {
       if value.%IsA("%RelationshipObject") {
@@ -111,19 +111,26 @@ Method MakeDynamicObject(object As %RegisteredObject, Output dynamicObject As %D
       }
       if propertyDescriptors.Collection = "" {        
         if value.%Extends("%Stream.Object") {
-          set proxifiedChild = $System.OBJ.New($classname(value))
-          set sc = proxifiedChild.CopyFrom(value)
+          set dynamicChild = $System.OBJ.New($classname(value))
+          set sc = dynamicChild.CopyFrom(value)
           if $$$ISERR(sc) quit
         } else {          
-          set sc = ..MakeDynamicObject(value, .proxifiedChild)
+          set sc = ..MakeDynamicObject(value, .dynamicChild)
         }        
       } else {
-        set sc = ..MakeDynamicCollection(value, .proxifiedChild, parentKey, parentObject)          
+        set sc = ..MakeDynamicCollection(value, .dynamicChild, parentKey, parentObject)          
       }
       if $$$ISERR(sc) quit
-      set $property(dynamicObject, propertyDescriptors.Name) = proxifiedChild                  
+      set $property(dynamicObject, propertyDescriptors.Name) = dynamicChild                  
     } else {
-      set $property(dynamicObject, propertyDescriptors.Name) = $property(object, propertyDescriptors.Name)
+      set internalValue = $property(object, propertyDescriptors.Name)
+      set $property(dynamicObject, propertyDescriptors.Name) = internalValue
+      if ##class(%Dictionary.CompiledMethod).%ExistsId(propertyDescriptors.Type_"||LogicalToDisplay") {                
+        set externalValue = $classmethod(propertyDescriptors.Type, "LogicalToDisplay", internalValue)
+        if externalValue '= internalValue {
+          set $property(dynamicObject, propertyDescriptors.Name_"__x") = externalValue
+        }
+      }
     }      
   }  
   if object.%Extends("%Persistent") {
@@ -137,6 +144,7 @@ Method MakeDynamicObject(object As %RegisteredObject, Output dynamicObject As %D
 
 Method MakeDynamicCollection(collection As %Collection.Super, Output dynamicCollection As %String, parentKey As %String = "", parentObject As %RegisteredObject = "") As %Status [ Private ]
 {
+  
   set sc = $$$OK   
   set startOffset = 0
   set cyclicReferenceTrap = 0
@@ -149,10 +157,9 @@ Method MakeDynamicCollection(collection As %Collection.Super, Output dynamicColl
   }
    
   set key = ""
+  set item = collection.GetNext(.key)
   
-  while collection.GetNext(.key) {
-    set item = collection.GetAt(key)
-    
+  while key {  
     if $isobject(item) {
       if item.%IsA("%Collection.AbstractIterator") {
         set sc = ..MakeDynamicCollection(item , .value)
@@ -163,9 +170,10 @@ Method MakeDynamicCollection(collection As %Collection.Super, Output dynamicColl
     } else {
       set value = item
     }
-    
     if 'cyclicReferenceTrap do dynamicCollection.%Set(key - startOffset, value)    
     if $$$ISERR(sc) quit
+    
+    set item = collection.GetNext(.key)
   }
   quit sc
 }
