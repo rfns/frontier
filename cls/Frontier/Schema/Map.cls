@@ -1,4 +1,4 @@
-Class Frontier.Definition.Map Extends (%RegisteredObject, %XML.Adaptor)
+Class Frontier.Schema.Map Extends (%RegisteredObject, %XML.Adaptor)
 {
 
 Property Prefix As %String(XMLPROJECTION = "ATTRIBUTE");

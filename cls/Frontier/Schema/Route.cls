@@ -1,4 +1,4 @@
-Class Frontier.Definition.Route Extends (%RegisteredObject, %XML.Adaptor)
+Class Frontier.Schema.Route Extends (%RegisteredObject, %XML.Adaptor)
 {
 
 Property Url As %String(XMLPROJECTION = "ATTRIBUTE");
