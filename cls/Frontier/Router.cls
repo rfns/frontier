@@ -1,3 +1,5 @@
+Include (%occErrors, %occStatus)
+
 Class Frontier.Router Extends %CSP.REST
 {
 
@@ -7,6 +9,21 @@ ClassMethod Page(skipheader As %Boolean = 1) As %Status [ ProcedureBlock = 0 ]
   set %frontier = ##class(Frontier.Context).%New(%session, %request, %response)  
   $$$QuitOnError(##super(skipheader))
   do ..OnPostHTTP()
+  return $$$OK
+}
+
+ClassMethod DispatchMap(index As %Integer) As %String [ CodeMode = objectgenerator, Final ]
+{
+  // Don't generate patterns if target class is super.
+  if %compiledclass.Name = "Frontier.Router" return $$$OK
+  
+  // Kills remaining data, so that we can prevent misleading patterns.
+  kill ^Frontier.Patterns(%compiledclass.Name)
+  
+  $$$ThrowOnError(##class(Frontier.Schema.Util).Parse(%compiledclass.Name, .routes))
+  $$$ThrowOnError(##class(Frontier.Schema.Util).GeneratePatterns(routes, %compiledclass.Name, .patterns))  
+  merge ^Frontier.Patterns(%compiledclass.Name) = patterns
+  do %code.WriteLine("  return $get(^Frontier.Patterns($classname(), index))")
   return $$$OK
 }
 
@@ -50,7 +67,7 @@ ClassMethod DispatchRequest(pUrl As %String, pMethod As %String, pForwarded As %
              
       #; Pick out the RegEx
       set tRegEx = $list(tMapEntry,2)
-            
+      
       #; Create a matcher
       set tMatcher = ##class(%Regex.Matcher).%New(tRegEx)
             
@@ -89,7 +106,7 @@ ClassMethod DispatchRequest(pUrl As %String, pMethod As %String, pForwarded As %
           #; Got a match, marshall the arguments can call directly
           if tMatcher.GroupCount {
             #; Modified for Frontier compatibility: store key instead of index. We need this info to correlate the arguments.            
-            for tI=1:1:tMatcher.GroupCount set tArgs(tI)=tMatcher.Group(tI)
+            for tI=1:1:tMatcher.GroupCount set tArgs($lg($lg(tMapEntry,6), tI))=tMatcher.Group(tI)
             set tArgs = tI
           } else {
             set tArgs=0
@@ -139,14 +156,18 @@ ClassMethod DispatchRequest(pUrl As %String, pMethod As %String, pForwarded As %
                   
     #; Had a match for resource but method not matched
     if tMethodMatched = 0 {      
-      set tSC = ..SupportedVerbs(tMatchUrl,.tSupportedVerbs)            
-      return ..Http405(tSupportedVerbs) Quit
+      set tSC = ..SupportedVerbs(tMatchUrl,.tSupportedVerbs)
+      set tHttpStatus = 404
+      $$$ThrowOnError($$$ERROR($$$GeneralError, "Resource not found."))
     }
   } catch (e) {
     if tHttpStatus < 300 set tHttpStatus = ..#HTTP500INTERNALSERVERERROR
-    set exceptionJSON = ##class(Exception).ToDynamicObject(e)  
-    set %frontier.Error = e.AsStatus()
-    set %frontier.Stack = ##class(Exception).CaptureStack() 
+    set exceptionJSON = ##class(Exception).ToDynamicObject(e)
+    set sc = e.AsStatus()
+    if %frontier.ThrownByApplication {
+      set %frontier.Error = e.AsStatus()
+      set %frontier.Stack = ##class(Exception).CaptureStack()
+    }
     write exceptionJSON.%ToJSON()
   }   
   return $$$OK

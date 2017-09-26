@@ -1,8 +1,6 @@
 Class Frontier.Exception Extends %Exception.StatusException
 {
 
-Property NextException As Frontier.Exception;
-
 ClassMethod CreateFromStatus(pSC As %Status, errorIndex As %Integer = 1) As Frontier.Exception
 {
   #dim tException As %Exception.AbstractException

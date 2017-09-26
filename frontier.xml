@@ -104,6 +104,12 @@
 <Type>%DynamicObject</Type>
 </Property>
 
+<Property name="ThrownByApplication">
+<Type>%Boolean</Type>
+<Internal>1</Internal>
+<ReadOnly>1</ReadOnly>
+</Property>
+
 <Method name="%OnNew">
 <FormalSpec>session:%CSP.Session,request:%CSP.Request,response:%CSP.Response</FormalSpec>
 <ReturnType>%Status</ReturnType>
@@ -191,6 +197,7 @@
   set args(2) = message
   
   for i=1:1:parameters set args(2+i) = parameters(i)
+  set i%ThrownByApplication = 1
   throw ##class(%Exception.StatusException).CreateFromStatus($$$ERROR(args...))
 ]]></Implementation>
 </Method>
@@ -708,10 +715,6 @@ rchr(time) Quit ""
 <Super>%Exception.StatusException</Super>
 <TimeCreated>64225,38503.046031</TimeCreated>
 
-<Property name="NextException">
-<Type>Frontier.Exception</Type>
-</Property>
-
 <Method name="CreateFromStatus">
 <ClassMethod>1</ClassMethod>
 <FormalSpec>pSC:%Status,errorIndex:%Integer=1</FormalSpec>
@@ -884,6 +887,7 @@ rchr(time) Quit ""
   set describedArguments = ##class(%ListOfObjects).%New()
   set formalSpec = ..MethodDescriptor.FormalSpec
   set currentIndex = 0
+  set currentPiece = 0
   
   while $$ParseArgument(.parsedArgument) {
     set sc = ..MethodArguments.Insert(parsedArgument)
@@ -894,7 +898,15 @@ rchr(time) Quit ""
  
 ParseArgument(parsedArgument)
   set currentIndex = currentIndex + 1
-  set argument = $piece(formalSpec, ",", currentIndex)
+  set currentPiece = currentPiece + 1
+  set argument = $piece(formalSpec, ",", currentPiece)
+  
+  if argument [ "(" {
+    while '$find(argument, ")") {
+      set currentPiece = currentPiece + 1
+      set argument = argument_","_$piece(formalSpec, ",", currentPiece)
+    }
+  }    
   
   if argument '= "" {
     set parsedArgument = ##class(Frontier.ArgumentDescription).%New()
@@ -902,9 +914,11 @@ ParseArgument(parsedArgument)
     set parsedArgument.Name = $piece($replace($piece(argument, ":", 1), "...", ""), "=", 1)       
     set parsedArgument.Index = currentIndex
     set preType = $piece(argument, ":", 2)
-    if preType [ "(" {
+    if preType [ "(" {      
       set parsedArgument.Type = $extract(preType, 1, $find(preType, "(") - 2)
-      set parsedArgument.DefaultValue = $piece(preType, "=", *)
+      set maybeDefault = $piece(preType, "=", *)
+      if $extract(maybeDefault, *) = ")" set maybeDefault =""
+      set parsedArgument.DefaultValue = $$$trimQuote(maybeDefault)
       set argumentParameters = $extract(preType, $find(preType, "("), $find(preType, ")") - 2)
       if '$find(argumentParameters, ",") set argumentParameters = argumentParameters_","
       for i=1:1:$length(argumentParameters, ",") {
@@ -917,7 +931,7 @@ ParseArgument(parsedArgument)
       }
     } else {
       set parsedArgument.Type = $piece(preType, "=", 1)
-      set parsedArgument.DefaultValue = $piece(preType, "=", 2)
+      set parsedArgument.DefaultValue = $$$trimQuote($piece(preType, "=", 2))
     }
     return 1
   }    
@@ -1014,30 +1028,35 @@ ParseArgument(parsedArgument)
       }      
     
       if ##class(Frontier.Types).IsDynamic(methodArgument.Type) {
-        set unmarshallTo = methodArgument.Parameters.GetAt("UNMARSHALLTO")
         $$$AssertSinglePayloadParameter
         $$$TriggerPayloadFlag
+        set unmarshallTo = methodArgument.Parameters.GetAt("UNMARSHALLTO")
+        set idColumn = methodArgument.Parameters.GetAt("IDCOLUMN")
         set value = $classmethod(methodArgument.Type, "%FromJSON", ..Payload)
         if unmarshallTo '= "" {
+          set instanceId = value."__id__"    
+          if idColumn '= "" {
+            set value."__id__" = $get(mergedArguments(..FindDescribedArgument(idColumn).Index))
+            if value."__id__" = "" set value."__id__" = instanceId
+          }
+          if value."__id__" = "" && (..HttpMethod = "PUT" || (..HttpMethod = "PATCH")) {
+            return $$$ERROR($$$GeneralError, "Cannot unmarshall payload: a PUT/PATCH request requires an identifier.")
+          }
           set sc = ##class(Frontier.Dynamic.Unmarshaller).Unmarshall(unmarshallTo, value, .instance)
           if $$$ISERR(sc) return sc
           set value = instance
         } else {
           if value = "" return $$$ERROR($$$GeneralError, $$$FormatText(jsonErrorMessage, methodArgument.Type))
         }
-      } elseif ##class(Frontier.Types).IsZENProxyObject(methodArgument.Type) {
-        $$$AssertSinglePayloadParameter
-        $$$TriggerPayloadFlag
-        set sc = ##class(%ZEN.Auxiliary.altJSONProvider).%ConvertJSONToObject(..Payload,,.value)
-        if $$$ISERR(sc) return $$$ERROR($$$GeneralError, $$$FormatText(jsonErrorMessage, methodArgument.Type))
       } elseif ##class(Frontier.Types).IsPersistent(methodArgument.Type) {
         set value = $System.OBJ.OpenId(methodArgument.Type, value)
         if '$isobject(value) set value = ""
       }
-      set i%Arguments(argsProcessed) = value
+      set i%Arguments(argsProcessed) = value      
     }
   }
   set i%Arguments = argsProcessed
+  merge a = ..Arguments  
   return sc
 ]]></Implementation>
 </Method>
@@ -1088,8 +1107,13 @@ ParseArgument(parsedArgument)
     set preArguments(argumentIndex) = value  
   }  
   
-  // Now we must merge the arguments, remember that route arguments always take priority.    
-  merge preArguments = routeArguments
+  // Now we must merge the route arguments back, remember they always take priority.
+  set routeKey = ""
+  for {
+    set routeKey = $order(routeArguments(routeKey), 1, routeValue)
+    quit:routeKey=""    
+    set preArguments(..FindDescribedArgument(routeKey).Index) = routeValue
+  }
   set preArguments = argumentIndex
   return $$$OK
 ]]></Implementation>
@@ -1204,6 +1228,7 @@ the fields that aren't private, or you can instantiate it and change it's values
 </Method>
 
 <Method name="SetupSMTPServer">
+<Private>1</Private>
 <ReturnType>%Status</ReturnType>
 <Implementation><![CDATA[
   set ..SMTPServer.smtpserver = ..SMTPServerLocation
@@ -1215,6 +1240,7 @@ the fields that aren't private, or you can instantiate it and change it's values
 </Method>
 
 <Method name="SetupAuthenticator">
+<Private>1</Private>
 <ReturnType>%Status</ReturnType>
 <Implementation><![CDATA[
   set ..Authenticator.UserName = ..SenderEmail
@@ -1225,6 +1251,7 @@ the fields that aren't private, or you can instantiate it and change it's values
 
 <Method name="SetupMail">
 <FormalSpec>context:Frontier.Context</FormalSpec>
+<Private>1</Private>
 <ReturnType>%Status</ReturnType>
 <Implementation><![CDATA[
   set ..Mail.From = ..SenderEmail
@@ -1347,6 +1374,7 @@ the fields that aren't private, or you can instantiate it and change it's values
 
 
 <Class name="Frontier.Router">
+<IncludeCode>%occErrors,%occStatus</IncludeCode>
 <Super>%CSP.REST</Super>
 <TimeCreated>64492,32085.189445</TimeCreated>
 
@@ -1360,6 +1388,27 @@ the fields that aren't private, or you can instantiate it and change it's values
   set %frontier = ##class(Frontier.Context).%New(%session, %request, %response)  
   $$$QuitOnError(##super(skipheader))
   do ..OnPostHTTP()
+  return $$$OK
+]]></Implementation>
+</Method>
+
+<Method name="DispatchMap">
+<Final>1</Final>
+<ClassMethod>1</ClassMethod>
+<CodeMode>objectgenerator</CodeMode>
+<FormalSpec>index:%Integer</FormalSpec>
+<ReturnType>%String</ReturnType>
+<Implementation><![CDATA[
+  // Don't generate patterns if target class is super.
+  if %compiledclass.Name = "Frontier.Router" return $$$OK
+  
+  // Kills remaining data, so that we can prevent misleading patterns.
+  kill ^Frontier.Patterns(%compiledclass.Name)
+  
+  $$$ThrowOnError(##class(Frontier.Schema.Util).Parse(%compiledclass.Name, .routes))
+  $$$ThrowOnError(##class(Frontier.Schema.Util).GeneratePatterns(routes, %compiledclass.Name, .patterns))  
+  merge ^Frontier.Patterns(%compiledclass.Name) = patterns
+  do %code.WriteLine("  return $get(^Frontier.Patterns($classname(), index))")
   return $$$OK
 ]]></Implementation>
 </Method>
@@ -1407,7 +1456,7 @@ the fields that aren't private, or you can instantiate it and change it's values
              
       #; Pick out the RegEx
       set tRegEx = $list(tMapEntry,2)
-            
+      
       #; Create a matcher
       set tMatcher = ##class(%Regex.Matcher).%New(tRegEx)
             
@@ -1446,7 +1495,7 @@ the fields that aren't private, or you can instantiate it and change it's values
           #; Got a match, marshall the arguments can call directly
           if tMatcher.GroupCount {
             #; Modified for Frontier compatibility: store key instead of index. We need this info to correlate the arguments.            
-            for tI=1:1:tMatcher.GroupCount set tArgs(tI)=tMatcher.Group(tI)
+            for tI=1:1:tMatcher.GroupCount set tArgs($lg($lg(tMapEntry,6), tI))=tMatcher.Group(tI)
             set tArgs = tI
           } else {
             set tArgs=0
@@ -1496,14 +1545,18 @@ the fields that aren't private, or you can instantiate it and change it's values
                   
     #; Had a match for resource but method not matched
     if tMethodMatched = 0 {      
-      set tSC = ..SupportedVerbs(tMatchUrl,.tSupportedVerbs)            
-      return ..Http405(tSupportedVerbs) Quit
+      set tSC = ..SupportedVerbs(tMatchUrl,.tSupportedVerbs)
+      set tHttpStatus = 404
+      $$$ThrowOnError($$$ERROR($$$GeneralError, "Resource not found."))
     }
   } catch (e) {
     if tHttpStatus < 300 set tHttpStatus = ..#HTTP500INTERNALSERVERERROR
-    set exceptionJSON = ##class(Exception).ToDynamicObject(e)  
-    set %frontier.Error = e.AsStatus()
-    set %frontier.Stack = ##class(Exception).CaptureStack() 
+    set exceptionJSON = ##class(Exception).ToDynamicObject(e)
+    set sc = e.AsStatus()
+    if %frontier.ThrownByApplication {
+      set %frontier.Error = e.AsStatus()
+      set %frontier.Stack = ##class(Exception).CaptureStack()
+    }
     write exceptionJSON.%ToJSON()
   }   
   return $$$OK
@@ -1801,6 +1854,157 @@ the fields that aren't private, or you can instantiate it and change it's values
   set columnNames = columns.Count()
   for i=1:1:columnNames set columnNames(i) = columns.GetAt(i).label
   return $$$OK
+]]></Implementation>
+</Method>
+</Class>
+
+
+<Class name="Frontier.Schema.Map">
+<Super>%RegisteredObject,%XML.Adaptor</Super>
+<TimeCreated>64552,36886.274558</TimeCreated>
+
+<Property name="Prefix">
+<Type>%String</Type>
+<Parameter name="XMLPROJECTION" value="ATTRIBUTE"/>
+</Property>
+
+<Property name="Forward">
+<Type>%String</Type>
+<Parameter name="XMLPROJECTION" value="ATTRIBUTE"/>
+</Property>
+</Class>
+
+
+<Class name="Frontier.Schema.Route">
+<Super>%RegisteredObject,%XML.Adaptor</Super>
+<TimeCreated>64552,36903.793612</TimeCreated>
+
+<Property name="Url">
+<Type>%String</Type>
+<Parameter name="XMLPROJECTION" value="ATTRIBUTE"/>
+</Property>
+
+<Property name="Method">
+<Type>%String</Type>
+<Parameter name="XMLPROJECTION" value="ATTRIBUTE"/>
+</Property>
+
+<Property name="Call">
+<Type>%String</Type>
+<Parameter name="XMLPROJECTION" value="ATTRIBUTE"/>
+</Property>
+
+<Property name="Cors">
+<Type>%String</Type>
+<Parameter name="XMLPROJECTION" value="ATTRIBUTE"/>
+</Property>
+</Class>
+
+
+<Class name="Frontier.Schema.Routes">
+<Super>%RegisteredObject,%XML.Adaptor</Super>
+<TimeCreated>64552,36920.7862</TimeCreated>
+
+<Parameter name="XMLPROJECTION">
+<Default>WRAPPED</Default>
+</Parameter>
+
+<Property name="Route">
+<Type>Frontier.Schema.Route</Type>
+<Collection>list</Collection>
+<Parameter name="XMLPROJECTION" value="ELEMENT"/>
+</Property>
+
+<Property name="Map">
+<Type>Frontier.Schema.Map</Type>
+<Collection>list</Collection>
+<Parameter name="XMLPROJECTION" value="ELEMENT"/>
+</Property>
+</Class>
+
+
+<Class name="Frontier.Schema.Util">
+<Abstract>1</Abstract>
+<TimeCreated>64552,36997.083393</TimeCreated>
+
+<Method name="Parse">
+<Internal>1</Internal>
+<ClassMethod>1</ClassMethod>
+<FormalSpec>targetClass:%String,*routes:Frontier.Schema.Routes</FormalSpec>
+<ReturnType>%Status</ReturnType>
+<Implementation><![CDATA[
+  set sc = $$$OK
+  set xdataId = targetClass_"||UrlMap"
+  
+  if '##class(%Dictionary.CompiledXData).%ExistsId(xdataId) {
+    return $$$ERROR($$$XDataBlockMissing, targetClass, "UrlMap")
+  }
+  
+  try {
+    set reader = ##class(%XML.Reader).%New()
+    set xdata = ##class(%Dictionary.CompiledXData).%OpenId(xdataId).Data   
+    set resolver = ##class(%XML.SAX.XDataEntityResolver).%New(targetClass)
+    set reader.EntityResolver = resolver
+    $$$ThrowOnError(reader.OpenStream(xdata))
+    do reader.Correlate("Routes", "Frontier.Schema.Routes")
+    do reader.Next(.routes, .sc)
+    $$$ThrowOnError(sc)
+  } catch ex {
+    set sc = ex.AsStatus()
+  }
+  return sc
+]]></Implementation>
+</Method>
+
+<Method name="GeneratePatterns">
+<Internal>1</Internal>
+<ClassMethod>1</ClassMethod>
+<FormalSpec>routes:Frontier.Schema.Routes,targetClass:%String,*patterns:%String</FormalSpec>
+<ReturnType>%Status</ReturnType>
+<Implementation><![CDATA[
+  #dim route As Frontier.Schema.Route
+  #dim map as Frontier.Schema.Map
+  
+  set totalRoutes = routes.Route.Count()
+  set totalMaps = routes.Map.Count()
+  
+  if totalRoutes > 0 {
+    set resourceType = "R"
+    for i=1:1:totalRoutes {
+      set route = routes.Route.GetAt(i)
+      set pattern = $$WritePattern(route.Url, .placeholders)
+      set patterns(i) = $lb(resourceType, pattern, route.Method, route.Call, route.Cors)
+      if $ll(placeholders) > 0 set $list(patterns(i), *+1) = placeholders
+    }    
+  } 
+  if totalMaps > 0 {
+    set resourceType = "M"
+    for i=1:totalMaps {
+      set map = routes.Map.GetAt(i)
+      set patterns(i) = $lb(resourceType, $$WritePattern(map.Prefix), map.Forward)
+    }
+  }
+  
+  return $$$OK
+  
+WritePattern(resource, placeholders)
+  set pattern = ""
+  set placeholders = ""
+  for resourceIndex=2:1:$length(resource,"/") {
+    set resourcePart = $piece(resource,"/", resourceIndex)
+    if $extract(resourcePart) = ":" {
+      set $list(placeholders, *+1) = $piece(resourcePart, ":", 2)
+      if resourceType = "R" {
+        set pattern = pattern_"/([^"_$char(0)_"]+)"        
+      } else {        
+        set pattern = pattern_"/[^/]+"
+      }
+    } else {
+      set pattern = pattern_"/"_resourcePart
+    }
+  }
+  if resourceType = "R" return $translate(pattern, $char(0), "/")
+  return "("_pattern_")/.*"
 ]]></Implementation>
 </Method>
 </Class>
@@ -2139,6 +2343,7 @@ the fields that aren't private, or you can instantiate it and change it's values
   <Route Url="/mixed/array" Method="GET" Call="TestGETMixedDynamicArray"/>
   <Route Url="/mixed/rest" Method="POST" Call="TestPOSTMixedRestParametersSum"/>
   <Route Url="/unmarshall" Method="POST" Call="TestPOSTUnmarshallToClass"/>
+  <Route Url="/unmarshall/:classId" Method="PUT" Call="TestPUTUnmarshallToClass"/>
  </Routes>
 ]]></Data>
 </XData>
@@ -2167,6 +2372,7 @@ This method is reserved for setting up configurations.</Description>
   // Uncomment the line below and configure the parameters by rewriting the SetupAccount method from the indicated class below.
   
   // $$$QuitOnError(%frontier.ReporterManager.AddReporter(##class(Frontier.UnitTest.Reporter.Email).%New()))
+  $$$QuitOnError(%frontier.ReporterManager.AddReporter(##class(QS.Reporter.Email).%New()))
   
   return $$$OK
 ]]></Implementation>
@@ -2419,10 +2625,27 @@ fall back to using the argument name instead.</Description>
 ]]></Implementation>
 </Method>
 
-<Method name="TestPOSTUnmarshallToClass">
+<Method name="TestPUTUnmarshallToClass">
 <Description>
 It's also possible to save from a payload directly to a %Persistent instance as long as the payload
 has the same format as the %Persistent class. Just define the the parameter UNMASHALLTO with the class you want
+curl -H "Content-Type: application/json" -X POST -d '{"Plate": "R-2948","Students": [{"Name": "Rubens","BirthDate": "04/21/1970","SomeValue": 0}]}' 'http://localhost:57772/api/frontier/unmarshall'</Description>
+<ClassMethod>1</ClassMethod>
+<FormalSpec>class:%DynamicObject(UNMARSHALLTO="Frontier.UnitTest.Fixtures.Class",IDCOLUMN="classId"),classId:%Integer</FormalSpec>
+<ReturnType>Frontier.UnitTest.Fixtures.Student</ReturnType>
+<Implementation><![CDATA[
+  $$$ThrowOnError(class.%Save())
+  return {
+    "ok": 1,
+    "__id__": (class.%Id())
+  }
+]]></Implementation>
+</Method>
+
+<Method name="TestPOSTUnmarshallToClass">
+<Description>
+It's also possible to save from a payload directly to a %Persistent instance as long as the payload
+has the same format as the %Persistent class. Just define the the parameter UNMARSHALLTO with the class you want
 curl -H "Content-Type: application/json" -X POST -d '{"Plate": "R-2948","Students": [{"Name": "Rubens","BirthDate": "04/21/1970","SomeValue": 0}]}' 'http://localhost:57772/api/frontier/unmarshall'</Description>
 <ClassMethod>1</ClassMethod>
 <FormalSpec>class:%DynamicObject(UNMARSHALLTO="Frontier.UnitTest.Fixtures.Class")</FormalSpec>
@@ -3157,10 +3380,13 @@ curl -H "Content-Type: application/json" -X POST -d '{"Plate": "R-2948","Student
 ]]></Routine>
 
 
-<Project name="frontier" LastModified="2017-09-18 16:13:32.725132" Target="##class(UnitTest.Frontier.Router).T()" TargetType="2" HttpServer="http://localhost:57772">
+<Project name="frontier" LastModified="2017-09-26 16:40:51.363549" Target="##class(Frontier.Method).%New(&quot;Frontier.UnitTest.Router&quot;, &quot;TestPUTUnmarshallToClass&quot;)" TargetType="2" HttpServer="http://localhost:57772">
   <Items>
     <ProjectItem name="Frontier.ArgumentDescription" type="CLS"></ProjectItem>
     <ProjectItem name="Frontier.Context" type="CLS"></ProjectItem>
+    <ProjectItem name="Frontier.Definition.Map" type="CLS"></ProjectItem>
+    <ProjectItem name="Frontier.Definition.Route" type="CLS"></ProjectItem>
+    <ProjectItem name="Frontier.Definition.Routes" type="CLS"></ProjectItem>
     <ProjectItem name="Frontier.Dynamic.Marshaller" type="CLS"></ProjectItem>
     <ProjectItem name="Frontier.Dynamic.Serializer" type="CLS"></ProjectItem>
     <ProjectItem name="Frontier.Dynamic.Unmarshaller" type="CLS"></ProjectItem>
@@ -3173,6 +3399,9 @@ curl -H "Content-Type: application/json" -X POST -d '{"Plate": "R-2948","Student
     <ProjectItem name="Frontier.SQL" type="CLS"></ProjectItem>
     <ProjectItem name="Frontier.SQL.Provider" type="CLS"></ProjectItem>
     <ProjectItem name="Frontier.SQL.Serializer" type="CLS"></ProjectItem>
+    <ProjectItem name="Frontier.Schema.Map" type="CLS"></ProjectItem>
+    <ProjectItem name="Frontier.Schema.Route" type="CLS"></ProjectItem>
+    <ProjectItem name="Frontier.Schema.Routes" type="CLS"></ProjectItem>
     <ProjectItem name="Frontier.Types" type="CLS"></ProjectItem>
     <ProjectItem name="Frontier.UnitTest.Fixtures.Class" type="CLS"></ProjectItem>
     <ProjectItem name="Frontier.UnitTest.Fixtures.Student" type="CLS"></ProjectItem>
@@ -3181,11 +3410,13 @@ curl -H "Content-Type: application/json" -X POST -d '{"Plate": "R-2948","Student
     <ProjectItem name="Frontier.UnitTest.Router" type="CLS"></ProjectItem>
     <ProjectItem name="Frontier.UnitTest.Util" type="CLS"></ProjectItem>
     <ProjectItem name="Frontier.UnitTest.WebApplicationInstaller" type="CLS"></ProjectItem>
+    <ProjectItem name="Frontier.Util" type="CLS"></ProjectItem>
     <ProjectItem name="UnitTest.Frontier.Reporter.Manager" type="CLS"></ProjectItem>
     <ProjectItem name="UnitTest.Frontier.Router" type="CLS"></ProjectItem>
     <ProjectItem name="UnitTest.Frontier.Types" type="CLS"></ProjectItem>
     <ProjectItem name="csp/dev/email-template.html" type="CSP"></ProjectItem>
     <ProjectItem name="frontier.INC" type="MAC"></ProjectItem>
+    <ProjectItem name="Frontier.Schema.Util" type="CLS"></ProjectItem>
   </Items>
 </Project>
 </Export>

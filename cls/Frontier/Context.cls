@@ -29,6 +29,8 @@ Property ReporterManager As Frontier.Reporter.Manager [ ReadOnly ];
 
 Property Data As %DynamicObject;
 
+Property ThrownByApplication As %Boolean [ Internal, ReadOnly ];
+
 Method %OnNew(session As %CSP.Session, request As %CSP.Request, response As %CSP.Response) As %Status
 {
   set i%Session = session
@@ -97,6 +99,7 @@ Method ThrowException(message As %String, statusCode As %Integer = {$$$GeneralEr
   set args(2) = message
   
   for i=1:1:parameters set args(2+i) = parameters(i)
+  set i%ThrownByApplication = 1
   throw ##class(%Exception.StatusException).CreateFromStatus($$$ERROR(args...))
 }
 

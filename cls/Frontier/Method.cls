@@ -43,6 +43,7 @@ Method DescribeArguments() As %Status [ Private ]
   set describedArguments = ##class(%ListOfObjects).%New()
   set formalSpec = ..MethodDescriptor.FormalSpec
   set currentIndex = 0
+  set currentPiece = 0
   
   while $$ParseArgument(.parsedArgument) {
     set sc = ..MethodArguments.Insert(parsedArgument)
@@ -53,7 +54,15 @@ Method DescribeArguments() As %Status [ Private ]
  
 ParseArgument(parsedArgument)
   set currentIndex = currentIndex + 1
-  set argument = $piece(formalSpec, ",", currentIndex)
+  set currentPiece = currentPiece + 1
+  set argument = $piece(formalSpec, ",", currentPiece)
+  
+  if argument [ "(" {
+    while '$find(argument, ")") {
+      set currentPiece = currentPiece + 1
+      set argument = argument_","_$piece(formalSpec, ",", currentPiece)
+    }
+  }    
   
   if argument '= "" {
     set parsedArgument = ##class(Frontier.ArgumentDescription).%New()
@@ -61,9 +70,11 @@ ParseArgument(parsedArgument)
     set parsedArgument.Name = $piece($replace($piece(argument, ":", 1), "...", ""), "=", 1)       
     set parsedArgument.Index = currentIndex
     set preType = $piece(argument, ":", 2)
-    if preType [ "(" {
+    if preType [ "(" {      
       set parsedArgument.Type = $extract(preType, 1, $find(preType, "(") - 2)
-      set parsedArgument.DefaultValue = $piece(preType, "=", *)
+      set maybeDefault = $piece(preType, "=", *)
+      if $extract(maybeDefault, *) = ")" set maybeDefault =""
+      set parsedArgument.DefaultValue = $$$trimQuote(maybeDefault)
       set argumentParameters = $extract(preType, $find(preType, "("), $find(preType, ")") - 2)
       if '$find(argumentParameters, ",") set argumentParameters = argumentParameters_","
       for i=1:1:$length(argumentParameters, ",") {
@@ -76,7 +87,7 @@ ParseArgument(parsedArgument)
       }
     } else {
       set parsedArgument.Type = $piece(preType, "=", 1)
-      set parsedArgument.DefaultValue = $piece(preType, "=", 2)
+      set parsedArgument.DefaultValue = $$$trimQuote($piece(preType, "=", 2))
     }
     return 1
   }    
@@ -155,30 +166,35 @@ Method Sequentialize(ByRef mergedArguments = 0) As %Status [ Private ]
       }      
     
       if ##class(Frontier.Types).IsDynamic(methodArgument.Type) {
-        set unmarshallTo = methodArgument.Parameters.GetAt("UNMARSHALLTO")
         $$$AssertSinglePayloadParameter
         $$$TriggerPayloadFlag
+        set unmarshallTo = methodArgument.Parameters.GetAt("UNMARSHALLTO")
+        set idColumn = methodArgument.Parameters.GetAt("IDCOLUMN")
         set value = $classmethod(methodArgument.Type, "%FromJSON", ..Payload)
         if unmarshallTo '= "" {
+          set instanceId = value."__id__"    
+          if idColumn '= "" {
+            set value."__id__" = $get(mergedArguments(..FindDescribedArgument(idColumn).Index))
+            if value."__id__" = "" set value."__id__" = instanceId
+          }
+          if value."__id__" = "" && (..HttpMethod = "PUT" || (..HttpMethod = "PATCH")) {
+            return $$$ERROR($$$GeneralError, "Cannot unmarshall payload: a PUT/PATCH request requires an identifier.")
+          }
           set sc = ##class(Frontier.Dynamic.Unmarshaller).Unmarshall(unmarshallTo, value, .instance)
           if $$$ISERR(sc) return sc
           set value = instance
         } else {
           if value = "" return $$$ERROR($$$GeneralError, $$$FormatText(jsonErrorMessage, methodArgument.Type))
         }
-      } elseif ##class(Frontier.Types).IsZENProxyObject(methodArgument.Type) {
-        $$$AssertSinglePayloadParameter
-        $$$TriggerPayloadFlag
-        set sc = ##class(%ZEN.Auxiliary.altJSONProvider).%ConvertJSONToObject(..Payload,,.value)
-        if $$$ISERR(sc) return $$$ERROR($$$GeneralError, $$$FormatText(jsonErrorMessage, methodArgument.Type))
       } elseif ##class(Frontier.Types).IsPersistent(methodArgument.Type) {
         set value = $System.OBJ.OpenId(methodArgument.Type, value)
         if '$isobject(value) set value = ""
       }
-      set i%Arguments(argsProcessed) = value
+      set i%Arguments(argsProcessed) = value      
     }
   }
   set i%Arguments = argsProcessed
+  merge a = ..Arguments  
   return sc
 }
 
@@ -225,8 +241,13 @@ Method MergeArguments(ByRef routeArguments As %String = 0, ByRef requestArgument
     set preArguments(argumentIndex) = value  
   }  
   
-  // Now we must merge the arguments, remember that route arguments always take priority.    
-  merge preArguments = routeArguments
+  // Now we must merge the route arguments back, remember they always take priority.
+  set routeKey = ""
+  for {
+    set routeKey = $order(routeArguments(routeKey), 1, routeValue)
+    quit:routeKey=""    
+    set preArguments(..FindDescribedArgument(routeKey).Index) = routeValue
+  }
   set preArguments = argumentIndex
   return $$$OK
 }

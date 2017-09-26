@@ -45,7 +45,7 @@ Method Setup(context As Frontier.Context) As %Status [ Internal ]
   return $$$OK
 }
 
-Method SetupSMTPServer() As %Status
+Method SetupSMTPServer() As %Status [ Private ]
 {
   set ..SMTPServer.smtpserver = ..SMTPServerLocation
   set ..SMTPServer.port = ..SMTPServerPort
@@ -54,14 +54,14 @@ Method SetupSMTPServer() As %Status
   return $$$OK
 }
 
-Method SetupAuthenticator() As %Status
+Method SetupAuthenticator() As %Status [ Private ]
 {
   set ..Authenticator.UserName = ..SenderEmail
   set ..Authenticator.Password = ..SenderPassword
   return $$$OK
 }
 
-Method SetupMail(context As Frontier.Context) As %Status
+Method SetupMail(context As Frontier.Context) As %Status [ Private ]
 {
   set ..Mail.From = ..SenderEmail
   do ..Mail.To.Insert(..DestinationEmail)      
