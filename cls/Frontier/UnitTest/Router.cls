@@ -222,9 +222,9 @@ ClassMethod TestGETAliasedQueryParameter(msg As %String(ALIAS="aliased_key"))
 }
 
 /// It's also possible to save from a payload directly to a %Persistent instance as long as the payload
-/// has the same format as the %Persistent class. Just define the the parameter UNMASHALLTO with the class you want
+/// has the same format as the %Persistent class. Just define the the parameter UNMARSHALLTO with the class you want
 /// curl -H "Content-Type: application/json" -X POST -d '{"Plate": "R-2948","Students": [{"Name": "Rubens","BirthDate": "04/21/1970","SomeValue": 0}]}' 'http://localhost:57772/api/frontier/unmarshall'
-ClassMethod TestPUTUnmarshallToClass(class As %DynamicObject(UNMARSHALLTO="Frontier.UnitTest.Fixtures.Class",IDCOLUMN="classId"), classId As %Integer) As Frontier.UnitTest.Fixtures.Student
+ClassMethod TestPOSTUnmarshallToClass(class As %DynamicObject(UNMARSHALLTO="Frontier.UnitTest.Fixtures.Class")) As Frontier.UnitTest.Fixtures.Student
 {
   $$$ThrowOnError(class.%Save())
   return {
@@ -233,10 +233,12 @@ ClassMethod TestPUTUnmarshallToClass(class As %DynamicObject(UNMARSHALLTO="Front
   }
 }
 
-/// It's also possible to save from a payload directly to a %Persistent instance as long as the payload
-/// has the same format as the %Persistent class. Just define the the parameter UNMARSHALLTO with the class you want
-/// curl -H "Content-Type: application/json" -X POST -d '{"Plate": "R-2948","Students": [{"Name": "Rubens","BirthDate": "04/21/1970","SomeValue": 0}]}' 'http://localhost:57772/api/frontier/unmarshall'
-ClassMethod TestPOSTUnmarshallToClass(class As %DynamicObject(UNMARSHALLTO="Frontier.UnitTest.Fixtures.Class")) As Frontier.UnitTest.Fixtures.Student
+/// You can also edit the entity just by providing the property "__id__" along with the new payload data. If you want the id to be read from the URL,
+/// add a new parameter and map the unmarshaller to use it as id by specifying the IDCOLUMN. If the named IDCOLUMN is not
+/// found, the id will be searched inside the payload. Note that when the id is not found, an exception will be thrown regarding  the
+/// incorrect PUT usage.
+/// curl -H "Content-Type: application/json" -X POST -d '{"Plate": "R-2948","Students": [{"Name": "Rubens","BirthDate": "04/21/1970","SomeValue": 0}]}' 'http://localhost:57772/api/frontier/unmarshall/15'
+ClassMethod TestPUTUnmarshallToClass(class As %DynamicObject(UNMARSHALLTO="Frontier.UnitTest.Fixtures.Class",IDCOLUMN="classId"), classId As %Integer) As Frontier.UnitTest.Fixtures.Student
 {
   $$$ThrowOnError(class.%Save())
   return {
