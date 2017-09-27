@@ -31,6 +31,7 @@ ClassMethod Serialize(dynamic As %DynamicAbstractObject, parentKey As %String = 
         do WriteEscaped(value)
         write $c(34)
       } elseif ##class(Frontier.Types).IsSQLProvider(type) {
+        if 'value.StatementExecuted $$$ThrowOnError(value.Execute())
         $$$ThrowOnError(##class(Frontier.SQL.Serializer).Serialize(value.Results))
       }
     } else {

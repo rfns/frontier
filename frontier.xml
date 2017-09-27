@@ -456,6 +456,7 @@
         do WriteEscaped(value)
         write $c(34)
       } elseif ##class(Frontier.Types).IsSQLProvider(type) {
+        if 'value.StatementExecuted $$$ThrowOnError(value.Execute())
         $$$ThrowOnError(##class(Frontier.SQL.Serializer).Serialize(value.Results))
       }
     } else {
@@ -1589,7 +1590,6 @@ the fields that aren't private, or you can instantiate it and change it's values
         set response.content = stream
       } elseif isSQLProvider {
         set provider = returnedData
-        if 'provider.StatementExecuted $$$QuitOnError(provider.Execute())
         set response.results = provider
       } else {      
         $$$QuitOnError(##class(Frontier.Dynamic.Marshaller).Marshall(returnedData, .response))
@@ -1803,37 +1803,54 @@ the fields that aren't private, or you can instantiate it and change it's values
 <FormalSpec>results:%SQL.Statement</FormalSpec>
 <ReturnType>%Status</ReturnType>
 <Implementation><![CDATA[
+  #define WriteThrowable(%expr) $$$ThrowOnError(data.Write(%expr))
+  
   set sc = $$$OK
-  $$$QuitOnError(..FetchColumnNames(results.%GetMetadata(), .columnNames))
+  set metadata = results.%GetMetadata()
+  $$$QuitOnError(..FetchColumnNames(metadata, .columnNames))
   
   set data = ##class(%Stream.GlobalCharacter).%New()
   
-  do data.Write("[")
+  $$$WriteThrowable("[")
   
   set itemComma = ""
   set propertyComma = ""
   
   try {               
     while results.%Next(.sc) {
-      $$$ThrowOnError(data.Write(itemComma))
+      $$$WriteThrowable(itemComma)
       
       set itemComma = ","
       set propertyComma = ""
       
-      do data.Write("{")
+      $$$WriteThrowable("{")
       $$$ThrowOnError(sc)      
       
       for c=1:1:columnNames {
-        set columnName = columnNames(c)
+        set columnName = columnNames(c)        
         set value = results.%Get(columnName)        
         
-        $$$ThrowOnError(data.Write(propertyComma))
-        $$$ThrowOnError(data.Write($$$ZENJSONPAIR(columnName, value, "s")))
+        $$$WriteThrowable(propertyComma)
+        
+        if $listvalid(value) && ($listlength(value) > 0) {
+          set arrayComma = ""
+          
+          $$$WriteThrowable("[")
+          
+          for i=1:$listlength(value) {
+            $$$WriteThrowable($$$ZENJSONVALUE(value, "s"))
+            $$$WriteThrowable(arrayComma)
+            set arrayComma = ","
+          }
+          
+          $$$WriteThrowable("]")
+        }
+        $$$WriteThrowable($$$ZENJSONPAIR(columnName, value, "s"))
         set propertyComma = ","
       }
-      $$$ThrowOnError(data.Write("}"))
+      $$$WriteThrowable("}")
     }   
-    $$$ThrowOnError(data.Write("]"))
+    $$$WriteThrowable("]")
     $$$ThrowOnError(data.OutputToDevice())    
   } catch ex {
     write "null"

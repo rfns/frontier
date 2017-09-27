@@ -196,7 +196,6 @@ ClassMethod DispatchResponse(returnedData As %CacheString, method As Frontier.Ro
         set response.content = stream
       } elseif isSQLProvider {
         set provider = returnedData
-        if 'provider.StatementExecuted $$$QuitOnError(provider.Execute())
         set response.results = provider
       } else {      
         $$$QuitOnError(##class(Frontier.Dynamic.Marshaller).Marshall(returnedData, .response))

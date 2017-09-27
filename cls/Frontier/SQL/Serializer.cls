@@ -5,37 +5,54 @@ Class Frontier.SQL.Serializer [ Abstract ]
 
 ClassMethod Serialize(results As %SQL.Statement) As %Status
 {
+  #define WriteThrowable(%expr) $$$ThrowOnError(data.Write(%expr))
+  
   set sc = $$$OK
-  $$$QuitOnError(..FetchColumnNames(results.%GetMetadata(), .columnNames))
+  set metadata = results.%GetMetadata()
+  $$$QuitOnError(..FetchColumnNames(metadata, .columnNames))
   
   set data = ##class(%Stream.GlobalCharacter).%New()
   
-  do data.Write("[")
+  $$$WriteThrowable("[")
   
   set itemComma = ""
   set propertyComma = ""
   
   try {               
     while results.%Next(.sc) {
-      $$$ThrowOnError(data.Write(itemComma))
+      $$$WriteThrowable(itemComma)
       
       set itemComma = ","
       set propertyComma = ""
       
-      do data.Write("{")
+      $$$WriteThrowable("{")
       $$$ThrowOnError(sc)      
       
       for c=1:1:columnNames {
-        set columnName = columnNames(c)
+        set columnName = columnNames(c)        
         set value = results.%Get(columnName)        
         
-        $$$ThrowOnError(data.Write(propertyComma))
-        $$$ThrowOnError(data.Write($$$ZENJSONPAIR(columnName, value, "s")))
+        $$$WriteThrowable(propertyComma)
+        
+        if $listvalid(value) && ($listlength(value) > 0) {
+          set arrayComma = ""
+          
+          $$$WriteThrowable("[")
+          
+          for i=1:$listlength(value) {
+            $$$WriteThrowable($$$ZENJSONVALUE(value, "s"))
+            $$$WriteThrowable(arrayComma)
+            set arrayComma = ","
+          }
+          
+          $$$WriteThrowable("]")
+        }
+        $$$WriteThrowable($$$ZENJSONPAIR(columnName, value, "s"))
         set propertyComma = ","
       }
-      $$$ThrowOnError(data.Write("}"))
+      $$$WriteThrowable("}")
     }   
-    $$$ThrowOnError(data.Write("]"))
+    $$$WriteThrowable("]")
     $$$ThrowOnError(data.OutputToDevice())    
   } catch ex {
     write "null"
