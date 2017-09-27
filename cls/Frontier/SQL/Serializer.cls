@@ -1,6 +1,6 @@
 Include (frontier, %ZEN.Utils)
 
-Class Frontier.SQL.Serializer [ Abstract ]
+Class Frontier.SQL.Serializer Extends Frontier.AbstractSerializer
 {
 
 ClassMethod Serialize(results As %SQL.Statement) As %Status

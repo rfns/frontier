@@ -1,6 +1,6 @@
 Include (frontier, %ZEN.Utils)
 
-Class Frontier.Dynamic.Serializer
+Class Frontier.Dynamic.Serializer Extends Frontier.AbstractSerializer
 {
 
 ClassMethod Serialize(dynamic As %DynamicAbstractObject, parentKey As %String = "") As %Status [ Internal ]
@@ -48,41 +48,6 @@ WriteEscaped(v)
   while 'v.AtEnd { 
     write $$$ZENJSONESCAPE(v.Read(),"s")
   }
-}
-
-ClassMethod SerializeToStream(dynamic As %DynamicAbstractObject, Output stream As %Stream.Object = "") [ ProcedureBlock = 0 ]
-{
-  new currentMnemonic, alreadyRedirected, sc
-  
-  set sc = $$$OK
-  set isRedirected = 0
-  
-  set stream = ##class(%Stream.TmpBinary).%New()
-  set alreadyRedirected = ##class(%Device).ReDirectIO()
-  
-  try {
-    set currentMnemonic = "^"_##class(%Device).GetMnemonicRoutine()
-    use $io::("^"_$zname)
-    do ##class(%Device).ReDirectIO(1)
-    $$$ThrowOnError(..Serialize(dynamic))
-  } catch ex {
-    set sc = ex.AsStatus()
-  }
-  
-  if alreadyRedirected { 
-    do ##class(%Device).ReDirectIO(1) 
-    use $io::(currentMnemonic) 
-  }
-  
-  return sc
-  
-wstr(s) Do stream.Write(s) Quit
-wchr(a) Do stream.Write($char(a)) Quit
-wnl Do stream.Write($char(13,10)) Quit
-wff Do stream.Write($char(13,10,13,10)) Quit
-wtab(n) Do stream.Write($c(9)) Quit
-rstr(len,time) Quit ""
-rchr(time) Quit ""
 }
 
 }

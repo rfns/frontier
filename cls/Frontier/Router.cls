@@ -211,7 +211,12 @@ ClassMethod DispatchResponse(returnedData As %CacheString, method As Frontier.Ro
   }
   // We must use a custom serializer because the current %ToJSON implementation cannot serialize
   // mixed instances.
-  return ##class(Frontier.Dynamic.Serializer).Serialize(response)
+  if %frontier.DirectWrite = 1 {
+    return ##class(Frontier.Dynamic.Serializer).Serialize(response)
+  } else {
+    $$$QuitOnError(##class(Frontier.Dynamic.Serializer).SerializeToStream(response, .stream))
+    do stream.OutputToDevice()
+  }
 }
 
 ClassMethod OnSetup() As %Status

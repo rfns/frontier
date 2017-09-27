@@ -31,6 +31,8 @@ Property Data As %DynamicObject;
 
 Property ThrownByApplication As %Boolean [ Internal, ReadOnly ];
 
+Property DirectWrite As %Boolean [ InitialExpression = 0 ];
+
 Method %OnNew(session As %CSP.Session, request As %CSP.Request, response As %CSP.Response) As %Status
 {
   set i%Session = session

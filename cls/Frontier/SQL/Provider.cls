@@ -84,6 +84,7 @@ Method CreateAndExecute() As %Status [ Private ]
     set sc = statement.%Prepare(..SQL)
   }  
   
+  $$$QuitOnError(sc)
   set results = statement.%Execute(parameters...)
   
   if results.%SQLCODE '= 0 {

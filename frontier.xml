@@ -1,5 +1,74 @@
 <?xml version="1.0" encoding="UTF8"?>
 <Export generator="Cache" version="25">
+<Class name="Frontier.AbstractSerializer">
+<Abstract>1</Abstract>
+<TimeCreated>64553,37866.500056</TimeCreated>
+
+<Method name="Serialize">
+<ClassMethod>1</ClassMethod>
+<ReturnType>%Status</ReturnType>
+<Implementation><![CDATA[  return $$$OK
+]]></Implementation>
+</Method>
+
+<Method name="SerializeToStream">
+<ClassMethod>1</ClassMethod>
+<FormalSpec>dynamic:%DynamicAbstractObject,*stream:%Stream.Object=""</FormalSpec>
+<ProcedureBlock>0</ProcedureBlock>
+<Implementation><![CDATA[
+  new currentMnemonic, alreadyRedirected, sc
+  
+  set sc = $$$OK
+  set isRedirected = 0
+  
+  if '$isobject(stream) set stream = ##class(%Stream.TmpBinary).%New()
+  set alreadyRedirected = ##class(%Device).ReDirectIO()
+  
+  try {
+    set currentMnemonic = "^"_##class(%Device).GetMnemonicRoutine()
+    use $io::("^"_$zname)
+    do ##class(%Device).ReDirectIO(1)
+    set isRedirect = 1
+    $$$ThrowOnError(..Serialize(dynamic))
+  } catch ex {
+    set sc = ex.AsStatus()
+  }
+  
+  if alreadyRedirected { 
+    do ##class(%Device).ReDirectIO(1) 
+    use $io::(currentMnemonic) 
+  }
+  
+  if isRedirect {
+    do ##class(%Device).ReDirectIO(0)
+  }
+  
+  return sc
+  
+wstr(s) Do stream.Write(s) Quit
+wchr(a) Do stream.Write($char(a)) Quit
+wnl Do stream.Write($char(13,10)) Quit
+wff Do stream.Write($char(13,10,13,10)) Quit
+wtab(n) Do stream.Write($c(9)) Quit
+rstr(len,time) Quit ""
+rchr(time) Quit ""
+]]></Implementation>
+</Method>
+
+<Method name="T">
+<ClassMethod>1</ClassMethod>
+<Implementation><![CDATA[
+  set p = ##class(Frontier.SQL.Provider).%New("SELECT TOP 3 * FROM FRONTIER_UNITTEST_FIXTURES.CLASS")
+  set sc = p.Execute()
+  
+  set j = { "p": (p) }
+  
+  set sc = ##class(Frontier.Dynamic.Serializer).SerializeToStream(j, .str)
+]]></Implementation>
+</Method>
+</Class>
+
+
 <Class name="Frontier.ArgumentDescription">
 <Super>%RegisteredObject</Super>
 <TimeCreated>64492,37806.502663</TimeCreated>
@@ -108,6 +177,11 @@
 <Type>%Boolean</Type>
 <Internal>1</Internal>
 <ReadOnly>1</ReadOnly>
+</Property>
+
+<Property name="DirectWrite">
+<Type>%Boolean</Type>
+<InitialExpression>0</InitialExpression>
 </Property>
 
 <Method name="%OnNew">
@@ -422,6 +496,7 @@
 
 <Class name="Frontier.Dynamic.Serializer">
 <IncludeCode>frontier,%ZEN.Utils</IncludeCode>
+<Super>Frontier.AbstractSerializer</Super>
 <TimeCreated>64531,58689.528672</TimeCreated>
 
 <Method name="Serialize">
@@ -473,45 +548,6 @@ WriteEscaped(v)
   while 'v.AtEnd { 
     write $$$ZENJSONESCAPE(v.Read(),"s")
   }
-]]></Implementation>
-</Method>
-
-<Method name="SerializeToStream">
-<ClassMethod>1</ClassMethod>
-<FormalSpec>dynamic:%DynamicAbstractObject,*stream:%Stream.Object=""</FormalSpec>
-<ProcedureBlock>0</ProcedureBlock>
-<Implementation><![CDATA[
-  new currentMnemonic, alreadyRedirected, sc
-  
-  set sc = $$$OK
-  set isRedirected = 0
-  
-  set stream = ##class(%Stream.TmpBinary).%New()
-  set alreadyRedirected = ##class(%Device).ReDirectIO()
-  
-  try {
-    set currentMnemonic = "^"_##class(%Device).GetMnemonicRoutine()
-    use $io::("^"_$zname)
-    do ##class(%Device).ReDirectIO(1)
-    $$$ThrowOnError(..Serialize(dynamic))
-  } catch ex {
-    set sc = ex.AsStatus()
-  }
-  
-  if alreadyRedirected { 
-    do ##class(%Device).ReDirectIO(1) 
-    use $io::(currentMnemonic) 
-  }
-  
-  return sc
-  
-wstr(s) Do stream.Write(s) Quit
-wchr(a) Do stream.Write($char(a)) Quit
-wnl Do stream.Write($char(13,10)) Quit
-wff Do stream.Write($char(13,10,13,10)) Quit
-wtab(n) Do stream.Write($c(9)) Quit
-rstr(len,time) Quit ""
-rchr(time) Quit ""
 ]]></Implementation>
 </Method>
 </Class>
@@ -1605,7 +1641,12 @@ the fields that aren't private, or you can instantiate it and change it's values
   }
   // We must use a custom serializer because the current %ToJSON implementation cannot serialize
   // mixed instances.
-  return ##class(Frontier.Dynamic.Serializer).Serialize(response)
+  if %frontier.DirectWrite = 1 {
+    return ##class(Frontier.Dynamic.Serializer).Serialize(response)
+  } else {
+    $$$QuitOnError(##class(Frontier.Dynamic.Serializer).SerializeToStream(response, .stream))
+    do stream.OutputToDevice()
+  }
 ]]></Implementation>
 </Method>
 
@@ -1781,6 +1822,7 @@ the fields that aren't private, or you can instantiate it and change it's values
     set sc = statement.%Prepare(..SQL)
   }  
   
+  $$$QuitOnError(sc)
   set results = statement.%Execute(parameters...)
   
   if results.%SQLCODE '= 0 {
@@ -1794,8 +1836,8 @@ the fields that aren't private, or you can instantiate it and change it's values
 
 
 <Class name="Frontier.SQL.Serializer">
-<Abstract>1</Abstract>
 <IncludeCode>frontier,%ZEN.Utils</IncludeCode>
+<Super>Frontier.AbstractSerializer</Super>
 <TimeCreated>64539,50921.256251</TimeCreated>
 
 <Method name="Serialize">
@@ -3399,7 +3441,7 @@ curl -H "Content-Type: application/json" -X POST -d '{"Plate": "R-2948","Student
 ]]></Routine>
 
 
-<Project name="frontier" LastModified="2017-09-26 17:29:28.338602" Target="##class(Frontier.Method).%New(&quot;Frontier.UnitTest.Router&quot;, &quot;TestPUTUnmarshallToClass&quot;)" TargetType="2" HttpServer="http://localhost:57772">
+<Project name="frontier" LastModified="2017-09-26 17:29:28.338602" Target="##class(Frontier.AbstractSerializer).T()" TargetType="2" HttpServer="http://localhost:57772">
   <Items>
     <ProjectItem name="Frontier.ArgumentDescription" type="CLS"></ProjectItem>
     <ProjectItem name="Frontier.Context" type="CLS"></ProjectItem>
@@ -3432,6 +3474,10 @@ curl -H "Content-Type: application/json" -X POST -d '{"Plate": "R-2948","Student
     <ProjectItem name="UnitTest.Frontier.Types" type="CLS"></ProjectItem>
     <ProjectItem name="csp/dev/email-template.html" type="CSP"></ProjectItem>
     <ProjectItem name="frontier.INC" type="MAC"></ProjectItem>
+    <ProjectItem name="Frontier.AbstractSerializer" type="CLS"></ProjectItem>
   </Items>
+  <BreakPoints>
+    <BreakPoint Routine="Frontier.AbstractSerializer.CLS" Offset="T+1"></BreakPoint>
+  </BreakPoints>
 </Project>
 </Export>
