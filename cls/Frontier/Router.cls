@@ -217,6 +217,7 @@ ClassMethod DispatchResponse(returnedData As %CacheString, method As Frontier.Ro
     $$$QuitOnError(##class(Frontier.Dynamic.Serializer).SerializeToStream(response, .stream))
     do stream.OutputToDevice()
   }
+  return $$$OK
 }
 
 ClassMethod OnSetup() As %Status
