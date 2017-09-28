@@ -4,42 +4,37 @@
 <Abstract>1</Abstract>
 <TimeCreated>64553,37866.500056</TimeCreated>
 
-<Method name="Serialize">
-<ClassMethod>1</ClassMethod>
-<ReturnType>%Status</ReturnType>
-<Implementation><![CDATA[  return $$$OK
-]]></Implementation>
-</Method>
-
-<Method name="SerializeToStream">
-<ClassMethod>1</ClassMethod>
-<FormalSpec>dynamic:%DynamicAbstractObject,*stream:%Stream.Object=""</FormalSpec>
-<ProcedureBlock>0</ProcedureBlock>
-<Implementation><![CDATA[
-  new currentMnemonic, alreadyRedirected, sc
+<UDLText name="T">
+<Content><![CDATA[
+/*ClassMethod SerializeToStream(
+  dynamic As %DynamicAbstractObject,
+  Output stream As %Stream.Object = "") [ ProcedureBlock = 0 ]
+{
+  new oldMnemonic, alreadyRedirected, sc
   
   set sc = $$$OK
   set isRedirected = 0
   
   if '$isobject(stream) set stream = ##class(%Stream.TmpBinary).%New()
   set alreadyRedirected = ##class(%Device).ReDirectIO()
+  set initIO = $io
   
   try {
-    set currentMnemonic = "^"_##class(%Device).GetMnemonicRoutine()
+    set oldMnemonic = "^"_##class(%Device).GetMnemonicRoutine()
     use $io::("^"_$zname)
     do ##class(%Device).ReDirectIO(1)
-    set isRedirect = 1
-    $$$ThrowOnError(..Serialize(dynamic))
+    set isRedirected = 1
+    $$$ThrowOnError(..Serialize(dynamic))    
   } catch ex {
     set sc = ex.AsStatus()
   }
   
   if alreadyRedirected { 
     do ##class(%Device).ReDirectIO(1) 
-    use $io::(currentMnemonic) 
+    use $io::(oldMnemonic) 
   }
   
-  if isRedirect {
+  if isRedirected {
     do ##class(%Device).ReDirectIO(0)
   }
   
@@ -50,6 +45,56 @@ wchr(a) Do stream.Write($char(a)) Quit
 wnl Do stream.Write($char(13,10)) Quit
 wff Do stream.Write($char(13,10,13,10)) Quit
 wtab(n) Do stream.Write($c(9)) Quit
+rstr(len,time) Quit ""
+rchr(time) Quit ""
+}*/
+]]></Content>
+</UDLText>
+
+<Method name="SerializeToStream">
+<ClassMethod>1</ClassMethod>
+<FormalSpec>dynamic:%DynamicAbstractObject,*str:%Stream.Object=""</FormalSpec>
+<ProcedureBlock>0</ProcedureBlock>
+<ReturnType>%Status</ReturnType>
+<Implementation><![CDATA[
+  new oldMnemonic, alreadyRedirected, sc
+  
+  set sc = $$$OK
+  set isRedirected = 0
+  
+  set str = ##class(%Stream.TmpBinary).%New()
+  set alreadyRedirected = ##class(%Device).ReDirectIO()
+  set oldMnemonic = "^"_##class(%Device).GetMnemonicRoutine()
+  set initIO = $io
+  
+  try {    
+    use $io::("^"_$zname)
+    
+    do ##class(%Device).ReDirectIO(1)
+    set isRedirected = 1
+    set sc = ..Serialize(dynamic)
+  } catch ex {
+    set str = ""
+    set sc = ex.AsStatus()
+  }
+  
+  do str.Rewind()  
+  
+  if oldMnemonic '= "" {
+    use initIO::(oldMnemonic)
+  } else {
+    use oldMnemonic
+  }
+  
+  do ##class(%Device).ReDirectIO(alreadyRedirected)  
+      
+  return sc
+  
+wstr(s) Do str.Write(s) Quit
+wchr(a) Do str.Write($char(a)) Quit
+wnl Do str.Write($char(13,10)) Quit
+wff Do str.Write($char(13,10,13,10)) Quit
+wtab(n) Do str.Write($c(9)) Quit
 rstr(len,time) Quit ""
 rchr(time) Quit ""
 ]]></Implementation>
@@ -64,6 +109,7 @@ rchr(time) Quit ""
   set j = { "p": (p) }
   
   set sc = ##class(Frontier.Dynamic.Serializer).SerializeToStream(j, .str)
+  do str.OutputToDevice()
 ]]></Implementation>
 </Method>
 </Class>
@@ -103,6 +149,239 @@ rchr(time) Quit ""
 <Type>%Integer</Type>
 <Required>1</Required>
 </Property>
+</Class>
+
+
+<Class name="Frontier.Authentication.BasicStrategy">
+<IncludeCode>%occErrors,%occStatus</IncludeCode>
+<Super>Frontier.Authentication.Strategy</Super>
+<TimeCreated>64553,59181.195484</TimeCreated>
+
+<Property name="Realm">
+<Type>%String</Type>
+<Private>1</Private>
+</Property>
+
+<Property name="Statement">
+<Type>%SQL.Statement</Type>
+<Private>1</Private>
+</Property>
+
+<Property name="HashMethod">
+<Type>%String</Type>
+<Private>1</Private>
+</Property>
+
+<Property name="Validator">
+<Type>%String</Type>
+<Private>1</Private>
+</Property>
+
+<Property name="UserInfoMethod">
+<Type>%String</Type>
+<Private>1</Private>
+</Property>
+
+<Method name="%OnNew">
+<FormalSpec>realm:%String="Users",result:%SQL.StatementResult="",hashMethod:%String="",validator:%String="",userInfoMethod:%String=""</FormalSpec>
+<ReturnType>%Status</ReturnType>
+<Implementation><![CDATA[
+  set ..Realm = realm
+  set ..HashMethod = hashMethod
+  set ..Statement = result
+  set ..Validator = validator
+  set ..UserInfoMethod = userInfoMethod
+  return $$$OK
+]]></Implementation>
+</Method>
+
+<Method name="Verify">
+<FormalSpec>session:%CSP.Session,request:%CSP.Request,response:%CSP.Response,*user:%DynamicObject={{}}</FormalSpec>
+<ReturnType>%Status</ReturnType>
+<Implementation><![CDATA[
+  set sc = $$$OK
+  set found = 0
+  set authHeader = request.GetCgiEnv("HTTP_AUTHORIZATION")
+  
+  if authHeader = "" {
+    return $$CreateError("You must be authenticated to access this resource.")
+  }
+  
+  if $extract(authHeader, 1, 5) '= "Basic" {
+    return $$CreateError("Malformed authorization header.", "400 Bad Request")
+  }
+
+  set credentials = $System.Encryption.Base64Decode($piece(authHeader, " ", 2))
+    
+  set userName = $piece(credentials, ":")
+  set password = $piece(credentials, ":", 2)
+  
+  if ..HashMethod '= "" {
+    set class = $piece(..HashMethod, ":")
+    set method = $piece(..HashMethod, ":", 2)
+    set password = $classmethod(class, method, password)
+  }
+  
+  if $isobject(..Statement) {
+    if '##class(Frontier.Types).IsTypeOf($classname(..Statement), "%SQL.Statement") {
+      return $$CreateError("User list is not sourced from a valid SQL statement.", "404 Bad Request")
+    }
+    
+    set result = ..Statement.%Execute(userName, password)
+    
+    if result.%SQLCODE '= 0 {
+      set sc = ##class(%Exception.SQL).CreateFromSQLCODE(result.%SQLCODE, result.%Message).AsStatus()
+      return $$CreateError(sc, "500 Internal Server Error", 1)
+    }
+    
+    set found = result.%Next(.sc)    
+    
+    if $$$ISERR(sc) {
+      return $$CreateError(sc, "500 Internal Server Error", 1)
+    }
+  } elseif ..Validator '= "" {
+    set class = $piece(..Validator, ":")
+    set method = $piece(..Validator, ":", 2)
+    try {
+      set found = $classmethod(class, method, userName, password)
+    } catch ex {
+      set sc = ex.AsStatus()
+    }
+  }
+  
+  if $$$ISERR(sc) return sc
+  
+  if 'found {
+    return $$CreateError("Unknown user or password.", "403 Forbidden")  
+  }
+  
+  if ..UserInfoMethod '= "" {
+    set class = $piece(..UserInfoMethod, ":")
+    set method = $piece(..UserInfoMethod, ":", 2)
+    try {
+      set sc = $classmethod(class, method, .user, userName, request)
+    } catch ex {
+      set sc = ex.AsStatus()
+    }
+    set sc = $$CreateError(sc, "500 Internal Server Error", 1)
+  }
+  
+  return sc
+  
+CreateError(message, status="401 Unauthorized", isStatus=0)
+  set response.Status = "401 Unauthorized"
+  if 'isStatus return $$$ERROR($$$GeneralError, message) 
+  return message
+]]></Implementation>
+</Method>
+
+<Method name="GetChallenge">
+<FormalSpec>session:%CSP.Session,request:%CSP.Request,response:%CSP.Response</FormalSpec>
+<ReturnType>%String</ReturnType>
+<Implementation><![CDATA[  return "Basic realm="""_..Realm_""""
+]]></Implementation>
+</Method>
+</Class>
+
+
+<Class name="Frontier.Authentication.Manager">
+<Super>%RegisteredObject</Super>
+<TimeCreated>64553,52230.315441</TimeCreated>
+
+<Property name="Strategies">
+<Type>Frontier.Authentication.Strategy</Type>
+<Collection>list</Collection>
+<Private>1</Private>
+</Property>
+
+<Property name="Session">
+<Type>%CSP.Session</Type>
+<Private>1</Private>
+</Property>
+
+<Property name="Request">
+<Type>%CSP.Request</Type>
+<Private>1</Private>
+</Property>
+
+<Property name="Response">
+<Type>%CSP.Response</Type>
+<Private>1</Private>
+</Property>
+
+<Method name="%OnNew">
+<FormalSpec>session:%CSP.Session,request:%CSP.Request,response:%CSP.Response</FormalSpec>
+<ReturnType>%Status</ReturnType>
+<Implementation><![CDATA[
+  set ..Session = session
+  set ..Request = request
+  set ..Response = response
+  return $$$OK
+]]></Implementation>
+</Method>
+
+<Method name="AddStrategy">
+<FormalSpec>strategy:Frontier.Authentication.Strategy</FormalSpec>
+<ReturnType>%Status</ReturnType>
+<Implementation><![CDATA[
+    
+  $$$QuitOnError(..Strategies.Insert(strategy))  
+  return $$$OK
+]]></Implementation>
+</Method>
+
+<Method name="Verify">
+<FormalSpec>*user:%DynamicObject={{}}</FormalSpec>
+<ReturnType>%Status</ReturnType>
+<Implementation><![CDATA[
+  set sc = $$$OK
+  set totalStrategies = ..Strategies.Count()
+  set strategy = "" 
+  
+  try {
+    for i=1:1:totalStrategies {
+      set strategy = ..Strategies.GetAt(i)
+      set sc = strategy.Verify(..Session, ..Request, ..Response, .user)
+      if $$$ISOK(sc) quit
+    }
+    if $$$ISERR(sc) && (i = totalStrategies) && (..Response.Status = "401 Unauthorized") {
+      do ..Response.SetHeader("WWW-Authenticate", strategy.GetChallenge(..Session, ..Request, ..Response))   
+    }
+  } catch ex {
+    set sc = ex.AsStatus()
+  }
+  return sc
+]]></Implementation>
+</Method>
+
+<Method name="UserMatchesResourceScope">
+<FormalSpec>resourceScope:%String="",user:%DynamicObject={{}}</FormalSpec>
+<ReturnType>%Boolean</ReturnType>
+<Implementation><![CDATA[
+  if resourceScope '= "" return $lf($lfs(user.scope, " "), resourceScope) > 0
+  return 1
+]]></Implementation>
+</Method>
+</Class>
+
+
+<Class name="Frontier.Authentication.Strategy">
+<Super>%RegisteredObject</Super>
+<TimeCreated>64553,51285.209032</TimeCreated>
+
+<Method name="OnVerify">
+<FormalSpec>session:%CSP.Session,request:%CSP.Request,response:%CSP.Response,*user:%DynamicObject={{}}</FormalSpec>
+<ReturnType>%Status</ReturnType>
+<Implementation><![CDATA[  return $$$OK
+]]></Implementation>
+</Method>
+
+<Method name="GetChallenge">
+<FormalSpec>session:%CSP.Session,request:%CSP.Request,response:%CSP.Response</FormalSpec>
+<ReturnType>%String</ReturnType>
+<Implementation><![CDATA[  $$$ThrowOnError($$$ERROR($$$MethodNotImplemented, "AddChallenge"))
+]]></Implementation>
+</Method>
 </Class>
 
 
@@ -169,6 +448,11 @@ rchr(time) Quit ""
 <ReadOnly>1</ReadOnly>
 </Property>
 
+<Property name="AuthenticationManager">
+<Type>Frontier.Authentication.Manager</Type>
+<ReadOnly>1</ReadOnly>
+</Property>
+
 <Property name="Data">
 <Type>%DynamicObject</Type>
 </Property>
@@ -184,15 +468,21 @@ rchr(time) Quit ""
 <InitialExpression>0</InitialExpression>
 </Property>
 
+<Property name="User">
+<Type>%DynamicObject</Type>
+<InitialExpression>1</InitialExpression>
+</Property>
+
 <Method name="%OnNew">
 <FormalSpec>session:%CSP.Session,request:%CSP.Request,response:%CSP.Response</FormalSpec>
 <ReturnType>%Status</ReturnType>
 <Implementation><![CDATA[
-  set i%Session = session
-  set i%Request = request
-  set i%Response = response
+  set ..Session = session
+  set ..Request = request
+  set ..Response = response
   set i%SQL = ##class(Frontier.SQL).%New()
   set i%ReporterManager = ##class(Frontier.Reporter.Manager).%New($this)
+  set i%AuthenticationManager = ##class(Frontier.Authentication.Manager).%New(..Session, ..Request, ..Response)
   set i%ArgumentValues = 0
   set ..Data = ##class(%DynamicObject).%New()
   do ..Response.SetHeader("Content-Type", "application/json")
@@ -529,7 +819,7 @@ rchr(time) Quit ""
       } elseif ##class(Frontier.Types).IsStream(type) {
         write $c(34)
         do WriteEscaped(value)
-        write $c(34)
+        write $c(34)        
       } elseif ##class(Frontier.Types).IsSQLProvider(type) {
         if 'value.StatementExecuted $$$ThrowOnError(value.Execute())
         $$$ThrowOnError(##class(Frontier.SQL.Serializer).Serialize(value.Results))
@@ -545,8 +835,16 @@ rchr(time) Quit ""
   return sc
   
 WriteEscaped(v)
-  while 'v.AtEnd { 
-    write $$$ZENJSONESCAPE(v.Read(),"s")
+  set readCount = 0
+  do v.Rewind()
+  
+  // Instead of using AtEnd, we compare the stream size with the buffer read size.
+  // This is because apparently AtEnd doesn't track the position correctly when the device is redirected.
+  // This can also be related to how we are dealing with this redirection along with %CSP.REST.
+  while readCount < v.Size {
+    set buffer = v.Read()
+    set readCount = readCount + $length(buffer)
+    write $$$ZENJSONESCAPE(buffer,"s")
   }
 ]]></Implementation>
 </Method>
@@ -798,7 +1096,7 @@ WriteEscaped(v)
 <ReturnType>%DynamicObject</ReturnType>
 <Implementation><![CDATA[
   set de = ##class(%DynamicObject).%New()    
-  set de.code = exception.Code
+  set de."internal_code" = exception.Code
   
   set unfilteredErrorMessage = $System.Status.GetOneStatusText(exception.AsStatus(), 1)
   set errorMessage = $select(unfilteredErrorMessage [ $char(13, 10) : $extract(unfilteredErrorMessage, 1, $find(unfilteredErrorMessage, $c(13,10)) - 3), 1: unfilteredErrorMessage)
@@ -1387,10 +1685,14 @@ the fields that aren't private, or you can instantiate it and change it's values
   set sc = $$$OK
   if $$$ISOK(..Context.Error) return $$$OK
   
-  for i=1:1:..Reporters.Count() {
-    set reporter = ..Reporters.GetAt(i)
-    set sc = $$$ADDSC(sc, reporter.Report(..Context))
-  }  
+  try {
+    for i=1:1:..Reporters.Count() {
+      set reporter = ..Reporters.GetAt(i)
+      set sc = $$$ADDSC(sc, reporter.Report(..Context))
+    }
+  } catch ex {
+    set sc = ex.AsStatus()
+  }
   return sc
 ]]></Implementation>
 </Method>
@@ -1421,7 +1723,6 @@ the fields that aren't private, or you can instantiate it and change it's values
 <ProcedureBlock>0</ProcedureBlock>
 <ReturnType>%Status</ReturnType>
 <Implementation><![CDATA[
-  new %frontier
   set %frontier = ##class(Frontier.Context).%New(%session, %request, %response)  
   $$$QuitOnError(##super(skipheader))
   do ..OnPostHTTP()
@@ -1455,31 +1756,31 @@ the fields that aren't private, or you can instantiate it and change it's values
 <FormalSpec>pUrl:%String,pMethod:%String,pForwarded:%Boolean=0</FormalSpec>
 <ReturnType>%Status</ReturnType>
 <Implementation><![CDATA[
- 
+  
   #; This is a modified version of %CSP.REST's DispatchRequest that creates an entry point for
   #; for additional features.
-  #; TODO: Check the possibility of purging this source code to stop ovewriting the original method.
+  #; TODO: Check the possibility of purging this source code to stop overwriting the original method.
   
-  #dim tSC As %Status = $$$OK
   #dim e As %Exception.AbstractException
   
   #dim tMatcher As %Regex.Matcher
   
-  #dim tArgs,tClass,tMatchUrl,tMapEntry,tRegEx,tCall,tForward,tAccess,tSupportedVerbs,tTarget,tType As %String
+  #dim tArgs,tClass,tMatchUrl,tMapEntry,tRegEx,tCall,tForward,tAccess,tTarget,tType,tHttpStatus As %String
   #dim tI,tIndex As %Integer
   #dim tResourceMatched,tContinue As %Boolean
-  #dim tMethodMatched As %Boolean    
+  #dim tMethodMatched As %Boolean
+  
+  set tHttpStatus = $case(pMethod, "POST": ..#HTTP201CREATED, : ..#HTTP200OK)    
     
-   try {    
-    set (tResourceMatched,tMethodMatched) = 0    
+   try {
+    set (tResourceMatched,tMethodMatched) = 0
                 
     #; Extract the match url from the application name
     if (0=pForwarded) set tMatchUrl="/"_$extract(pUrl, $length(%request.Application)+1,*)
     else  set tMatchUrl=pUrl        
       
     #; Uppercase the method
-    set pMethod=$ZCVT(pMethod,"U")
-    set tHttpStatus = $case(pMethod, "POST": ..#HTTP201CREATED, : ..#HTTP200OK)
+    set pMethod=$ZCVT(pMethod,"U")    
           
     #; Pre-Dispatch
     set tContinue = 1
@@ -1500,9 +1801,25 @@ the fields that aren't private, or you can instantiate it and change it's values
       #; Test each regular expression in turn, extracting the arguments,
       #; dispatching to the named method  
       if tMatcher.Match(tMatchUrl) {
-                
+        
         #; We have matched the resource
         set tResourceMatched = 1
+        
+        set %frontier.RequestURL = %request.URL
+        set %frontier.ClassName = $classname()
+                  
+        $$$ThrowOnError(..OnDataSet(%frontier.Data))
+        $$$ThrowOnError(..OnSetup())
+        
+        $$$ThrowOnError(%frontier.AuthenticationManager.Verify(.user))
+        set %frontier.User = user
+        
+        set tScope = $lg(tMapEntry, 7)
+        
+        if '%frontier.AuthenticationManager.UserMatchesResourceScope(tScope, user) {
+          set %response.Status = ..#HTTP403FORBIDDEN
+          $$$ThrowOnError($$$ERROR($$$GeneralError, "Your account has not enough privilege to execute this action."))
+        }                
                 
         set tType = $list(tMapEntry,1)
                 
@@ -1531,7 +1848,7 @@ the fields that aren't private, or you can instantiate it and change it's values
                    
           #; Got a match, marshall the arguments can call directly
           if tMatcher.GroupCount {
-            #; Modified for Frontier compatibility: store key instead of index. We need this info to correlate the arguments.            
+            #; Modified for Frontier compatibility: store key instead of index. We need this info to correlate the arguments later.            
             for tI=1:1:tMatcher.GroupCount set tArgs($lg($lg(tMapEntry,6), tI))=tMatcher.Group(tI)
             set tArgs = tI
           } else {
@@ -1540,19 +1857,14 @@ the fields that aren't private, or you can instantiate it and change it's values
                     
           #; Check for optional ClassName prefix
           set tClass = $classname()
-          If tTarget [ ":" set tClass = $piece(tTarget,":"), tTarget = $Piece(tTarget,":",2)
+          If tTarget [ ":" set tClass = $piece(tTarget,":"), tTarget = $Piece(tTarget,":",2)              
 
           #; Dispatch
           #; Modified to add support for type resolution and query parameters
           set tPublicMethod = ##class(Method).%New(tClass, tTarget, .tArgs, %request)
           merge tMethodArguments = tPublicMethod.Arguments
           
-          set %frontier.Method = tTarget
-          set %frontier.RequestURL = %request.URL
-          set %frontier.ClassName = $classname()
-          
-          $$$ThrowOnError(..OnDataSet(%frontier.Data))
-          $$$ThrowOnError(..OnSetup())
+          set %frontier.Method = tTarget               
 
           if tMethodArguments > 0 {
             merge %frontier.ArgumentValues = tMethodArguments
@@ -1581,20 +1893,23 @@ the fields that aren't private, or you can instantiate it and change it's values
     }
                   
     #; Had a match for resource but method not matched
-    if tMethodMatched = 0 {      
-      set tSC = ..SupportedVerbs(tMatchUrl,.tSupportedVerbs)
+    if tMethodMatched = 0 {
       set tHttpStatus = 404
-      $$$ThrowOnError($$$ERROR($$$GeneralError, "Resource not found."))
+      $$$ThrowOnError($$$ERROR($$$GeneralError, ..#HTTP404NOTFOUND))
     }
   } catch (e) {
     if tHttpStatus < 300 set tHttpStatus = ..#HTTP500INTERNALSERVERERROR
+    set %response.Status = tHttpStatus
+    
     set exceptionJSON = ##class(Exception).ToDynamicObject(e)
-    set sc = e.AsStatus()
-    if %frontier.ThrownByApplication {
-      set %frontier.Error = e.AsStatus()
+    set exceptionJSON.error."response_code" = $piece(%response.Status, " ")    
+    set sc = e.AsStatus()    
+    
+    if %frontier.ThrownByApplication || ($$$GETERRORCODE(sc) '= $$$GeneralError) {
+      set %frontier.Error = sc
       set %frontier.Stack = ##class(Exception).CaptureStack()
     }
-    write exceptionJSON.%ToJSON()
+    write exceptionJSON.%ToJSON()    
   }   
   return $$$OK
 ]]></Implementation>
@@ -1607,10 +1922,7 @@ the fields that aren't private, or you can instantiate it and change it's values
 <Implementation><![CDATA[
   
   set sc = $$$OK
-  set response = {}
-  
-  // Enables device writing.
-  write ""
+  set response = {}  
   
   if $isobject(returnedData) {
     set type = $classname(returnedData)
@@ -1674,6 +1986,58 @@ the fields that aren't private, or you can instantiate it and change it's values
   kill %frontier
 ]]></Implementation>
 </Method>
+
+<XData name="Schema">
+<Description>
+This is the Schema which defines the form of the dispatch map</Description>
+<Internal>1</Internal>
+<Data><![CDATA[
+<?xml version="1.0"?>
+<xs:schema xmlns:xs="http://www.w3.org/2001/XMLSchema" >
+
+<xs:element name="Routes">
+<xs:complexType>
+<xs:choice  minOccurs="0" maxOccurs="unbounded">
+<xs:element name="Route">
+<xs:complexType>
+<xs:attribute name="Url"    type="string" use="required"/>
+<xs:attribute name="Method" type="string" use="required"/>
+<xs:attribute name="Call" type="call" use="required"/>
+<xs:attribute name="Cors" type="xs:boolean" use="optional" default="false"/>
+<xs:attribute name="Scope" type="string" use="optional" default="false"/>
+</xs:complexType>
+</xs:element>
+<xs:element name="Map">
+<xs:complexType>
+<xs:attribute name="Prefix" type="string" use="required"/>
+<xs:attribute name="Forward" type="forward" use="required"/>
+</xs:complexType>
+</xs:element>
+</xs:choice>
+</xs:complexType>
+</xs:element>
+
+<xs:simpleType name="call">
+<xs:restriction base="xs:string">
+<xs:pattern value="([%]?[a-zA-Z][a-zA-Z0-9]*(\.[a-zA-Z][a-zA-Z0-9]*)*:)?[%]?[a-zA-Z][a-zA-Z0-9]*"/>
+</xs:restriction>
+</xs:simpleType>
+
+<xs:simpleType name="forward">
+<xs:restriction base="xs:string">
+<xs:pattern value="([%]?[a-zA-Z][a-zA-Z0-9]*(\.[a-zA-Z][a-zA-Z0-9]*)*)"/>
+</xs:restriction>
+</xs:simpleType>
+
+<xs:simpleType name="string">
+<xs:restriction base="xs:string">
+<xs:minLength value="1"/>
+</xs:restriction>
+</xs:simpleType>
+
+</xs:schema>
+]]></Data>
+</XData>
 </Class>
 
 
@@ -1736,6 +2100,10 @@ the fields that aren't private, or you can instantiate it and change it's values
 <Type>%SQL.StatementResult</Type>
 <Internal>1</Internal>
 <ReadOnly>1</ReadOnly>
+</Property>
+
+<Property name="Authentication">
+<Type>Frontier.Authentication</Type>
 </Property>
 
 <Method name="%OnNew">
@@ -1958,6 +2326,11 @@ the fields that aren't private, or you can instantiate it and change it's values
 <Type>%String</Type>
 <Parameter name="XMLPROJECTION" value="ATTRIBUTE"/>
 </Property>
+
+<Property name="Scope">
+<Type>%String</Type>
+<Parameter name="XMLPROJECTION" value="ATTRIBUTE"/>
+</Property>
 </Class>
 
 
@@ -2033,8 +2406,7 @@ the fields that aren't private, or you can instantiate it and change it's values
     for i=1:1:totalRoutes {
       set route = routes.Route.GetAt(i)
       set pattern = $$WritePattern(route.Url, .placeholders)
-      set patterns(i) = $lb(resourceType, pattern, route.Method, route.Call, route.Cors)
-      if $ll(placeholders) > 0 set $list(patterns(i), *+1) = placeholders
+      set patterns(i) = $lb(resourceType, pattern, route.Method, route.Call, route.Cors, placeholders, route.Scope)
     }    
   } 
   if totalMaps > 0 {
@@ -2404,6 +2776,7 @@ WritePattern(resource, placeholders)
   <Route Url="/mixed/rest" Method="POST" Call="TestPOSTMixedRestParametersSum"/>
   <Route Url="/unmarshall" Method="POST" Call="TestPOSTUnmarshallToClass"/>
   <Route Url="/unmarshall/:classId" Method="PUT" Call="TestPUTUnmarshallToClass"/>
+  <Route Url="/user" Method="GET" Call="GetUserInfo"/>
  </Routes>
 ]]></Data>
 </XData>
@@ -2427,12 +2800,20 @@ This method is reserved for setting up configurations.</Description>
 <ClassMethod>1</ClassMethod>
 <ReturnType>%Status</ReturnType>
 <Implementation><![CDATA[
-   
   // Reporters should be used to signal the developer about request errors.
   // Uncomment the line below and configure the parameters by rewriting the SetupAccount method from the indicated class below.
   
   // $$$QuitOnError(%frontier.ReporterManager.AddReporter(##class(Frontier.UnitTest.Reporter.Email).%New()))
-  $$$QuitOnError(%frontier.ReporterManager.AddReporter(##class(QS.Reporter.Email).%New()))
+  set sc = %frontier.AuthenticationManager.AddStrategy(
+    ##class(Frontier.Authentication.BasicStrategy).%New(
+      /* Realm */,
+      /* SQL statement user list source */,
+      /* Password hash method */,
+      $classname()_":ValidateCredentials",
+      $classname()_":SetAuthorizedUserInfo"
+    )
+  )
+  $$$QuitOnError(sc)  
   
   return $$$OK
 ]]></Implementation>
@@ -2718,6 +3099,37 @@ curl -H "Content-Type: application/json" -X POST -d '{"Plate": "R-2948","Student
     "ok": 1,
     "__id__": (class.%Id())
   }
+]]></Implementation>
+</Method>
+
+<Method name="GetUserInfo">
+<Description>
+This method depends on the authorization header sent by the client along with the
+GetAuthorizedUserInfo which is used to define which data should be present in the
+%frontier.User object.
+Call example:
+curl -H "Authorization: Basic Zm9vOmJhcg==" 'http://localhost:57772/api/frontier/test/user'</Description>
+<ClassMethod>1</ClassMethod>
+<ReturnType>%Status</ReturnType>
+<Implementation><![CDATA[  return %frontier.User
+]]></Implementation>
+</Method>
+
+<Method name="ValidateCredentials">
+<ClassMethod>1</ClassMethod>
+<FormalSpec>userName:%String,password:%String</FormalSpec>
+<ReturnType>%Boolean</ReturnType>
+<Implementation><![CDATA[  return (userName = "foo" && (password = "bar"))
+]]></Implementation>
+</Method>
+
+<Method name="SetAuthorizedUserInfo">
+<ClassMethod>1</ClassMethod>
+<FormalSpec>*user:%DynamicObject,userName:%String,request:%CSP.Request</FormalSpec>
+<ReturnType>%Status</ReturnType>
+<Implementation><![CDATA[
+  set user.name = userName
+  return $$$OK
 ]]></Implementation>
 </Method>
 </Class>
@@ -3021,13 +3433,18 @@ curl -H "Content-Type: application/json" -X POST -d '{"Plate": "R-2948","Student
 </Method>
 
 <Method name="AssertRequest">
-<FormalSpec>resource:%String,expected:%DynamicAbstractObject="",method:%String="GET",payload:%DynamicAbstractObject=""</FormalSpec>
+<FormalSpec>resource:%String,expected:%DynamicAbstractObject="",method:%String="GET",payload:%DynamicAbstractObject="",authHeader:%String="Basic Zm9vOmJhcg=="</FormalSpec>
 <ReturnType>%Status</ReturnType>
 <Implementation><![CDATA[
    
   if $isobject(payload) {
     $$$QuitOnError(..Request.SetHeader("Content-Type", "application/json; charset=utf-8"))
     $$$QuitOnError(..Request.EntityBody.Write(payload.%ToJSON()))
+  }
+  
+  // Default is Basic foo:bar. Refer to the ValidateCredentials method defined in the Frontier.UnitTest.Router class.
+  if authHeader {
+    $$$QuitOnError(..Request.SetHeader("Authorization", authHeader))
   }
   
   $$$QuitOnError(..Request.Send(method, resource))
@@ -3392,9 +3809,13 @@ curl -H "Content-Type: application/json" -X POST -d '{"Plate": "R-2948","Student
 ]]></Routine>
 
 
-<Project name="frontier" LastModified="2017-09-26 17:29:28.338602" Target="##class(Frontier.AbstractSerializer).T()" TargetType="2" HttpServer="http://localhost:57772">
+<Project name="frontier" LastModified="2017-09-28 16:31:16.300118" Target="##class(Frontier.AbstractSerializer).T()" TargetType="2" HttpServer="http://localhost:57772">
   <Items>
+    <ProjectItem name="Frontier.AbstractSerializer" type="CLS"></ProjectItem>
     <ProjectItem name="Frontier.ArgumentDescription" type="CLS"></ProjectItem>
+    <ProjectItem name="Frontier.Authentication.BasicStrategy" type="CLS"></ProjectItem>
+    <ProjectItem name="Frontier.Authentication.Manager" type="CLS"></ProjectItem>
+    <ProjectItem name="Frontier.Authentication.Strategy" type="CLS"></ProjectItem>
     <ProjectItem name="Frontier.Context" type="CLS"></ProjectItem>
     <ProjectItem name="Frontier.Dynamic.Marshaller" type="CLS"></ProjectItem>
     <ProjectItem name="Frontier.Dynamic.Serializer" type="CLS"></ProjectItem>
@@ -3425,10 +3846,6 @@ curl -H "Content-Type: application/json" -X POST -d '{"Plate": "R-2948","Student
     <ProjectItem name="UnitTest.Frontier.Types" type="CLS"></ProjectItem>
     <ProjectItem name="csp/dev/email-template.html" type="CSP"></ProjectItem>
     <ProjectItem name="frontier.INC" type="MAC"></ProjectItem>
-    <ProjectItem name="Frontier.AbstractSerializer" type="CLS"></ProjectItem>
   </Items>
-  <BreakPoints>
-    <BreakPoint Routine="Frontier.AbstractSerializer.CLS" Offset="T+1"></BreakPoint>
-  </BreakPoints>
 </Project>
 </Export>

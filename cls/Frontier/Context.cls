@@ -27,19 +27,24 @@ Property SQL As Frontier.SQL [ ReadOnly ];
 
 Property ReporterManager As Frontier.Reporter.Manager [ ReadOnly ];
 
+Property AuthenticationManager As Frontier.Authentication.Manager [ ReadOnly ];
+
 Property Data As %DynamicObject;
 
 Property ThrownByApplication As %Boolean [ Internal, ReadOnly ];
 
 Property DirectWrite As %Boolean [ InitialExpression = 0 ];
 
+Property User As %DynamicObject [ InitialExpression = 1 ];
+
 Method %OnNew(session As %CSP.Session, request As %CSP.Request, response As %CSP.Response) As %Status
 {
-  set i%Session = session
-  set i%Request = request
-  set i%Response = response
+  set ..Session = session
+  set ..Request = request
+  set ..Response = response
   set i%SQL = ##class(Frontier.SQL).%New()
   set i%ReporterManager = ##class(Frontier.Reporter.Manager).%New($this)
+  set i%AuthenticationManager = ##class(Frontier.Authentication.Manager).%New(..Session, ..Request, ..Response)
   set i%ArgumentValues = 0
   set ..Data = ##class(%DynamicObject).%New()
   do ..Response.SetHeader("Content-Type", "application/json")

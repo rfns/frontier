@@ -9,5 +9,7 @@ Property Call As %String(XMLPROJECTION = "ATTRIBUTE");
 
 Property Cors As %String(XMLPROJECTION = "ATTRIBUTE");
 
+Property Scope As %String(XMLPROJECTION = "ATTRIBUTE");
+
 }
 

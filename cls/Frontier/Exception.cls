@@ -35,7 +35,7 @@ ClassMethod ToDynamicObject(exception As Frontier.Exception) As %DynamicObject
 ClassMethod CreateInfoObject(exception As Frontier.Exception) As %DynamicObject [ Private ]
 {
   set de = ##class(%DynamicObject).%New()    
-  set de.code = exception.Code
+  set de."internal_code" = exception.Code
   
   set unfilteredErrorMessage = $System.Status.GetOneStatusText(exception.AsStatus(), 1)
   set errorMessage = $select(unfilteredErrorMessage [ $char(13, 10) : $extract(unfilteredErrorMessage, 1, $find(unfilteredErrorMessage, $c(13,10)) - 3), 1: unfilteredErrorMessage)

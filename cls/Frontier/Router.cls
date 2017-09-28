@@ -5,7 +5,6 @@ Class Frontier.Router Extends %CSP.REST
 
 ClassMethod Page(skipheader As %Boolean = 1) As %Status [ ProcedureBlock = 0 ]
 {
-  new %frontier
   set %frontier = ##class(Frontier.Context).%New(%session, %request, %response)  
   $$$QuitOnError(##super(skipheader))
   do ..OnPostHTTP()
@@ -29,31 +28,31 @@ ClassMethod DispatchMap(index As %Integer) As %String [ CodeMode = objectgenerat
 
 ClassMethod DispatchRequest(pUrl As %String, pMethod As %String, pForwarded As %Boolean = 0) As %Status
 {
- 
+  
   #; This is a modified version of %CSP.REST's DispatchRequest that creates an entry point for
   #; for additional features.
-  #; TODO: Check the possibility of purging this source code to stop ovewriting the original method.
+  #; TODO: Check the possibility of purging this source code to stop overwriting the original method.
   
-  #dim tSC As %Status = $$$OK
   #dim e As %Exception.AbstractException
   
   #dim tMatcher As %Regex.Matcher
   
-  #dim tArgs,tClass,tMatchUrl,tMapEntry,tRegEx,tCall,tForward,tAccess,tSupportedVerbs,tTarget,tType As %String
+  #dim tArgs,tClass,tMatchUrl,tMapEntry,tRegEx,tCall,tForward,tAccess,tTarget,tType,tHttpStatus As %String
   #dim tI,tIndex As %Integer
   #dim tResourceMatched,tContinue As %Boolean
-  #dim tMethodMatched As %Boolean    
+  #dim tMethodMatched As %Boolean
+  
+  set tHttpStatus = $case(pMethod, "POST": ..#HTTP201CREATED, : ..#HTTP200OK)    
     
-   try {    
-    set (tResourceMatched,tMethodMatched) = 0    
+   try {
+    set (tResourceMatched,tMethodMatched) = 0
                 
     #; Extract the match url from the application name
     if (0=pForwarded) set tMatchUrl="/"_$extract(pUrl, $length(%request.Application)+1,*)
     else  set tMatchUrl=pUrl        
       
     #; Uppercase the method
-    set pMethod=$ZCVT(pMethod,"U")
-    set tHttpStatus = $case(pMethod, "POST": ..#HTTP201CREATED, : ..#HTTP200OK)
+    set pMethod=$ZCVT(pMethod,"U")    
           
     #; Pre-Dispatch
     set tContinue = 1
@@ -74,9 +73,25 @@ ClassMethod DispatchRequest(pUrl As %String, pMethod As %String, pForwarded As %
       #; Test each regular expression in turn, extracting the arguments,
       #; dispatching to the named method  
       if tMatcher.Match(tMatchUrl) {
-                
+        
         #; We have matched the resource
         set tResourceMatched = 1
+        
+        set %frontier.RequestURL = %request.URL
+        set %frontier.ClassName = $classname()
+                  
+        $$$ThrowOnError(..OnDataSet(%frontier.Data))
+        $$$ThrowOnError(..OnSetup())
+        
+        $$$ThrowOnError(%frontier.AuthenticationManager.Verify(.user))
+        set %frontier.User = user
+        
+        set tScope = $lg(tMapEntry, 7)
+        
+        if '%frontier.AuthenticationManager.UserMatchesResourceScope(tScope, user) {
+          set %response.Status = ..#HTTP403FORBIDDEN
+          $$$ThrowOnError($$$ERROR($$$GeneralError, "Your account has not enough privilege to execute this action."))
+        }                
                 
         set tType = $list(tMapEntry,1)
                 
@@ -105,7 +120,7 @@ ClassMethod DispatchRequest(pUrl As %String, pMethod As %String, pForwarded As %
                    
           #; Got a match, marshall the arguments can call directly
           if tMatcher.GroupCount {
-            #; Modified for Frontier compatibility: store key instead of index. We need this info to correlate the arguments.            
+            #; Modified for Frontier compatibility: store key instead of index. We need this info to correlate the arguments later.            
             for tI=1:1:tMatcher.GroupCount set tArgs($lg($lg(tMapEntry,6), tI))=tMatcher.Group(tI)
             set tArgs = tI
           } else {
@@ -114,19 +129,14 @@ ClassMethod DispatchRequest(pUrl As %String, pMethod As %String, pForwarded As %
                     
           #; Check for optional ClassName prefix
           set tClass = $classname()
-          If tTarget [ ":" set tClass = $piece(tTarget,":"), tTarget = $Piece(tTarget,":",2)
+          If tTarget [ ":" set tClass = $piece(tTarget,":"), tTarget = $Piece(tTarget,":",2)              
 
           #; Dispatch
           #; Modified to add support for type resolution and query parameters
           set tPublicMethod = ##class(Method).%New(tClass, tTarget, .tArgs, %request)
           merge tMethodArguments = tPublicMethod.Arguments
           
-          set %frontier.Method = tTarget
-          set %frontier.RequestURL = %request.URL
-          set %frontier.ClassName = $classname()
-          
-          $$$ThrowOnError(..OnDataSet(%frontier.Data))
-          $$$ThrowOnError(..OnSetup())
+          set %frontier.Method = tTarget               
 
           if tMethodArguments > 0 {
             merge %frontier.ArgumentValues = tMethodArguments
@@ -155,20 +165,23 @@ ClassMethod DispatchRequest(pUrl As %String, pMethod As %String, pForwarded As %
     }
                   
     #; Had a match for resource but method not matched
-    if tMethodMatched = 0 {      
-      set tSC = ..SupportedVerbs(tMatchUrl,.tSupportedVerbs)
+    if tMethodMatched = 0 {
       set tHttpStatus = 404
-      $$$ThrowOnError($$$ERROR($$$GeneralError, "Resource not found."))
+      $$$ThrowOnError($$$ERROR($$$GeneralError, ..#HTTP404NOTFOUND))
     }
   } catch (e) {
     if tHttpStatus < 300 set tHttpStatus = ..#HTTP500INTERNALSERVERERROR
+    set %response.Status = tHttpStatus
+    
     set exceptionJSON = ##class(Exception).ToDynamicObject(e)
-    set sc = e.AsStatus()
-    if %frontier.ThrownByApplication {
-      set %frontier.Error = e.AsStatus()
+    set exceptionJSON.error."response_code" = $piece(%response.Status, " ")    
+    set sc = e.AsStatus()    
+    
+    if %frontier.ThrownByApplication || ($$$GETERRORCODE(sc) '= $$$GeneralError) {
+      set %frontier.Error = sc
       set %frontier.Stack = ##class(Exception).CaptureStack()
     }
-    write exceptionJSON.%ToJSON()
+    write exceptionJSON.%ToJSON()    
   }   
   return $$$OK
 }
@@ -177,10 +190,7 @@ ClassMethod DispatchResponse(returnedData As %CacheString, method As Frontier.Ro
 {
   
   set sc = $$$OK
-  set response = {}
-  
-  // Enables device writing.
-  write ""
+  set response = {}  
   
   if $isobject(returnedData) {
     set type = $classname(returnedData)
@@ -234,6 +244,55 @@ ClassMethod OnPostHTTP() [ Final ]
 {
   do %frontier.ReporterManager.Report() 
   kill %frontier
+}
+
+/// This is the Schema which defines the form of the dispatch map
+XData Schema [ Internal ]
+{
+<?xml version="1.0"?>
+<xs:schema xmlns:xs="http://www.w3.org/2001/XMLSchema" >
+
+<xs:element name="Routes">
+<xs:complexType>
+<xs:choice  minOccurs="0" maxOccurs="unbounded">
+<xs:element name="Route">
+<xs:complexType>
+<xs:attribute name="Url"    type="string" use="required"/>
+<xs:attribute name="Method" type="string" use="required"/>
+<xs:attribute name="Call" type="call" use="required"/>
+<xs:attribute name="Cors" type="xs:boolean" use="optional" default="false"/>
+<xs:attribute name="Scope" type="string" use="optional" default="false"/>
+</xs:complexType>
+</xs:element>
+<xs:element name="Map">
+<xs:complexType>
+<xs:attribute name="Prefix" type="string" use="required"/>
+<xs:attribute name="Forward" type="forward" use="required"/>
+</xs:complexType>
+</xs:element>
+</xs:choice>
+</xs:complexType>
+</xs:element>
+
+<xs:simpleType name="call">
+<xs:restriction base="xs:string">
+<xs:pattern value="([%]?[a-zA-Z][a-zA-Z0-9]*(\.[a-zA-Z][a-zA-Z0-9]*)*:)?[%]?[a-zA-Z][a-zA-Z0-9]*"/>
+</xs:restriction>
+</xs:simpleType>
+
+<xs:simpleType name="forward">
+<xs:restriction base="xs:string">
+<xs:pattern value="([%]?[a-zA-Z][a-zA-Z0-9]*(\.[a-zA-Z][a-zA-Z0-9]*)*)"/>
+</xs:restriction>
+</xs:simpleType>
+
+<xs:simpleType name="string">
+<xs:restriction base="xs:string">
+<xs:minLength value="1"/>
+</xs:restriction>
+</xs:simpleType>
+
+</xs:schema>
 }
 
 }

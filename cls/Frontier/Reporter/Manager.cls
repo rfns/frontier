@@ -23,10 +23,14 @@ Method Report() As %Status
   set sc = $$$OK
   if $$$ISOK(..Context.Error) return $$$OK
   
-  for i=1:1:..Reporters.Count() {
-    set reporter = ..Reporters.GetAt(i)
-    set sc = $$$ADDSC(sc, reporter.Report(..Context))
-  }  
+  try {
+    for i=1:1:..Reporters.Count() {
+      set reporter = ..Reporters.GetAt(i)
+      set sc = $$$ADDSC(sc, reporter.Report(..Context))
+    }
+  } catch ex {
+    set sc = ex.AsStatus()
+  }
   return sc
 }
 

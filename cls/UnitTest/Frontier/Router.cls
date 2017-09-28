@@ -34,12 +34,17 @@ Method OnBeforeOneTest() As %Status
   return $$$OK
 }
 
-Method AssertRequest(resource As %String, expected As %DynamicAbstractObject = "", method As %String = "GET", payload As %DynamicAbstractObject = "") As %Status
+Method AssertRequest(resource As %String, expected As %DynamicAbstractObject = "", method As %String = "GET", payload As %DynamicAbstractObject = "", authHeader As %String = "Basic Zm9vOmJhcg==") As %Status
 {
    
   if $isobject(payload) {
     $$$QuitOnError(..Request.SetHeader("Content-Type", "application/json; charset=utf-8"))
     $$$QuitOnError(..Request.EntityBody.Write(payload.%ToJSON()))
+  }
+  
+  // Default is Basic foo:bar. Refer to the ValidateCredentials method defined in the Frontier.UnitTest.Router class.
+  if authHeader {
+    $$$QuitOnError(..Request.SetHeader("Authorization", authHeader))
   }
   
   $$$QuitOnError(..Request.Send(method, resource))

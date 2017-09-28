@@ -55,13 +55,18 @@
 </Method>
 
 <Method name="AssertRequest">
-<FormalSpec>resource:%String,expected:%DynamicAbstractObject="",method:%String="GET",payload:%DynamicAbstractObject=""</FormalSpec>
+<FormalSpec>resource:%String,expected:%DynamicAbstractObject="",method:%String="GET",payload:%DynamicAbstractObject="",authHeader:%String="Basic Zm9vOmJhcg=="</FormalSpec>
 <ReturnType>%Status</ReturnType>
 <Implementation><![CDATA[
    
   if $isobject(payload) {
     $$$QuitOnError(..Request.SetHeader("Content-Type", "application/json; charset=utf-8"))
     $$$QuitOnError(..Request.EntityBody.Write(payload.%ToJSON()))
+  }
+  
+  // Default is Basic foo:bar. Refer to the ValidateCredentials method defined in the Frontier.UnitTest.Router class.
+  if authHeader {
+    $$$QuitOnError(..Request.SetHeader("Authorization", authHeader))
   }
   
   $$$QuitOnError(..Request.Send(method, resource))

@@ -29,7 +29,7 @@ ClassMethod Serialize(dynamic As %DynamicAbstractObject, parentKey As %String = 
       } elseif ##class(Frontier.Types).IsStream(type) {
         write $c(34)
         do WriteEscaped(value)
-        write $c(34)
+        write $c(34)        
       } elseif ##class(Frontier.Types).IsSQLProvider(type) {
         if 'value.StatementExecuted $$$ThrowOnError(value.Execute())
         $$$ThrowOnError(##class(Frontier.SQL.Serializer).Serialize(value.Results))
@@ -45,8 +45,16 @@ ClassMethod Serialize(dynamic As %DynamicAbstractObject, parentKey As %String = 
   return sc
   
 WriteEscaped(v)
-  while 'v.AtEnd { 
-    write $$$ZENJSONESCAPE(v.Read(),"s")
+  set readCount = 0
+  do v.Rewind()
+  
+  // Instead of using AtEnd, we compare the stream size with the buffer read size.
+  // This is because apparently AtEnd doesn't track the position correctly when the device is redirected.
+  // This can also be related to how we are dealing with this redirection along with %CSP.REST.
+  while readCount < v.Size {
+    set buffer = v.Read()
+    set readCount = readCount + $length(buffer)
+    write $$$ZENJSONESCAPE(buffer,"s")
   }
 }
 

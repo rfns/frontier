@@ -38,8 +38,7 @@ ClassMethod GeneratePatterns(routes As Frontier.Schema.Routes, targetClass As %S
     for i=1:1:totalRoutes {
       set route = routes.Route.GetAt(i)
       set pattern = $$WritePattern(route.Url, .placeholders)
-      set patterns(i) = $lb(resourceType, pattern, route.Method, route.Call, route.Cors)
-      if $ll(placeholders) > 0 set $list(patterns(i), *+1) = placeholders
+      set patterns(i) = $lb(resourceType, pattern, route.Method, route.Call, route.Cors, placeholders, route.Scope)
     }    
   } 
   if totalMaps > 0 {

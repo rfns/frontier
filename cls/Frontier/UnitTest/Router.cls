@@ -23,6 +23,7 @@ XData UrlMap [ XMLNamespace = "http://github.com/rfns/frontier" ]
   <Route Url="/mixed/rest" Method="POST" Call="TestPOSTMixedRestParametersSum"/>
   <Route Url="/unmarshall" Method="POST" Call="TestPOSTUnmarshallToClass"/>
   <Route Url="/unmarshall/:classId" Method="PUT" Call="TestPUTUnmarshallToClass"/>
+  <Route Url="/user" Method="GET" Call="GetUserInfo"/>
  </Routes>
 }
 
@@ -37,12 +38,20 @@ ClassMethod OnDataSet(data As %DynamicObject) As %Status
 /// This method is reserved for setting up configurations.
 ClassMethod OnSetup() As %Status
 {
-   
   // Reporters should be used to signal the developer about request errors.
   // Uncomment the line below and configure the parameters by rewriting the SetupAccount method from the indicated class below.
   
   // $$$QuitOnError(%frontier.ReporterManager.AddReporter(##class(Frontier.UnitTest.Reporter.Email).%New()))
-  $$$QuitOnError(%frontier.ReporterManager.AddReporter(##class(QS.Reporter.Email).%New()))
+  set sc = %frontier.AuthenticationManager.AddStrategy(
+    ##class(Frontier.Authentication.BasicStrategy).%New(
+      /* Realm */,
+      /* SQL statement user list source */,
+      /* Password hash method */,
+      $classname()_":ValidateCredentials",
+      $classname()_":SetAuthorizedUserInfo"
+    )
+  )
+  $$$QuitOnError(sc)  
   
   return $$$OK
 }
@@ -245,6 +254,27 @@ ClassMethod TestPUTUnmarshallToClass(class As %DynamicObject(UNMARSHALLTO="Front
     "ok": 1,
     "__id__": (class.%Id())
   }
+}
+
+/// This method depends on the authorization header sent by the client along with the
+/// GetAuthorizedUserInfo which is used to define which data should be present in the
+/// %frontier.User object.
+/// Call example:
+/// curl -H "Authorization: Basic Zm9vOmJhcg==" 'http://localhost:57772/api/frontier/test/user'
+ClassMethod GetUserInfo() As %Status
+{
+  return %frontier.User
+}
+
+ClassMethod ValidateCredentials(userName As %String, password As %String) As %Boolean
+{
+  return (userName = "foo" && (password = "bar"))
+}
+
+ClassMethod SetAuthorizedUserInfo(Output user As %DynamicObject, userName As %String, request As %CSP.Request) As %Status
+{
+  set user.name = userName
+  return $$$OK
 }
 
 }
