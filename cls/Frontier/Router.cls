@@ -169,10 +169,7 @@ ClassMethod DispatchRequest(pUrl As %String, pMethod As %String, pForwarded As %
       set tHttpStatus = 404
       $$$ThrowOnError($$$ERROR($$$GeneralError, ..#HTTP404NOTFOUND))
     }
-  } catch (e) {
-    if tHttpStatus < 300 set tHttpStatus = ..#HTTP500INTERNALSERVERERROR
-    set %response.Status = tHttpStatus
-    
+  } catch (e) {    
     set exceptionJSON = ##class(Exception).ToDynamicObject(e)
     set exceptionJSON.error."response_code" = $piece(%response.Status, " ")    
     set sc = e.AsStatus()    
