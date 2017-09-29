@@ -50,7 +50,7 @@ Method Verify(session As %CSP.Session, request As %CSP.Request, response As %CSP
   
   if $isobject(..Statement) {
     if '##class(Frontier.Types).IsTypeOf($classname(..Statement), "%SQL.Statement") {
-      return $$CreateError("User list is not sourced from a valid SQL statement.", "404 Bad Request")
+      return $$CreateError("User list is not sourced from a valid SQL statement.", "400 Bad Request")
     }
     
     set result = ..Statement.%Execute(userName, password)
@@ -95,7 +95,7 @@ Method Verify(session As %CSP.Session, request As %CSP.Request, response As %CSP
   return sc
   
 CreateError(message, status="401 Unauthorized", isStatus=0)
-  set response.Status = "401 Unauthorized"
+  set response.Status = status
   if 'isStatus return $$$ERROR($$$GeneralError, message) 
   return message
 }

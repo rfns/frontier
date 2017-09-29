@@ -224,7 +224,7 @@ rchr(time) Quit ""
   
   if $isobject(..Statement) {
     if '##class(Frontier.Types).IsTypeOf($classname(..Statement), "%SQL.Statement") {
-      return $$CreateError("User list is not sourced from a valid SQL statement.", "404 Bad Request")
+      return $$CreateError("User list is not sourced from a valid SQL statement.", "400 Bad Request")
     }
     
     set result = ..Statement.%Execute(userName, password)
@@ -269,7 +269,7 @@ rchr(time) Quit ""
   return sc
   
 CreateError(message, status="401 Unauthorized", isStatus=0)
-  set response.Status = "401 Unauthorized"
+  set response.Status = status
   if 'isStatus return $$$ERROR($$$GeneralError, message) 
   return message
 ]]></Implementation>
@@ -1888,13 +1888,13 @@ the fields that aren't private, or you can instantiate it and change it's values
         
     #; Didn't have a match for the resource, report not found
     if tResourceMatched = 0 {
-      set tHttpStatus = ..#HTTP404NOTFOUND
+      set %response.%Status = ..#HTTP404NOTFOUND
       $$$ThrowOnError($$$ERROR($$$GeneralError, ..#HTTP404NOTFOUND))
     }
                   
     #; Had a match for resource but method not matched
     if tMethodMatched = 0 {
-      set tHttpStatus = 404
+      set %response.%Status = ..#HTTP404NOTFOUND
       $$$ThrowOnError($$$ERROR($$$GeneralError, ..#HTTP404NOTFOUND))
     }
   } catch (e) {    

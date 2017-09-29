@@ -160,13 +160,13 @@ ClassMethod DispatchRequest(pUrl As %String, pMethod As %String, pForwarded As %
         
     #; Didn't have a match for the resource, report not found
     if tResourceMatched = 0 {
-      set tHttpStatus = ..#HTTP404NOTFOUND
+      set %response.%Status = ..#HTTP404NOTFOUND
       $$$ThrowOnError($$$ERROR($$$GeneralError, ..#HTTP404NOTFOUND))
     }
                   
     #; Had a match for resource but method not matched
     if tMethodMatched = 0 {
-      set tHttpStatus = 404
+      set %response.%Status = ..#HTTP404NOTFOUND
       $$$ThrowOnError($$$ERROR($$$GeneralError, ..#HTTP404NOTFOUND))
     }
   } catch (e) {    
