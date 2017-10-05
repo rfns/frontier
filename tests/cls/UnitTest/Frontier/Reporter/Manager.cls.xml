@@ -88,11 +88,13 @@
   
   set sc = ..ReporterManager.Report()
   set errorCount = $$$GETERRORCOUNT(sc)
+  
   // 2 because Setup failures nullifies reporters so they never can be used.
   // We actually have only 2 reporters added.
   if errorCount '= 2 do $$$AssertTrue(errorCount '= 2, "appends reporter errors.")
   
   for i=1:1:$ll(..ReportStatuses) {
+    
     // Skip reports that couldn't be added. We only need to know about reporters ready to call the Report method.
     // Even if the Report method fails itself.
     if $data(^||Frontier.UnitTest.Spy("Report", ..MockIds(i))) {

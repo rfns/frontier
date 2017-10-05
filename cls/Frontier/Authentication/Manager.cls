@@ -9,12 +9,25 @@ Property Request As %CSP.Request [ Private ];
 
 Property Response As %CSP.Response [ Private ];
 
+Property ScopeSeparator As %String [ InitialExpression = " " ];
+
 Method %OnNew(session As %CSP.Session, request As %CSP.Request, response As %CSP.Response) As %Status
 {
   set ..Session = session
   set ..Request = request
   set ..Response = response
   return $$$OK
+}
+
+Method AllowMultipleChallengesSet(value As %Boolean) As %Status [ Final, Internal, Private ]
+{
+	set i%AllowMultipleChallenges = +value
+	return $$$OK
+}
+
+Method ScopeSeparatorSet(value As %String) As %Status [ Final, Internal, Private ]
+{
+	set i%ScopeSeparator = $get(value, ",")
 }
 
 Method AddStrategy(strategy As Frontier.Authentication.Strategy) As %Status
@@ -24,7 +37,7 @@ Method AddStrategy(strategy As Frontier.Authentication.Strategy) As %Status
   return $$$OK
 }
 
-Method Verify(Output user As %DynamicObject = {{}}) As %Status
+Method Verify(Output user As %DynamicObject = {{}}, resourceScope As %String = "") As %Status
 {
   set sc = $$$OK
   set totalStrategies = ..Strategies.Count()
@@ -33,11 +46,14 @@ Method Verify(Output user As %DynamicObject = {{}}) As %Status
   try {
     for i=1:1:totalStrategies {
       set strategy = ..Strategies.GetAt(i)
-      set sc = strategy.Verify(..Session, ..Request, ..Response, .user)
-      if $$$ISOK(sc) quit
-    }
-    if $$$ISERR(sc) && (i = totalStrategies) && (..Response.Status = "401 Unauthorized") {
-      do ..Response.SetHeader("WWW-Authenticate", strategy.GetChallenge(..Session, ..Request, ..Response))   
+      set sc = strategy.Verify(..Session, ..Request, ..Response, .user, resourceScope)
+      if $$$ISOK(sc) {
+	      quit
+      } elseif 'strategy.Next {
+		    set challengeSC = strategy.GetChallenge(..Session, ..Request, ..Response, .challenge)
+				if $$$ISOK(challengeSC) do ..Response.SetHeader("WWW-Authenticate", challenge)
+				quit		    
+      }
     }
   } catch ex {
     set sc = ex.AsStatus()
@@ -45,9 +61,9 @@ Method Verify(Output user As %DynamicObject = {{}}) As %Status
   return sc
 }
 
-Method UserMatchesResourceScope(resourceScope As %String = "", user As %DynamicObject = {{}}) As %Boolean
+Method CheckResourceScope(resourceScope As %String = "", authenticationScope As %DynamicObject = {{}}) As %Boolean
 {
-  if resourceScope '= "" return $lf($lfs(user.scope, " "), resourceScope) > 0
+  if resourceScope '= "" return $lf($lfs(authenticationScope, ..ScopeSeparator), resourceScope) > 0
   return 1
 }
 

@@ -80,17 +80,21 @@ ClassMethod DispatchRequest(pUrl As %String, pMethod As %String, pForwarded As %
         set %frontier.RequestURL = %request.URL
         set %frontier.ClassName = $classname()
                   
-        $$$ThrowOnError(..OnDataSet(%frontier.Data))
         $$$ThrowOnError(..OnSetup())
-        
-        $$$ThrowOnError(%frontier.AuthenticationManager.Verify(.user))
-        set %frontier.User = user
+        $$$ThrowOnError(..OnDataSet(%frontier.Data))        
         
         set tScope = $lg(tMapEntry, 7)
         
-        if '%frontier.AuthenticationManager.UserMatchesResourceScope(tScope, user) {
+        #; Run pending authentication strategies. If one passes, then the implementation
+        #; is responsible for filling the user object.
+        $$$ThrowOnError(%frontier.AuthenticationManager.Verify(.user, tScope))
+        set %frontier.User = user               
+        
+        #; This checks the user.scope against the resource scope and validates the
+        #; resource access.
+        if '%frontier.AuthenticationManager.CheckResourceScope(tScope, user.scope) {
           set %response.Status = ..#HTTP403FORBIDDEN
-          $$$ThrowOnError($$$ERROR($$$GeneralError, "Your account has not enough privilege to execute this action."))
+          $$$ThrowOnError($$$ERROR($$$GeneralError, "This account has not enough privilege to execute this action."))
         }                
                 
         set tType = $list(tMapEntry,1)
@@ -159,25 +163,30 @@ ClassMethod DispatchRequest(pUrl As %String, pMethod As %String, pForwarded As %
     }
         
     #; Didn't have a match for the resource, report not found
-    if tResourceMatched = 0 {
-      set %response.%Status = ..#HTTP404NOTFOUND
-      $$$ThrowOnError($$$ERROR($$$GeneralError, ..#HTTP404NOTFOUND))
+    if tResourceMatched '= 1 && (tMethodMatched '= 1) {
+      set %response.Status = ..#HTTP404NOTFOUND
+      $$$ThrowOnError($$$ERROR($$$GeneralError, "Resource not found."))
     }
-                  
-    #; Had a match for resource but method not matched
-    if tMethodMatched = 0 {
-      set %response.%Status = ..#HTTP404NOTFOUND
-      $$$ThrowOnError($$$ERROR($$$GeneralError, ..#HTTP404NOTFOUND))
+  } catch (e) {
+    set responseCode = $piece(%response.Status, " ")
+    
+    #; There might have cases where we get a success HTTP status, we need to normalize
+    #; it forcing a common 500 error.
+    if responseCode < 300 {
+      set %response.Status = ..#HTTP500INTERNALSERVERERROR
+      set responseCode = 500
     }
-  } catch (e) {    
+    
     set exceptionJSON = ##class(Exception).ToDynamicObject(e)
-    set exceptionJSON.error."response_code" = $piece(%response.Status, " ")    
+    set exceptionJSON.error."response_code" = responseCode    
     set sc = e.AsStatus()    
     
     if %frontier.ThrownByApplication || ($$$GETERRORCODE(sc) '= $$$GeneralError) {
       set %frontier.Error = sc
       set %frontier.Stack = ##class(Exception).CaptureStack()
     }
+    
+    set %response.OutputSessionToken = 0
     write exceptionJSON.%ToJSON()    
   }   
   return $$$OK

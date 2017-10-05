@@ -19,8 +19,6 @@ Property StatementExecuted As %Boolean [ InitialExpression = 0 ];
 
 Property Results As %SQL.StatementResult [ Internal, ReadOnly ];
 
-Property Authentication As Frontier.Authentication;
-
 Method %OnNew(statement As %String) As %Status
 {
   

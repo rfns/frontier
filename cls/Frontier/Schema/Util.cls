@@ -43,7 +43,7 @@ ClassMethod GeneratePatterns(routes As Frontier.Schema.Routes, targetClass As %S
   } 
   if totalMaps > 0 {
     set resourceType = "M"
-    for i=1:totalMaps {
+    for i=1:1:totalMaps {
       set map = routes.Map.GetAt(i)
       set patterns(i) = $lb(resourceType, $$WritePattern(map.Prefix), map.Forward)
     }

@@ -42,16 +42,14 @@ ClassMethod OnSetup() As %Status
   // Uncomment the line below and configure the parameters by rewriting the SetupAccount method from the indicated class below.
   
   // $$$QuitOnError(%frontier.ReporterManager.AddReporter(##class(Frontier.UnitTest.Reporter.Email).%New()))
-  set sc = %frontier.AuthenticationManager.AddStrategy(
-    ##class(Frontier.Authentication.BasicStrategy).%New(
-      /* Realm */,
-      /* SQL statement user list source */,
-      /* Password hash method */,
-      $classname()_":ValidateCredentials",
-      $classname()_":SetAuthorizedUserInfo"
-    )
-  )
-  $$$QuitOnError(sc)  
+  
+  set basicStrategy = ##class(Frontier.Authentication.BasicStrategy).%New({
+    "realm": "tests", 
+    "validator": ($classname()_":ValidateCredentials")
+  })
+  
+  // This provides a way to check if the current user is authenticated using Basic scheme.
+  $$$QuitOnError(%frontier.AuthenticationManager.AddStrategy(basicStrategy))  
   
   return $$$OK
 }
@@ -256,9 +254,8 @@ ClassMethod TestPUTUnmarshallToClass(class As %DynamicObject(UNMARSHALLTO="Front
   }
 }
 
-/// This method depends on the authorization header sent by the client along with the
-/// GetAuthorizedUserInfo which is used to define which data should be present in the
-/// %frontier.User object.
+/// This method depends on the authorization header sent by the client and validated with the validator method.
+/// The validator method is also responsible for defining the user object.
 /// Call example:
 /// curl -H "Authorization: Basic Zm9vOmJhcg==" 'http://localhost:57772/api/frontier/test/user'
 ClassMethod GetUserInfo() As %Status
@@ -266,14 +263,15 @@ ClassMethod GetUserInfo() As %Status
   return %frontier.User
 }
 
-ClassMethod ValidateCredentials(userName As %String, password As %String) As %Boolean
+ClassMethod ValidateCredentials(login As %String, password As %String, found As %Boolean = 1, Output httpStatus As %String, Output user As %DynamicObject) As %Status
 {
-  return (userName = "foo" && (password = "bar"))
-}
-
-ClassMethod SetAuthorizedUserInfo(Output user As %DynamicObject, userName As %String, request As %CSP.Request) As %Status
-{
-  set user.name = userName
+  set found = (login = "foo" && (password = "bar"))
+  if found set httpStatus = ..#HTTP200OK
+  else  set httpStatus = ..#HTTP403FORBIDDEN
+  
+  set user = { 
+    "user": (login) 
+  }
   return $$$OK
 }
 

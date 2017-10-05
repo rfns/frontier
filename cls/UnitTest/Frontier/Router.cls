@@ -43,9 +43,7 @@ Method AssertRequest(resource As %String, expected As %DynamicAbstractObject = "
   }
   
   // Default is Basic foo:bar. Refer to the ValidateCredentials method defined in the Frontier.UnitTest.Router class.
-  if authHeader {
-    $$$QuitOnError(..Request.SetHeader("Authorization", authHeader))
-  }
+  $$$QuitOnError(..Request.SetHeader("Authorization", authHeader))
   
   $$$QuitOnError(..Request.Send(method, resource))
   set response = ..Request.HttpResponse.Data

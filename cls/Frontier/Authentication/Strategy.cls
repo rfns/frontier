@@ -1,14 +1,27 @@
 Class Frontier.Authentication.Strategy Extends %RegisteredObject
 {
 
-Method OnVerify(session As %CSP.Session, request As %CSP.Request, response As %CSP.Response, Output user As %DynamicObject = {{}}) As %Status
+Property Next As %Boolean [ InitialExpression = 0 ];
+
+Method %OnNew(config As %DynamicObject = {{}}) As %Status
 {
   return $$$OK
 }
 
-Method GetChallenge(session As %CSP.Session, request As %CSP.Request, response As %CSP.Response) As %String
+Method NextSet(value As %Boolean) As %Status
 {
-  $$$ThrowOnError($$$ERROR($$$MethodNotImplemented, "AddChallenge"))
+	set i%Next = +value
+	return $$$OK
+}
+
+Method Verify(session As %CSP.Session, request As %CSP.Request, response As %CSP.Response, Output user As %DynamicObject = {{}}, resourceScope As %String = "") As %Status
+{
+  return $$$OK
+}
+
+Method GetChallenge(session As %CSP.Session, request As %CSP.Request, response As %CSP.Response, challenge As %String = "") As %Status
+{
+  return $$$ERROR($$$MethodNotImplemented, "GetChallenge")
 }
 
 }
