@@ -4,7 +4,13 @@
 
 # Frontier
 
-Frontier is an abstraction layer for rapid web application development with Caché. By using it you'll stop worrying about how to handle data and errors thus focusing on what matters: your application.
+Frontier is an abstraction layer for rapid web application, it uses the already estabilished practices from %CSP.REST making it compatible and adds several helpers to make sure you're not wasting time implementing them.
+
+# Why?
+
+Have you ever found yourself dealing with repetitive tasks like mounting objects, serializing them and eventually handling multiple kind of errors? Frontier can boost your development by making you focus on what really matters: your application.
+
+It's made to stop you from WRITE'ing by instead forcing your methods to return values, so that your code can become cleaner.
 
 # Features
 
@@ -13,7 +19,7 @@ Frontier is an abstraction layer for rapid web application development with Cach
 ```
 ClassMethod TestPOSTInvalidPayload() As %String
 {
-  // This will be thrown and be captured.
+  // This will be thrown and captured.
   return idontexist
 }
 ```
@@ -29,7 +35,7 @@ ClassMethod TestGETRouteParams(class As Frontier.UnitTest.Fixtures.Class) As %St
 }
 ```
 
-* __Support for query parameters:__ Can be used by simply defining their formal spec and passing them in the URL.
+* __Support for query parameters:__ Can be used by simply adding them as parameters to the method to-be-called.
 
 ```
 ClassMethod TestGETOneQueryParameter(msg As %String) As %String
@@ -40,7 +46,7 @@ ClassMethod TestGETOneQueryParameter(msg As %String) As %String
 }
 ```
 
-* __Support for rest parameters:__ If more flexibility is needed for a single query parameter, using rest parameters might be better. Define them as it should when using common COS syntax and populate it using queryN syntax, where N is a sequential index.
+* __Support for sequential parameters:__ Provides more flexibility for a single query parameter by making it aware to sequential inputs. Can be defined in using the three dots notation.
 
 ```
 ClassMethod TestGETRestParametersSum(n... As %String) As %Integer
@@ -53,7 +59,7 @@ ClassMethod TestGETRestParametersSum(n... As %String) As %Integer
 }
 ```
 
-* __Automatic payload detection (can also be an array):__ Applications requiring to send payload data (normally JSON), can do so with methods whose parameters are typed from %Dynamic instances.
+* __Automatic payload detection (can also be an array):__ Applications requiring to send payload data (normally JSON), can do so with methods whose parameters are typed from %DynamicAbstractObject instances.
 
 ```
 ClassMethod TestPOSTObjectPayloadSingle(payload As %DynamicObject) As %DynamicObject
@@ -70,7 +76,6 @@ ClassMethod TestPOSTInvalidPayload(
   payloadA As %DynamicArray,
   payloadB As %DynamicObject) As %DynamicArray
 {
-  // curl -H "Content-Type: application/json" -X POST -d '[{"username":"xyz","password":"xyz"}]' 'http://localhost:57772/api/frontier/test/payload/invalid'
   // Throws because requests can only have one payload.
   return payloadA
 }
@@ -89,8 +94,8 @@ ClassMethod TestGETRawMode() As %String
 * __SQL support:__ SQL results can be serialized by using the Frontier's SQL API. Named queries are supported as well.
 ```
 ClassMethod TestGETDynamicSQLResult(
-	page As %Integer = 1,
-	rows As %Integer = 5) As Frontier.SQL.Provider
+  page As %Integer = 1,
+  rows As %Integer = 5) As Frontier.SQL.Provider
 {
   set offset = (page * rows) - (rows - 1)
   set limit = page * rows
@@ -113,7 +118,7 @@ ClassMethod TestGETStream() As %Stream.Object
 }
 ```
 
-*  __Seamless marshalling procedure:__ Normalizes the instance graphs by marshalling them into %Dynamic instances before serialization.
+*  __Seamless marshalling procedure:__ Normalizes the instance graphs by marshalling them into %DynamicObject instances before serialization.
 
 ```
 ClassMethod TestGETMixedDynamicObject(class As Frontier.UnitTest.Fixtures.Class) As %DynamicObject
@@ -125,23 +130,73 @@ ClassMethod TestGETMixedDynamicObject(class As Frontier.UnitTest.Fixtures.Class)
 }
 ```
 
+* __Setup__: Define a set of configurations that should be applied for the router before the matching `Call` method is invoked.
+
+```
+ClassMethod OnSetup() As %Status
+{
+  // This method is called before your specified Call method.
+  return $$$OK
+}
+```
+
+* __Error reporters:__ Define a set of reporters that are triggered when an abnormal error happens.
+```
+ClassMethod OnSetup() As %Status
+{
+  // Reporters should be used to signal the developer about request errors.
+  $$$QuitOnError(%frontier.ReporterManager.AddReporter(##class(MyReporter.Email).%New()))
+  $$$QuitOnError(%frontier.ReporterManager.AddReporter(##class(MyReporter.GithubIssues).%New()))
+
+  return $$$OK
+}
+```
+
+* __Authentication:__ Protect resources from unauthorized access using a [Passport](http://passportjs.org)-like strategy mechanism.
+```
+ClassMethod OnSetup() As %Status
+{
+  // Asks the user for a Basic + Base64(username:password) encoded Authorization header.
+  set basicStrategy = ##class(Frontier.Authentication.BasicStrategy).%New({
+    "realm": "tests",
+    "validator": ($classname()_":ValidateCredentials")
+  })
+
+  // Tells to Frontier that we should use this strategy.
+  $$$QuitOnError(%frontier.AuthenticationManager.AddStrategy(basicStrategy))
+
+  return $$$OK
+}
+```
+
+* __Shareable data:__ Makes an object available to all methods inside a router.
+```
+ClassMethod OnDataSet(data As %DynamicObject) As %Status
+{
+  /// This 'data' object is shared between all methods. Accessible using %frontier.Data.
+  set data.Message = "This 'Message' is shared between all methods."
+  return $$$OK
+}
+
+...
+ClassMethod TestGETData() As %DynamicObject
+{
+  // Prints { "results": "This 'Message' is shared between all methods." }.
+  return %frontier.Data
+}
+```
+
 ## I want to see this demo running!
 
 You're in luck! Just import the class [Frontier.UnitTest.WebApplicationInstaller](https://github.com/rfns/frontier/blob/master/cls/Frontier/UnitTest/WebApplicationInstaller.cls) and use some browser or tool like cURL to see it in action.
 
-## How do I create my own router?
+## How do I quick start a Frontier router?
 
 Just like you would [do](http://docs.intersystems.com/latest/csp/docbook/DocBook.UI.Page.cls?KEY=GREST_preface) with %CSP.REST.
 
 But instead of extending your router from %CSP.REST you use ```Frontier.Router.```
 
 Still with doubts? The [class](https://github.com/rfns/frontier/blob/master/cls/Frontier/UnitTest/Router.cls) demo'ed on Features is available to check out.
-
-## So, what's next?
-
-- [x] SQL support.
-- [ ] Easier credentials validation and user object access.
-- [ ] Request error email reporter.
 
 ## CONTRIBUTING
 
