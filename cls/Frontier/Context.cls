@@ -37,6 +37,8 @@ Property DirectWrite As %Boolean [ InitialExpression = 0 ];
 
 Property User As %DynamicObject [ InitialExpression = 1 ];
 
+Property PropertyFormatter As Frontier.PropertyFormatter;
+
 Method %OnNew(session As %CSP.Session, request As %CSP.Request, response As %CSP.Response) As %Status
 {
   set ..Session = session
@@ -106,7 +108,7 @@ Method ThrowException(message As %String, statusCode As %Integer = {$$$GeneralEr
   set args(2) = message
   
   for i=1:1:parameters set args(2+i) = parameters(i)
-  set i%ThrownByApplication = 1
+  set ..ThrownByApplication = 1
   throw ##class(%Exception.StatusException).CreateFromStatus($$$ERROR(args...))
 }
 

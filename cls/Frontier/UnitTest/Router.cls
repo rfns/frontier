@@ -38,11 +38,10 @@ ClassMethod OnDataSet(data As %DynamicObject) As %Status
 /// This method is reserved for setting up configurations.
 ClassMethod OnSetup() As %Status
 {
-  // Reporters should be used to signal the developer about request errors.
-  // Uncomment the line below and configure the parameters by rewriting the SetupAccount method from the indicated class below.
+  // Reporters should be used to signal the developer about request errors.   
+  // $$$QuitOnError(%frontier.ReporterManager.AddReporter(##class(MyReporter.Email).%New()))
   
-  // $$$QuitOnError(%frontier.ReporterManager.AddReporter(##class(Frontier.UnitTest.Reporter.Email).%New()))
-  
+  // Asks the user for a Basic + Base64(username:password) encoded Authorization header.
   set basicStrategy = ##class(Frontier.Authentication.BasicStrategy).%New({
     "realm": "tests", 
     "validator": ($classname()_":ValidateCredentials")

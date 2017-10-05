@@ -1,23 +1,22 @@
 Class Frontier.Dynamic.Unmarshaller [ Abstract ]
 {
 
-ClassMethod Unmarshall(className As %String, dynamicObject As %DynamicAbstractObject, Output registeredObject As %RegisteredObject = "") As %Status
+ClassMethod Unmarshall(className As %String, dynamicObject As %DynamicAbstractObject, Output registeredObject As %RegisteredObject = "", propertyFormatter As Frontier.PropertyFormatter = "") As %Status
 {
-  
   if $isobject(dynamicObject) {   
     set dynamicType = $classname(dynamicObject)
     set isCollection = ##class(Frontier.Types).IsCollection(className) || ##class(Frontier.Types).IsDynamicArray(className)    
     
     if ##class(Frontier.Types).IsDynamicArray(dynamicType) {
-      return ..MakeCollection(className, dynamicObject, .registeredObject)
+      return ..MakeCollection(className, dynamicObject, .registeredObject, 1, propertyFormatter)
     } elseif 'isCollection && ##class(Frontier.Types).IsDynamicObject(dynamicType) && ##class(Frontier.Types).IsInstantiable(className) {
-      return ..MakeObject(className, dynamicObject, .registeredObject)
+      return ..MakeObject(className, dynamicObject, .registeredObject, 1, propertyFormatter)
     }    
   }
   return $$$ERROR($$$GeneralError, "Cannot unmarshall data types.")
 }
 
-ClassMethod MakeObject(className As %String, dynamicObject As %DynamicAbstractObject, Output object As %RegisteredObject = "") As %Status [ Private ]
+ClassMethod MakeObject(className As %String, dynamicObject As %DynamicAbstractObject, Output object As %RegisteredObject = "", depth As %String = 1, propertyFormatter As Frontier.PropertyFormatter = "") As %Status [ Private ]
 {
   set object = ""
   set sc = $$$OK
@@ -33,29 +32,43 @@ ClassMethod MakeObject(className As %String, dynamicObject As %DynamicAbstractOb
   set descriptor = ##class(%Dictionary.CompiledClass).%OpenId(className)
   set properties = descriptor.Properties
   
+	do propertyFormatter.FormatFromCollection(descriptor.Properties, depth)
+  
   set propCount = properties.Count()
   
-  set iterator = dynamicObject.%GetIterator()  
+  set iterator = dynamicObject.%GetIterator()
 
   while iterator.%GetNext(.key, .value) {
-    if key = "__id__" continue
-    set propertyId = className_"||"_key
-    set property = ##class(%Dictionary.CompiledProperty).%OpenId(propertyId)     
+    if key = "__id__" continue        
+    set propertyId = className_"||"
+    
+    if $isobject(propertyFormatter) {
+	    set propertyId = propertyId_propertyFormatter.Normalize(key, depth)
+    } else {
+    	set propertyId = propertyId_key
+    }
+    
+    set property = ##class(%Dictionary.CompiledProperty).%OpenId(propertyId)    
     if '$isobject(property) continue
+    
     if property.Private || property.Calculated || ($extract(property.Name) = "%") continue
     if '$isobject(object) {
       set object = $System.OBJ.New(className)
     }
-    set dynamicObjectPropertyValue = $property(dynamicObject, property.Name)
+    
+    set dynamicObjectPropertyValue = $property(dynamicObject, key)
     set isDataType = '$isobject(dynamicObjectPropertyValue) && ##class(Frontier.Types).IsDataType(property.Type)
     set isSerial = ##class(Frontier.Types).IsSerial(property.Type)
+    
     if 'isDataType {      
       if $isobject(dynamicObjectPropertyValue) && dynamicObjectPropertyValue.%IsA("%DynamicObject") {
-        set sc = ..MakeObject(property.Type, dynamicObjectPropertyValue, .dynamicChildInstance)          
+        set sc = ..MakeObject(property.Type, dynamicObjectPropertyValue, .dynamicChildInstance, propertyFormatter, depth + 1)          
         quit:$$$ISERR(sc)
+        
         set $property(object, property.Name) = dynamicChildInstance
       } elseif ##class(Frontier.Types).IsStream(property.Type) {
         set childStream = $System.OBJ.New(property.Type)
+        
         if $isobject(dynamicObjectPropertyValue) && dynamicObjectPropertyValue.%Extends("%Stream.Object") {         
           do childStream.CopyFrom(dynamicObjectPropertyValue)
         } else {          
@@ -67,8 +80,9 @@ ClassMethod MakeObject(className As %String, dynamicObject As %DynamicAbstractOb
       } elseif property.Collection '= "" {
         set collectionType = $property(object, property.Name).ElementType
         set dynamicChildInstance = $property(object, property.Name)   
+        
         if $isobject(dynamicObjectPropertyValue) {    
-          set sc = ..MakeCollection(collectionType, dynamicObjectPropertyValue, .dynamicChildInstance)        
+          set sc = ..MakeCollection(collectionType, dynamicObjectPropertyValue, .dynamicChildInstance, depth + 1)        
           quit:$$$ISERR(sc)
           set $property(object, property.Name) = dynamicChildInstance
         } elseif dynamicObjectPropertyValue '= "" {
@@ -103,7 +117,7 @@ ClassMethod MakeObject(className As %String, dynamicObject As %DynamicAbstractOb
   quit sc
 }
 
-ClassMethod MakeCollection(collectionType As %String, dynamicCollection As %DynamicAbstractObject, Output collection As %Collection.Super = "") As %Status [ Private ]
+ClassMethod MakeCollection(collectionType As %String, dynamicCollection As %DynamicAbstractObject, Output collection As %Collection.Super = "", depth As %Integer, propertyFormatter As Frontier.PropertyFormatter = "") As %Status [ Private ]
 {
     
   set sc = $$$OK
@@ -155,8 +169,8 @@ ClassMethod MakeCollection(collectionType As %String, dynamicCollection As %Dyna
       set item = $System.OBJ.OpenId(collectionType, dynamicItem)
     } elseif $isobject(dynamicItem) { 
       set sc = $select(
-        dynamicItem.%IsA("%DynamicObject") : ..MakeObject(collectionType, dynamicItem, .item),
-        dynamicItem.%Extends("%DynamicArray") : ..MakeCollection(itemClass, dynamicItem, .item),
+        dynamicItem.%IsA("%DynamicObject") : ..MakeObject(collectionType, dynamicItem, .item, depth + 1, propertyFormatter),
+        dynamicItem.%Extends("%DynamicArray") : ..MakeCollection(itemClass, dynamicItem, .item, depth + 1, propertyFormatter),
         1: $$$ERROR($$$GeneralError, "Cannot unmarshall items that aren't dynamic.")
       )
       if item = "" continue

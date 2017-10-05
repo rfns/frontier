@@ -56,7 +56,7 @@ Method HandleSQLExpression(SQLExpression As %String) As %Status [ Private ]
   return $$$OK
 }
 
-Method SetQueryParameters(ByRef parameters... As %String) As %Status
+Method SetQueryParameters(parameters... As %String) As %Status
 {
   if parameters '= 0 && 'parameters?.N && ($order(parameters(""), -1) '= parameters) {
     return $$$ERROR($$$GeneralError, "Invalid parameter spec.")

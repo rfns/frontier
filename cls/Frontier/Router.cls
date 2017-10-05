@@ -11,12 +11,12 @@ ClassMethod Page(skipheader As %Boolean = 1) As %Status [ ProcedureBlock = 0 ]
   return $$$OK
 }
 
-ClassMethod DispatchMap(index As %Integer) As %String [ CodeMode = objectgenerator, Final ]
+ClassMethod DispatchMap(index As %Integer) As %String [ CodeMode = objectgenerator, Final, Internal ]
 {
   // Don't generate patterns if target class is super.
   if %compiledclass.Name = "Frontier.Router" return $$$OK
   
-  // Kills remaining data, so that we can prevent misleading patterns.
+  // Kills remaining data, so that we can prevent using obsolete patterns.
   kill ^Frontier.Patterns(%compiledclass.Name)
   
   $$$ThrowOnError(##class(Frontier.Schema.Util).Parse(%compiledclass.Name, .routes))
@@ -47,9 +47,12 @@ ClassMethod DispatchRequest(pUrl As %String, pMethod As %String, pForwarded As %
    try {
     set (tResourceMatched,tMethodMatched) = 0
                 
-    #; Extract the match url from the application name
-    if (0=pForwarded) set tMatchUrl="/"_$extract(pUrl, $length(%request.Application)+1,*)
-    else  set tMatchUrl=pUrl        
+    #; Extract the match url from the application name    
+    if 'pForwarded {
+      set tMatchUrl = "/"_$extract(pUrl, $length(%request.Application)+1,*)     
+    } else {
+      set tMatchUrl = pUrl
+    }    
       
     #; Uppercase the method
     set pMethod=$ZCVT(pMethod,"U")    
@@ -62,7 +65,7 @@ ClassMethod DispatchRequest(pUrl As %String, pMethod As %String, pForwarded As %
     for tIndex=1:1 {           
       
       #; Get the next map entry
-      set tMapEntry = ..DispatchMap(tIndex) if tMapEntry="" quit
+      set tMapEntry = ..DispatchMap(tIndex) if tMapEntry="" quit      
              
       #; Pick out the RegEx
       set tRegEx = $list(tMapEntry,2)
@@ -71,7 +74,7 @@ ClassMethod DispatchRequest(pUrl As %String, pMethod As %String, pForwarded As %
       set tMatcher = ##class(%Regex.Matcher).%New(tRegEx)
             
       #; Test each regular expression in turn, extracting the arguments,
-      #; dispatching to the named method  
+      #; dispatching to the named method
       if tMatcher.Match(tMatchUrl) {
         
         #; We have matched the resource
@@ -137,11 +140,10 @@ ClassMethod DispatchRequest(pUrl As %String, pMethod As %String, pForwarded As %
 
           #; Dispatch
           #; Modified to add support for type resolution and query parameters
-          set tPublicMethod = ##class(Method).%New(tClass, tTarget, .tArgs, %request)
+          set tPublicMethod = ##class(Method).%New(tClass, tTarget, .tArgs, %request, %frontier.PropertyFormatter)
           merge tMethodArguments = tPublicMethod.Arguments
           
-          set %frontier.Method = tTarget               
-
+          set %frontier.Method = tTarget
           if tMethodArguments > 0 {
             merge %frontier.ArgumentValues = tMethodArguments
             set return = $classmethod(tClass, tTarget, tMethodArguments...)
@@ -150,12 +152,13 @@ ClassMethod DispatchRequest(pUrl As %String, pMethod As %String, pForwarded As %
           }
           $$$ThrowOnError(..DispatchResponse(return, .tReturnParameters))
           return $$$OK
-        } else {                    
-          #; We are a map, massage the URL and forward the request
-          set tMatchUrl = $piece(tMatchUrl,tMatcher.Group(1),"2",*), tForward = $listget(tMapEntry,3)
+        } else {                  
+          #; We are a map, message the URL and forward the request
+          set tMatchUrl = $piece(tMatchUrl,tMatcher.Group(1),"2",*)
+          if tMatchUrl = "" set tMatchUrl = "/"
+          set tForward = $listget(tMapEntry,3)
           set (tResourceMatched, tMethodMatched) = 1
-                   
-          #; Dispatch with modified URL 
+          #; Dispatch with modified URL          
           $$$ThrowOnError($classmethod(tForward,"DispatchRequest",tMatchUrl,pMethod,1))
         }                        
         return $$$OK
@@ -228,9 +231,9 @@ ClassMethod DispatchResponse(returnedData As %CacheString, method As Frontier.Ro
   // We must use a custom serializer because the current %ToJSON implementation cannot serialize
   // mixed instances.
   if %frontier.DirectWrite = 1 {
-    return ##class(Frontier.Dynamic.Serializer).Serialize(response)
+    return ##class(Frontier.Dynamic.Serializer).Serialize(response, 1, %frontier.PropertyFormatter)
   } else {
-    $$$QuitOnError(##class(Frontier.Dynamic.Serializer).SerializeToStream(response, .stream))
+    $$$QuitOnError(##class(Frontier.Dynamic.Serializer).SerializeToStream(response, .stream, %frontier.PropertyFormatter))
     do stream.OutputToDevice()
   }
   return $$$OK

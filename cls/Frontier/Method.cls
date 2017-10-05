@@ -15,7 +15,7 @@ Property HttpMethod As %String [ InitialExpression = "GET" ];
 
 Property Arguments As %CacheString [ InitialExpression = 0, MultiDimensional, ReadOnly ];
 
-Method %OnNew(className As %String, methodName As %String, RESTMethodArguments As %String = 0, request As %CSP.Request = "") As %Status [ Private ]
+Method %OnNew(className As %String, methodName As %String, RESTMethodArguments As %String = 0, request As %CSP.Request = "", propertyFormatter As Frontier.PropertyFormatter = "") As %Status [ Private ]
 {
   set requestQueryParams = 0
   $$$ThrowOnError(..AssertMethodExists(className, methodName))
@@ -32,8 +32,7 @@ Method %OnNew(className As %String, methodName As %String, RESTMethodArguments A
   }
   
   $$$ThrowOnError(..MergeArguments(.RESTMethodArguments, .requestQueryParams, .mergedArguments))    
-  
-  $$$ThrowOnError(..Sequentialize(.mergedArguments))
+  $$$ThrowOnError(..Sequentialize(.mergedArguments, propertyFormatter))
   quit $$$OK
 }
 
@@ -85,9 +84,11 @@ ParseArgument(parsedArgument)
         do parsedArgument.Parameters.SetAt(parameterValue, parameterName)
         if parameterName = "ALIAS" set parsedArgument.Alias = parameterValue
       }
-    } else {
+    } else {      
       set parsedArgument.Type = $piece(preType, "=", 1)
-      set parsedArgument.DefaultValue = $$$trimQuote($piece(preType, "=", 2))
+      set defaultQuotedValue = $piece(preType, "=", 2)
+      set parsedArgument.DefaultValue = $$$trimQuote(defaultQuotedValue)
+      if defaultQuotedValue '= "" set parsedArgument.HasDefaultValue = 1
     }
     return 1
   }    
@@ -133,7 +134,7 @@ ClassMethod AssertMethodExists(className As %String, methodName As %String) As %
   return $$$OK
 }
 
-Method Sequentialize(ByRef mergedArguments = 0) As %Status [ Private ]
+Method Sequentialize(ByRef mergedArguments = 0, propertyFormatter As Frontier.PropertyFormatter = "") As %Status [ Private ]
 {
   #dim methodArgument As Frontier.ArgumentDescription
   #define TriggerPayloadFlag if ..HttpMethod = "POST" || (..HttpMethod = "PUT") || (..HttpMethod = "PATCH") set payloadFound = 1
@@ -180,7 +181,7 @@ Method Sequentialize(ByRef mergedArguments = 0) As %Status [ Private ]
           if value."__id__" = "" && (..HttpMethod = "PUT" || (..HttpMethod = "PATCH")) {
             return $$$ERROR($$$GeneralError, "Cannot unmarshall payload: a PUT/PATCH request requires an identifier.")
           }
-          set sc = ##class(Frontier.Dynamic.Unmarshaller).Unmarshall(unmarshallTo, value, .instance)
+          set sc = ##class(Frontier.Dynamic.Unmarshaller).Unmarshall(unmarshallTo, value, .instance, propertyFormatter)
           if $$$ISERR(sc) return sc
           set value = instance
         } else {
@@ -205,13 +206,15 @@ Method MergeArguments(ByRef routeArguments As %String = 0, ByRef requestArgument
   set nextKeyIndex = 0
   set key = ""
   set preArguments = 0
-  set methodArgumentsLength = ..MethodArguments.Count()  
+  set methodArgumentsLength = ..MethodArguments.Count()
+  set keysFound = ""
 
   for {
     set key = $order(requestArguments(key))
     quit:key=""    
     
     set keyGroup = $$$KeyGroup(key)
+    set $list(keysFound, *+1) = keyGroup
     set methodArgument = ..FindDescribedArgument(keyGroup)
     
     if '$isobject(methodArgument) {
@@ -239,9 +242,36 @@ Method MergeArguments(ByRef routeArguments As %String = 0, ByRef requestArgument
       set argumentIndex = methodArgument.Index
     }
     set preArguments(argumentIndex) = value  
-  }  
+  }
   
-  // Now we must merge the route arguments back, remember they always take priority.
+  set missingArguments = ""
+  
+  // Check if the current request is sending all the required query parameters.
+  if methodArgumentsLength > 0 {    
+    for m=1:1:methodArgumentsLength {
+      set methodArgument = ..MethodArguments.GetAt(m)
+      set isPayloadArgument = (methodArgument.Type [ "DynamicObject" || (methodArgument.Type [ "DynamicArray"))
+      
+      if 'methodArgument.HasDefaultValue && 'isPayloadArgument {
+        set queryParameterName = $select(
+          methodArgument.Alias '= "" : methodArgument.Alias, 
+          1: methodArgument.Name
+        )
+        
+        set queryParameterName = $$$KeyGroup(queryParameterName)
+        
+        if '$lf(keysFound, queryParameterName) && '$data(routeArguments(queryParameterName)) {
+          set $list(missingArguments, *+1) = queryParameterName
+        }
+      }
+    }
+  }
+  
+  if $ll(missingArguments) > 0 {
+    return $$$ERROR($$$GeneralError, "Formal spec requires the following missing query parameters: "_$lts(missingArguments, ", ")_".")
+  }
+  
+  // Now we must merge the route arguments back, remember that they always take priority over query parameters.
   set routeKey = ""
   for {
     set routeKey = $order(routeArguments(routeKey), 1, routeValue)

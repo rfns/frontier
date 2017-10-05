@@ -7,6 +7,8 @@ Property Alias As %String;
 
 Property DefaultValue As %String;
 
+Property HasDefaultValue As %Boolean [ InitialExpression = 0 ];
+
 Property Type As %String;
 
 Property Arity As %Boolean [ InitialExpression = 0 ];

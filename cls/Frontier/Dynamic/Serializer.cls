@@ -3,7 +3,7 @@ Include (frontier, %ZEN.Utils)
 Class Frontier.Dynamic.Serializer Extends Frontier.AbstractSerializer
 {
 
-ClassMethod Serialize(dynamic As %DynamicAbstractObject, parentKey As %String = "") As %Status [ Internal ]
+ClassMethod Serialize(dynamic As %DynamicAbstractObject, depth As %String = 1, propertyFormatter As Frontier.PropertyFormatter = "") As %Status [ Internal ]
 {
   set sc = $$$OK
   set results = ""
@@ -18,21 +18,25 @@ ClassMethod Serialize(dynamic As %DynamicAbstractObject, parentKey As %String = 
   set iterator = dynamic.%GetIterator()   
   set comma = ""  
   
-  while iterator.%GetNext(.key, .value) {
+  while iterator.%GetNext(.key, .value) {	  
     write comma
     set comma = ","
-    if 'isArray write $$$ZENJSONPROP(key, "s")_":"
+    set propertyName = key
+    if $isobject(propertyFormatter) {
+    	set propertyName = propertyFormatter.Format(propertyName, depth)
+    }
+    if 'isArray write $$$ZENJSONPROP(propertyName, "s")_":"
     if $isobject(value) {
       set type = $classname(value)
       if ##class(Frontier.Types).IsDynamic(type) {         
-        set sc = $$$ADDSC(sc, ..Serialize(value, key))
+        set sc = $$$ADDSC(sc, ..Serialize(value, depth, propertyFormatter))
       } elseif ##class(Frontier.Types).IsStream(type) {
         write $c(34)
         do WriteEscaped(value)
         write $c(34)        
       } elseif ##class(Frontier.Types).IsSQLProvider(type) {
         if 'value.StatementExecuted $$$ThrowOnError(value.Execute())
-        $$$ThrowOnError(##class(Frontier.SQL.Serializer).Serialize(value.Results))
+        $$$ThrowOnError(##class(Frontier.SQL.Serializer).Serialize(value.Results, depth, propertyFormatter))
       }
     } else {
       write $$$ZENJSONVALUE(value, "s")

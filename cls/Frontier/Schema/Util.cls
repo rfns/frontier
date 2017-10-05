@@ -59,7 +59,7 @@ WritePattern(resource, placeholders)
     if $extract(resourcePart) = ":" {
       set $list(placeholders, *+1) = $piece(resourcePart, ":", 2)
       if resourceType = "R" {
-        set pattern = pattern_"/([^"_$char(0)_"]+)"        
+        set pattern = pattern_"/?([^"_$char(0)_"]+)"        
       } else {        
         set pattern = pattern_"/[^/]+"
       }
@@ -68,7 +68,7 @@ WritePattern(resource, placeholders)
     }
   }
   if resourceType = "R" return $translate(pattern, $char(0), "/")
-  return "("_pattern_")/.*"
+  return "("_pattern_")/?.*"
 }
 
 }

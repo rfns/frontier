@@ -4,60 +4,13 @@
 <Abstract>1</Abstract>
 <TimeCreated>64553,37866.500056</TimeCreated>
 
-<UDLText name="T">
-<Content><![CDATA[
-/*ClassMethod SerializeToStream(
-  dynamic As %DynamicAbstractObject,
-  Output stream As %Stream.Object = "") [ ProcedureBlock = 0 ]
-{
-  new oldMnemonic, alreadyRedirected, sc
-  
-  set sc = $$$OK
-  set isRedirected = 0
-  
-  if '$isobject(stream) set stream = ##class(%Stream.TmpBinary).%New()
-  set alreadyRedirected = ##class(%Device).ReDirectIO()
-  set initIO = $io
-  
-  try {
-    set oldMnemonic = "^"_##class(%Device).GetMnemonicRoutine()
-    use $io::("^"_$zname)
-    do ##class(%Device).ReDirectIO(1)
-    set isRedirected = 1
-    $$$ThrowOnError(..Serialize(dynamic))    
-  } catch ex {
-    set sc = ex.AsStatus()
-  }
-  
-  if alreadyRedirected { 
-    do ##class(%Device).ReDirectIO(1) 
-    use $io::(oldMnemonic) 
-  }
-  
-  if isRedirected {
-    do ##class(%Device).ReDirectIO(0)
-  }
-  
-  return sc
-  
-wstr(s) Do stream.Write(s) Quit
-wchr(a) Do stream.Write($char(a)) Quit
-wnl Do stream.Write($char(13,10)) Quit
-wff Do stream.Write($char(13,10,13,10)) Quit
-wtab(n) Do stream.Write($c(9)) Quit
-rstr(len,time) Quit ""
-rchr(time) Quit ""
-}*/
-]]></Content>
-</UDLText>
-
 <Method name="SerializeToStream">
 <ClassMethod>1</ClassMethod>
-<FormalSpec>dynamic:%DynamicAbstractObject,*str:%Stream.Object=""</FormalSpec>
+<FormalSpec>dynamic:%DynamicAbstractObject,*str:%Stream.Object="",propertyFormatter:Frontier.PropertyFormatter=""</FormalSpec>
 <ProcedureBlock>0</ProcedureBlock>
 <ReturnType>%Status</ReturnType>
 <Implementation><![CDATA[
-  new oldMnemonic, alreadyRedirected, sc
+  new oldMnemonic, alreadyRedirected, sc, className
   
   set sc = $$$OK
   set isRedirected = 0
@@ -72,7 +25,8 @@ rchr(time) Quit ""
     
     do ##class(%Device).ReDirectIO(1)
     set isRedirected = 1
-    set sc = ..Serialize(dynamic)
+    set className = $classname()
+    set sc = ..Serialize(dynamic, 1, propertyFormatter)
   } catch ex {
     set str = ""
     set sc = ex.AsStatus()
@@ -99,19 +53,6 @@ rstr(len,time) Quit ""
 rchr(time) Quit ""
 ]]></Implementation>
 </Method>
-
-<Method name="T">
-<ClassMethod>1</ClassMethod>
-<Implementation><![CDATA[
-  set p = ##class(Frontier.SQL.Provider).%New("SELECT TOP 3 * FROM FRONTIER_UNITTEST_FIXTURES.CLASS")
-  set sc = p.Execute()
-  
-  set j = { "p": (p) }
-  
-  set sc = ##class(Frontier.Dynamic.Serializer).SerializeToStream(j, .str)
-  do str.OutputToDevice()
-]]></Implementation>
-</Method>
 </Class>
 
 
@@ -129,6 +70,11 @@ rchr(time) Quit ""
 
 <Property name="DefaultValue">
 <Type>%String</Type>
+</Property>
+
+<Property name="HasDefaultValue">
+<Type>%Boolean</Type>
+<InitialExpression>0</InitialExpression>
 </Property>
 
 <Property name="Type">
@@ -279,18 +225,6 @@ CreateError(message, status="401 Unauthorized", isStatus=0)
   set ..Request = request
   set ..Response = response
   return $$$OK
-]]></Implementation>
-</Method>
-
-<Method name="AllowMultipleChallengesSet">
-<Final>1</Final>
-<Internal>1</Internal>
-<FormalSpec>value:%Boolean</FormalSpec>
-<Private>1</Private>
-<ReturnType>%Status</ReturnType>
-<Implementation><![CDATA[
-	set i%AllowMultipleChallenges = +value
-	return $$$OK
 ]]></Implementation>
 </Method>
 
@@ -548,6 +482,10 @@ CreateError(message, status="401 Unauthorized", isStatus=0)
 <InitialExpression>1</InitialExpression>
 </Property>
 
+<Property name="PropertyFormatter">
+<Type>Frontier.PropertyFormatter</Type>
+</Property>
+
 <Method name="%OnNew">
 <FormalSpec>session:%CSP.Session,request:%CSP.Request,response:%CSP.Response</FormalSpec>
 <ReturnType>%Status</ReturnType>
@@ -636,7 +574,7 @@ CreateError(message, status="401 Unauthorized", isStatus=0)
   set args(2) = message
   
   for i=1:1:parameters set args(2+i) = parameters(i)
-  set i%ThrownByApplication = 1
+  set ..ThrownByApplication = 1
   throw ##class(%Exception.StatusException).CreateFromStatus($$$ERROR(args...))
 ]]></Implementation>
 </Method>
@@ -867,7 +805,7 @@ CreateError(message, status="401 Unauthorized", isStatus=0)
 <Method name="Serialize">
 <Internal>1</Internal>
 <ClassMethod>1</ClassMethod>
-<FormalSpec>dynamic:%DynamicAbstractObject,parentKey:%String=""</FormalSpec>
+<FormalSpec>dynamic:%DynamicAbstractObject,depth:%String=1,propertyFormatter:Frontier.PropertyFormatter=""</FormalSpec>
 <ReturnType>%Status</ReturnType>
 <Implementation><![CDATA[
   set sc = $$$OK
@@ -883,21 +821,25 @@ CreateError(message, status="401 Unauthorized", isStatus=0)
   set iterator = dynamic.%GetIterator()   
   set comma = ""  
   
-  while iterator.%GetNext(.key, .value) {
+  while iterator.%GetNext(.key, .value) {	  
     write comma
     set comma = ","
-    if 'isArray write $$$ZENJSONPROP(key, "s")_":"
+    set propertyName = key
+    if $isobject(propertyFormatter) {
+    	set propertyName = propertyFormatter.Format(propertyName, depth)
+    }
+    if 'isArray write $$$ZENJSONPROP(propertyName, "s")_":"
     if $isobject(value) {
       set type = $classname(value)
       if ##class(Frontier.Types).IsDynamic(type) {         
-        set sc = $$$ADDSC(sc, ..Serialize(value, key))
+        set sc = $$$ADDSC(sc, ..Serialize(value, depth, propertyFormatter))
       } elseif ##class(Frontier.Types).IsStream(type) {
         write $c(34)
         do WriteEscaped(value)
         write $c(34)        
       } elseif ##class(Frontier.Types).IsSQLProvider(type) {
         if 'value.StatementExecuted $$$ThrowOnError(value.Execute())
-        $$$ThrowOnError(##class(Frontier.SQL.Serializer).Serialize(value.Results))
+        $$$ThrowOnError(##class(Frontier.SQL.Serializer).Serialize(value.Results, depth, propertyFormatter))
       }
     } else {
       write $$$ZENJSONVALUE(value, "s")
@@ -932,18 +874,17 @@ WriteEscaped(v)
 
 <Method name="Unmarshall">
 <ClassMethod>1</ClassMethod>
-<FormalSpec>className:%String,dynamicObject:%DynamicAbstractObject,*registeredObject:%RegisteredObject=""</FormalSpec>
+<FormalSpec>className:%String,dynamicObject:%DynamicAbstractObject,*registeredObject:%RegisteredObject="",propertyFormatter:Frontier.PropertyFormatter=""</FormalSpec>
 <ReturnType>%Status</ReturnType>
 <Implementation><![CDATA[
-  
   if $isobject(dynamicObject) {   
     set dynamicType = $classname(dynamicObject)
     set isCollection = ##class(Frontier.Types).IsCollection(className) || ##class(Frontier.Types).IsDynamicArray(className)    
     
     if ##class(Frontier.Types).IsDynamicArray(dynamicType) {
-      return ..MakeCollection(className, dynamicObject, .registeredObject)
+      return ..MakeCollection(className, dynamicObject, .registeredObject, 1, propertyFormatter)
     } elseif 'isCollection && ##class(Frontier.Types).IsDynamicObject(dynamicType) && ##class(Frontier.Types).IsInstantiable(className) {
-      return ..MakeObject(className, dynamicObject, .registeredObject)
+      return ..MakeObject(className, dynamicObject, .registeredObject, 1, propertyFormatter)
     }    
   }
   return $$$ERROR($$$GeneralError, "Cannot unmarshall data types.")
@@ -952,7 +893,7 @@ WriteEscaped(v)
 
 <Method name="MakeObject">
 <ClassMethod>1</ClassMethod>
-<FormalSpec>className:%String,dynamicObject:%DynamicAbstractObject,*object:%RegisteredObject=""</FormalSpec>
+<FormalSpec>className:%String,dynamicObject:%DynamicAbstractObject,*object:%RegisteredObject="",depth:%String=1,propertyFormatter:Frontier.PropertyFormatter=""</FormalSpec>
 <Private>1</Private>
 <ReturnType>%Status</ReturnType>
 <Implementation><![CDATA[
@@ -970,29 +911,43 @@ WriteEscaped(v)
   set descriptor = ##class(%Dictionary.CompiledClass).%OpenId(className)
   set properties = descriptor.Properties
   
+	do propertyFormatter.FormatFromCollection(descriptor.Properties, depth)
+  
   set propCount = properties.Count()
   
-  set iterator = dynamicObject.%GetIterator()  
+  set iterator = dynamicObject.%GetIterator()
 
   while iterator.%GetNext(.key, .value) {
-    if key = "__id__" continue
-    set propertyId = className_"||"_key
-    set property = ##class(%Dictionary.CompiledProperty).%OpenId(propertyId)     
+    if key = "__id__" continue        
+    set propertyId = className_"||"
+    
+    if $isobject(propertyFormatter) {
+	    set propertyId = propertyId_propertyFormatter.Normalize(key, depth)
+    } else {
+    	set propertyId = propertyId_key
+    }
+    
+    set property = ##class(%Dictionary.CompiledProperty).%OpenId(propertyId)    
     if '$isobject(property) continue
+    
     if property.Private || property.Calculated || ($extract(property.Name) = "%") continue
     if '$isobject(object) {
       set object = $System.OBJ.New(className)
     }
-    set dynamicObjectPropertyValue = $property(dynamicObject, property.Name)
+    
+    set dynamicObjectPropertyValue = $property(dynamicObject, key)
     set isDataType = '$isobject(dynamicObjectPropertyValue) && ##class(Frontier.Types).IsDataType(property.Type)
     set isSerial = ##class(Frontier.Types).IsSerial(property.Type)
+    
     if 'isDataType {      
       if $isobject(dynamicObjectPropertyValue) && dynamicObjectPropertyValue.%IsA("%DynamicObject") {
-        set sc = ..MakeObject(property.Type, dynamicObjectPropertyValue, .dynamicChildInstance)          
+        set sc = ..MakeObject(property.Type, dynamicObjectPropertyValue, .dynamicChildInstance, propertyFormatter, depth + 1)          
         quit:$$$ISERR(sc)
+        
         set $property(object, property.Name) = dynamicChildInstance
       } elseif ##class(Frontier.Types).IsStream(property.Type) {
         set childStream = $System.OBJ.New(property.Type)
+        
         if $isobject(dynamicObjectPropertyValue) && dynamicObjectPropertyValue.%Extends("%Stream.Object") {         
           do childStream.CopyFrom(dynamicObjectPropertyValue)
         } else {          
@@ -1004,8 +959,9 @@ WriteEscaped(v)
       } elseif property.Collection '= "" {
         set collectionType = $property(object, property.Name).ElementType
         set dynamicChildInstance = $property(object, property.Name)   
+        
         if $isobject(dynamicObjectPropertyValue) {    
-          set sc = ..MakeCollection(collectionType, dynamicObjectPropertyValue, .dynamicChildInstance)        
+          set sc = ..MakeCollection(collectionType, dynamicObjectPropertyValue, .dynamicChildInstance, depth + 1)        
           quit:$$$ISERR(sc)
           set $property(object, property.Name) = dynamicChildInstance
         } elseif dynamicObjectPropertyValue '= "" {
@@ -1043,7 +999,7 @@ WriteEscaped(v)
 
 <Method name="MakeCollection">
 <ClassMethod>1</ClassMethod>
-<FormalSpec>collectionType:%String,dynamicCollection:%DynamicAbstractObject,*collection:%Collection.Super=""</FormalSpec>
+<FormalSpec>collectionType:%String,dynamicCollection:%DynamicAbstractObject,*collection:%Collection.Super="",depth:%Integer,propertyFormatter:Frontier.PropertyFormatter=""</FormalSpec>
 <Private>1</Private>
 <ReturnType>%Status</ReturnType>
 <Implementation><![CDATA[
@@ -1097,8 +1053,8 @@ WriteEscaped(v)
       set item = $System.OBJ.OpenId(collectionType, dynamicItem)
     } elseif $isobject(dynamicItem) { 
       set sc = $select(
-        dynamicItem.%IsA("%DynamicObject") : ..MakeObject(collectionType, dynamicItem, .item),
-        dynamicItem.%Extends("%DynamicArray") : ..MakeCollection(itemClass, dynamicItem, .item),
+        dynamicItem.%IsA("%DynamicObject") : ..MakeObject(collectionType, dynamicItem, .item, depth + 1, propertyFormatter),
+        dynamicItem.%Extends("%DynamicArray") : ..MakeCollection(itemClass, dynamicItem, .item, depth + 1, propertyFormatter),
         1: $$$ERROR($$$GeneralError, "Cannot unmarshall items that aren't dynamic.")
       )
       if item = "" continue
@@ -1264,7 +1220,7 @@ WriteEscaped(v)
 </Property>
 
 <Method name="%OnNew">
-<FormalSpec>className:%String,methodName:%String,RESTMethodArguments:%String=0,request:%CSP.Request=""</FormalSpec>
+<FormalSpec>className:%String,methodName:%String,RESTMethodArguments:%String=0,request:%CSP.Request="",propertyFormatter:Frontier.PropertyFormatter=""</FormalSpec>
 <Private>1</Private>
 <ReturnType>%Status</ReturnType>
 <Implementation><![CDATA[
@@ -1283,8 +1239,7 @@ WriteEscaped(v)
   }
   
   $$$ThrowOnError(..MergeArguments(.RESTMethodArguments, .requestQueryParams, .mergedArguments))    
-  
-  $$$ThrowOnError(..Sequentialize(.mergedArguments))
+  $$$ThrowOnError(..Sequentialize(.mergedArguments, propertyFormatter))
   quit $$$OK
 ]]></Implementation>
 </Method>
@@ -1339,9 +1294,11 @@ ParseArgument(parsedArgument)
         do parsedArgument.Parameters.SetAt(parameterValue, parameterName)
         if parameterName = "ALIAS" set parsedArgument.Alias = parameterValue
       }
-    } else {
+    } else {      
       set parsedArgument.Type = $piece(preType, "=", 1)
-      set parsedArgument.DefaultValue = $$$trimQuote($piece(preType, "=", 2))
+      set defaultQuotedValue = $piece(preType, "=", 2)
+      set parsedArgument.DefaultValue = $$$trimQuote(defaultQuotedValue)
+      if defaultQuotedValue '= "" set parsedArgument.HasDefaultValue = 1
     }
     return 1
   }    
@@ -1403,7 +1360,7 @@ ParseArgument(parsedArgument)
 </Method>
 
 <Method name="Sequentialize">
-<FormalSpec><![CDATA[&mergedArguments=0]]></FormalSpec>
+<FormalSpec><![CDATA[&mergedArguments=0,propertyFormatter:Frontier.PropertyFormatter=""]]></FormalSpec>
 <Private>1</Private>
 <ReturnType>%Status</ReturnType>
 <Implementation><![CDATA[
@@ -1452,7 +1409,7 @@ ParseArgument(parsedArgument)
           if value."__id__" = "" && (..HttpMethod = "PUT" || (..HttpMethod = "PATCH")) {
             return $$$ERROR($$$GeneralError, "Cannot unmarshall payload: a PUT/PATCH request requires an identifier.")
           }
-          set sc = ##class(Frontier.Dynamic.Unmarshaller).Unmarshall(unmarshallTo, value, .instance)
+          set sc = ##class(Frontier.Dynamic.Unmarshaller).Unmarshall(unmarshallTo, value, .instance, propertyFormatter)
           if $$$ISERR(sc) return sc
           set value = instance
         } else {
@@ -1481,13 +1438,15 @@ ParseArgument(parsedArgument)
   set nextKeyIndex = 0
   set key = ""
   set preArguments = 0
-  set methodArgumentsLength = ..MethodArguments.Count()  
+  set methodArgumentsLength = ..MethodArguments.Count()
+  set keysFound = ""
 
   for {
     set key = $order(requestArguments(key))
     quit:key=""    
     
     set keyGroup = $$$KeyGroup(key)
+    set $list(keysFound, *+1) = keyGroup
     set methodArgument = ..FindDescribedArgument(keyGroup)
     
     if '$isobject(methodArgument) {
@@ -1515,9 +1474,36 @@ ParseArgument(parsedArgument)
       set argumentIndex = methodArgument.Index
     }
     set preArguments(argumentIndex) = value  
-  }  
+  }
   
-  // Now we must merge the route arguments back, remember they always take priority.
+  set missingArguments = ""
+  
+  // Check if the current request is sending all the required query parameters.
+  if methodArgumentsLength > 0 {    
+    for m=1:1:methodArgumentsLength {
+      set methodArgument = ..MethodArguments.GetAt(m)
+      set isPayloadArgument = (methodArgument.Type [ "DynamicObject" || (methodArgument.Type [ "DynamicArray"))
+      
+      if 'methodArgument.HasDefaultValue && 'isPayloadArgument {
+        set queryParameterName = $select(
+          methodArgument.Alias '= "" : methodArgument.Alias, 
+          1: methodArgument.Name
+        )
+        
+        set queryParameterName = $$$KeyGroup(queryParameterName)
+        
+        if '$lf(keysFound, queryParameterName) && '$data(routeArguments(queryParameterName)) {
+          set $list(missingArguments, *+1) = queryParameterName
+        }
+      }
+    }
+  }
+  
+  if $ll(missingArguments) > 0 {
+    return $$$ERROR($$$GeneralError, "Formal spec requires the following missing query parameters: "_$lts(missingArguments, ", ")_".")
+  }
+  
+  // Now we must merge the route arguments back, remember that they always take priority over query parameters.
   set routeKey = ""
   for {
     set routeKey = $order(routeArguments(routeKey), 1, routeValue)
@@ -1526,6 +1512,118 @@ ParseArgument(parsedArgument)
   }
   set preArguments = argumentIndex
   return $$$OK
+]]></Implementation>
+</Method>
+</Class>
+
+
+<Class name="Frontier.PropertyFormatter">
+<Super>%RegisteredObject</Super>
+<TimeCreated>64561,37245.906153</TimeCreated>
+
+<Property name="Properties">
+<Type>%String</Type>
+<MultiDimensional>1</MultiDimensional>
+<Private>1</Private>
+</Property>
+
+<Method name="Format">
+<FormalSpec>propertyName:%String,depth:%Integer=1</FormalSpec>
+<ReturnType>%String</ReturnType>
+<Implementation><![CDATA[
+	set storedFormatted = $get(i%Properties(depth, propertyName, "F"))
+	if storedFormatted return storedFormatted
+	
+	set formattedName = ..OnFormat(propertyName)
+	
+	set i%Properties(depth, propertyName, "F") = formattedName
+	set i%Properties(depth, formattedName, "N") = propertyName
+	return formattedName
+]]></Implementation>
+</Method>
+
+<Method name="FormatFromCollection">
+<FormalSpec>collection:%ListOfObjects,depth:%Integer=1</FormalSpec>
+<Implementation><![CDATA[
+	for i=1:1:collection.Count() {
+		set propertyName = collection.GetAt(i).Name
+		if $extract(propertyName) '= "%" {
+			do ..Format(collection.GetAt(i).Name, depth)
+		}
+	}
+]]></Implementation>
+</Method>
+
+<Method name="OnFormat">
+<FormalSpec>propertyName</FormalSpec>
+<Private>1</Private>
+<ReturnType>%String</ReturnType>
+<Implementation><![CDATA[	return propertyName
+]]></Implementation>
+</Method>
+
+<Method name="Normalize">
+<Final>1</Final>
+<FormalSpec>formattedName:%String,depth:%Integer=1</FormalSpec>
+<ReturnType>%String</ReturnType>
+<Implementation><![CDATA[
+	
+	return $get(i%Properties(depth, formattedName, "N"))
+]]></Implementation>
+</Method>
+</Class>
+
+
+<Class name="Frontier.PropertyFormatter.CamelCase">
+<Super>Frontier.PropertyFormatter</Super>
+<TimeCreated>64561,42861.513845</TimeCreated>
+
+<Method name="OnFormat">
+<FormalSpec>propertyName:%String</FormalSpec>
+<ReturnType>%String</ReturnType>
+<Implementation><![CDATA[
+	
+	return ..Camelify(propertyName)
+]]></Implementation>
+</Method>
+
+<Method name="Camelify">
+<ClassMethod>1</ClassMethod>
+<FormalSpec>propertyName:%String</FormalSpec>
+<ReturnType>%String</ReturnType>
+<Implementation><![CDATA[	return $$$lcase($extract(propertyName, 1))_$extract(propertyName, 2, *)
+]]></Implementation>
+</Method>
+</Class>
+
+
+<Class name="Frontier.PropertyFormatter.SnakeCase">
+<Super>Frontier.PropertyFormatter</Super>
+<TimeCreated>64561,37293.153787</TimeCreated>
+
+<Method name="OnFormat">
+<FormalSpec>propertyName:%String</FormalSpec>
+<ReturnType>%String</ReturnType>
+<Implementation><![CDATA[
+	
+	return ..Snakeify(propertyName)
+]]></Implementation>
+</Method>
+
+<Method name="Snakeify">
+<ClassMethod>1</ClassMethod>
+<FormalSpec>propertyName:%String</FormalSpec>
+<ReturnType>%String</ReturnType>
+<Implementation><![CDATA[
+	set snakedName = ""
+	set nameLength = $length(propertyName)
+	for i=1:1:nameLength {
+		set c = $extract(propertyName, i)
+		set n = $extract(propertyName, i+1)
+		if c = $$$ucase(c) && (n '= $$$ucase(n)) && (i > 1) set c = "_"_c
+		set snakedName = snakedName_c
+	}	
+	return $$$lcase(snakedName)
 ]]></Implementation>
 </Method>
 </Class>
@@ -1807,6 +1905,7 @@ the fields that aren't private, or you can instantiate it and change it's values
 
 <Method name="DispatchMap">
 <Final>1</Final>
+<Internal>1</Internal>
 <ClassMethod>1</ClassMethod>
 <CodeMode>objectgenerator</CodeMode>
 <FormalSpec>index:%Integer</FormalSpec>
@@ -1815,7 +1914,7 @@ the fields that aren't private, or you can instantiate it and change it's values
   // Don't generate patterns if target class is super.
   if %compiledclass.Name = "Frontier.Router" return $$$OK
   
-  // Kills remaining data, so that we can prevent misleading patterns.
+  // Kills remaining data, so that we can prevent using obsolete patterns.
   kill ^Frontier.Patterns(%compiledclass.Name)
   
   $$$ThrowOnError(##class(Frontier.Schema.Util).Parse(%compiledclass.Name, .routes))
@@ -1850,9 +1949,12 @@ the fields that aren't private, or you can instantiate it and change it's values
    try {
     set (tResourceMatched,tMethodMatched) = 0
                 
-    #; Extract the match url from the application name
-    if (0=pForwarded) set tMatchUrl="/"_$extract(pUrl, $length(%request.Application)+1,*)
-    else  set tMatchUrl=pUrl        
+    #; Extract the match url from the application name    
+    if 'pForwarded {
+      set tMatchUrl = "/"_$extract(pUrl, $length(%request.Application)+1,*)     
+    } else {
+      set tMatchUrl = pUrl
+    }    
       
     #; Uppercase the method
     set pMethod=$ZCVT(pMethod,"U")    
@@ -1865,7 +1967,7 @@ the fields that aren't private, or you can instantiate it and change it's values
     for tIndex=1:1 {           
       
       #; Get the next map entry
-      set tMapEntry = ..DispatchMap(tIndex) if tMapEntry="" quit
+      set tMapEntry = ..DispatchMap(tIndex) if tMapEntry="" quit      
              
       #; Pick out the RegEx
       set tRegEx = $list(tMapEntry,2)
@@ -1874,7 +1976,7 @@ the fields that aren't private, or you can instantiate it and change it's values
       set tMatcher = ##class(%Regex.Matcher).%New(tRegEx)
             
       #; Test each regular expression in turn, extracting the arguments,
-      #; dispatching to the named method  
+      #; dispatching to the named method
       if tMatcher.Match(tMatchUrl) {
         
         #; We have matched the resource
@@ -1940,11 +2042,10 @@ the fields that aren't private, or you can instantiate it and change it's values
 
           #; Dispatch
           #; Modified to add support for type resolution and query parameters
-          set tPublicMethod = ##class(Method).%New(tClass, tTarget, .tArgs, %request)
+          set tPublicMethod = ##class(Method).%New(tClass, tTarget, .tArgs, %request, %frontier.PropertyFormatter)
           merge tMethodArguments = tPublicMethod.Arguments
           
-          set %frontier.Method = tTarget               
-
+          set %frontier.Method = tTarget
           if tMethodArguments > 0 {
             merge %frontier.ArgumentValues = tMethodArguments
             set return = $classmethod(tClass, tTarget, tMethodArguments...)
@@ -1953,12 +2054,13 @@ the fields that aren't private, or you can instantiate it and change it's values
           }
           $$$ThrowOnError(..DispatchResponse(return, .tReturnParameters))
           return $$$OK
-        } else {                    
-          #; We are a map, massage the URL and forward the request
-          set tMatchUrl = $piece(tMatchUrl,tMatcher.Group(1),"2",*), tForward = $listget(tMapEntry,3)
+        } else {                  
+          #; We are a map, message the URL and forward the request
+          set tMatchUrl = $piece(tMatchUrl,tMatcher.Group(1),"2",*)
+          if tMatchUrl = "" set tMatchUrl = "/"
+          set tForward = $listget(tMapEntry,3)
           set (tResourceMatched, tMethodMatched) = 1
-                   
-          #; Dispatch with modified URL 
+          #; Dispatch with modified URL          
           $$$ThrowOnError($classmethod(tForward,"DispatchRequest",tMatchUrl,pMethod,1))
         }                        
         return $$$OK
@@ -2035,9 +2137,9 @@ the fields that aren't private, or you can instantiate it and change it's values
   // We must use a custom serializer because the current %ToJSON implementation cannot serialize
   // mixed instances.
   if %frontier.DirectWrite = 1 {
-    return ##class(Frontier.Dynamic.Serializer).Serialize(response)
+    return ##class(Frontier.Dynamic.Serializer).Serialize(response, 1, %frontier.PropertyFormatter)
   } else {
-    $$$QuitOnError(##class(Frontier.Dynamic.Serializer).SerializeToStream(response, .stream))
+    $$$QuitOnError(##class(Frontier.Dynamic.Serializer).SerializeToStream(response, .stream, %frontier.PropertyFormatter))
     do stream.OutputToDevice()
   }
   return $$$OK
@@ -2236,7 +2338,7 @@ This is the Schema which defines the form of the dispatch map</Description>
 </Method>
 
 <Method name="SetQueryParameters">
-<FormalSpec><![CDATA[&parameters...:%String]]></FormalSpec>
+<FormalSpec>parameters...:%String</FormalSpec>
 <ReturnType>%Status</ReturnType>
 <Implementation><![CDATA[
   if parameters '= 0 && 'parameters?.N && ($order(parameters(""), -1) '= parameters) {
@@ -2288,9 +2390,10 @@ This is the Schema which defines the form of the dispatch map</Description>
 
 <Method name="Serialize">
 <ClassMethod>1</ClassMethod>
-<FormalSpec>results:%SQL.Statement</FormalSpec>
+<FormalSpec>results:%SQL.Statement,depth:%Integer=1,propertyFormatter:Frontier.PropertyFormatter=""</FormalSpec>
 <ReturnType>%Status</ReturnType>
 <Implementation><![CDATA[
+  
   #define WriteThrowable(%expr) $$$ThrowOnError(data.Write(%expr))
   
   set sc = $$$OK
@@ -2315,8 +2418,12 @@ This is the Schema which defines the form of the dispatch map</Description>
       $$$ThrowOnError(sc)      
       
       for c=1:1:columnNames {
-        set columnName = columnNames(c)        
+        set columnName = columnNames(c)
         set value = results.%Get(columnName)        
+        
+	  		if $isobject(propertyFormatter) {
+		  		set columnName = propertyFormatter.Format(columnName, depth)
+	  		}
         
         $$$WriteThrowable(propertyComma)
         
@@ -2357,7 +2464,9 @@ This is the Schema which defines the form of the dispatch map</Description>
   
   set columns = metadata.columns
   set columnNames = columns.Count()
-  for i=1:1:columnNames set columnNames(i) = columns.GetAt(i).label
+  for i=1:1:columnNames {
+	  set columnNames(i) = columns.GetAt(i).label
+  }
   return $$$OK
 ]]></Implementation>
 </Method>
@@ -2504,7 +2613,7 @@ WritePattern(resource, placeholders)
     if $extract(resourcePart) = ":" {
       set $list(placeholders, *+1) = $piece(resourcePart, ":", 2)
       if resourceType = "R" {
-        set pattern = pattern_"/([^"_$char(0)_"]+)"        
+        set pattern = pattern_"/?([^"_$char(0)_"]+)"        
       } else {        
         set pattern = pattern_"/[^/]+"
       }
@@ -2513,7 +2622,7 @@ WritePattern(resource, placeholders)
     }
   }
   if resourceType = "R" return $translate(pattern, $char(0), "/")
-  return "("_pattern_")/.*"
+  return "("_pattern_")/?.*"
 ]]></Implementation>
 </Method>
 </Class>
@@ -2908,11 +3017,10 @@ This method is reserved for setting up configurations.</Description>
 <ClassMethod>1</ClassMethod>
 <ReturnType>%Status</ReturnType>
 <Implementation><![CDATA[
-  // Reporters should be used to signal the developer about request errors.
-  // Uncomment the line below and configure the parameters by rewriting the SetupAccount method from the indicated class below.
+  // Reporters should be used to signal the developer about request errors.   
+  // $$$QuitOnError(%frontier.ReporterManager.AddReporter(##class(MyReporter.Email).%New()))
   
-  // $$$QuitOnError(%frontier.ReporterManager.AddReporter(##class(Frontier.UnitTest.Reporter.Email).%New()))
-  
+  // Asks the user for a Basic + Base64(username:password) encoded Authorization header.
   set basicStrategy = ##class(Frontier.Authentication.BasicStrategy).%New({
     "realm": "tests", 
     "validator": ($classname()_":ValidateCredentials")
@@ -3371,46 +3479,6 @@ curl -H "Authorization: Basic Zm9vOmJhcg==" 'http://localhost:57772/api/frontier
   $$$QuitOnError(##class(Frontier.UnitTest.Fixtures.Class).%KillExtent())
   $$$QuitOnError(##class(Frontier.UnitTest.Fixtures.Student).%KillExtent())  
   return ##class(Frontier.UnitTest.Util).RemoveWebApplication()
-]]></Implementation>
-</Method>
-</Class>
-
-
-<Class name="Frontier.Util.Formatter">
-<Abstract>1</Abstract>
-<TimeCreated>64561,31120.451898</TimeCreated>
-
-<Property name="Properties">
-<Type>%String</Type>
-<MultiDimensional>1</MultiDimensional>
-<Private>1</Private>
-</Property>
-
-<Method name="Format">
-<FormalSpec>propertyName:%String,parentKey:%String="root"</FormalSpec>
-<ReturnType>%String</ReturnType>
-<Implementation><![CDATA[
-	set storedFormatted = $get(i%Properties(parentKey, propertyName, "F"))
-	if storedFormatted return storedFormatted
-	
-	set formattedName = ..OnFormat(propertyName)
-	
-	set i%Properties(parentKey, propertyName, "F") = formattedName
-	set i%Properties(parentKey, formattedName, "N") = propertyName
-]]></Implementation>
-</Method>
-
-<Method name="OnFormat">
-<FormalSpec>propertyName</FormalSpec>
-<ReturnType>%String</ReturnType>
-<Implementation><![CDATA[	return propertyName
-]]></Implementation>
-</Method>
-
-<Method name="Normalize">
-<FormalSpec>formattedName:%String,parentKey:%String="root"</FormalSpec>
-<ReturnType>%String</ReturnType>
-<Implementation><![CDATA[	return $get(i%Properties(parentKey, formattedName, "N"))
 ]]></Implementation>
 </Method>
 </Class>
@@ -4070,7 +4138,7 @@ curl -H "Authorization: Basic Zm9vOmJhcg==" 'http://localhost:57772/api/frontier
 ]]></Routine>
 
 
-<Project name="frontier" LastModified="2017-10-05 08:39:11.291799" Target="##class(UnitTest.Frontier.Authentication.Manager).T()" TargetType="2" HttpServer="http://localhost:57772">
+<Project name="frontier" LastModified="2017-10-05 14:58:21.663733" Target="Test^test" TargetType="2" HttpServer="http://localhost:57772">
   <Items>
     <ProjectItem name="Frontier.AbstractSerializer" type="CLS"></ProjectItem>
     <ProjectItem name="Frontier.ArgumentDescription" type="CLS"></ProjectItem>
@@ -4112,7 +4180,12 @@ curl -H "Authorization: Basic Zm9vOmJhcg==" 'http://localhost:57772/api/frontier
     <ProjectItem name="csp/dev/email-template.html" type="CSP"></ProjectItem>
     <ProjectItem name="frontier.INC" type="MAC"></ProjectItem>
     <ProjectItem name="UnitTest.Frontier.Util.Formatter.SnakeCase" type="CLS"></ProjectItem>
-    <ProjectItem name="Frontier.Util.Formatter" type="CLS"></ProjectItem>
+    <ProjectItem name="Frontier.PropertyFormatter" type="CLS"></ProjectItem>
+    <ProjectItem name="Frontier.PropertyFormatter.SnakeCase" type="CLS"></ProjectItem>
+    <ProjectItem name="Frontier.PropertyFormatter.CamelCase" type="CLS"></ProjectItem>
   </Items>
+  <BreakPoints>
+    <BreakPoint Routine="test.MAC" Offset="22"></BreakPoint>
+  </BreakPoints>
 </Project>
 </Export>

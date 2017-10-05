@@ -19,12 +19,6 @@ Method %OnNew(session As %CSP.Session, request As %CSP.Request, response As %CSP
   return $$$OK
 }
 
-Method AllowMultipleChallengesSet(value As %Boolean) As %Status [ Final, Internal, Private ]
-{
-	set i%AllowMultipleChallenges = +value
-	return $$$OK
-}
-
 Method ScopeSeparatorSet(value As %String) As %Status [ Final, Internal, Private ]
 {
 	set i%ScopeSeparator = $get(value, ",")
