@@ -39,6 +39,8 @@ Property User As %DynamicObject [ InitialExpression = 1 ];
 
 Property PropertyFormatter As Frontier.PropertyFormatter;
 
+Property StrictQueryParameters As %Boolean [ InitialExpression = 1 ];
+
 Method %OnNew(session As %CSP.Session, request As %CSP.Request, response As %CSP.Response) As %Status
 {
   set ..Session = session
@@ -47,7 +49,7 @@ Method %OnNew(session As %CSP.Session, request As %CSP.Request, response As %CSP
   set i%SQL = ##class(Frontier.SQL).%New()
   set i%ReporterManager = ##class(Frontier.Reporter.Manager).%New($this)
   set i%AuthenticationManager = ##class(Frontier.Authentication.Manager).%New(..Session, ..Request, ..Response)
-  set i%ArgumentValues = 0
+  set i%ArgumentValues = 0  
   set ..Data = ##class(%DynamicObject).%New()
   do ..Response.SetHeader("Content-Type", "application/json")
   set ..CharSet = "utf-8"  

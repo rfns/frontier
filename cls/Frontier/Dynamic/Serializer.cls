@@ -18,14 +18,19 @@ ClassMethod Serialize(dynamic As %DynamicAbstractObject, depth As %String = 1, p
   set iterator = dynamic.%GetIterator()   
   set comma = ""  
   
-  while iterator.%GetNext(.key, .value) {	  
+  while iterator.%GetNext(.key, .value) {   
     write comma
     set comma = ","
     set propertyName = key
+    
     if $isobject(propertyFormatter) {
-    	set propertyName = propertyFormatter.Format(propertyName, depth)
+      set propertyName = propertyFormatter.Format(propertyName, depth)
     }
-    if 'isArray write $$$ZENJSONPROP(propertyName, "s")_":"
+    
+    if 'isArray {
+      write $$$ZENJSONPROP(propertyName, "s")_":"
+    }
+    
     if $isobject(value) {
       set type = $classname(value)
       if ##class(Frontier.Types).IsDynamic(type) {         

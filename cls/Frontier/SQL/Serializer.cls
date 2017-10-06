@@ -3,7 +3,7 @@ Include (frontier, %ZEN.Utils)
 Class Frontier.SQL.Serializer Extends Frontier.AbstractSerializer
 {
 
-ClassMethod Serialize(resultsa As %SQL.Statement, depth As %Integer = 1, propertyFormatter As Frontier.PropertyFormatter = "") As %Status
+ClassMethod Serialize(results As %SQL.Statement, depth As %Integer = 1, propertyFormatter As Frontier.PropertyFormatter = "") As %Status
 {
   
   #define WriteThrowable(%expr) $$$ThrowOnError(data.Write(%expr))
@@ -33,9 +33,9 @@ ClassMethod Serialize(resultsa As %SQL.Statement, depth As %Integer = 1, propert
         set columnName = columnNames(c)
         set value = results.%Get(columnName)        
         
-	  		if $isobject(propertyFormatter) {
-		  		set columnName = propertyFormatter.Format(columnName, depth)
-	  		}
+        if $isobject(propertyFormatter) {
+          set columnName = propertyFormatter.Format(columnName, depth)
+        }
         
         $$$WriteThrowable(propertyComma)
         
@@ -72,7 +72,7 @@ ClassMethod FetchColumnNames(metadata As %SQL.StatementMetadata, Output columnNa
   set columns = metadata.columns
   set columnNames = columns.Count()
   for i=1:1:columnNames {
-	  set columnNames(i) = columns.GetAt(i).label
+    set columnNames(i) = columns.GetAt(i).label
   }
   return $$$OK
 }

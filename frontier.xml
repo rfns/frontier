@@ -486,6 +486,11 @@ CreateError(message, status="401 Unauthorized", isStatus=0)
 <Type>Frontier.PropertyFormatter</Type>
 </Property>
 
+<Property name="StrictQueryParameters">
+<Type>%Boolean</Type>
+<InitialExpression>1</InitialExpression>
+</Property>
+
 <Method name="%OnNew">
 <FormalSpec>session:%CSP.Session,request:%CSP.Request,response:%CSP.Response</FormalSpec>
 <ReturnType>%Status</ReturnType>
@@ -496,7 +501,7 @@ CreateError(message, status="401 Unauthorized", isStatus=0)
   set i%SQL = ##class(Frontier.SQL).%New()
   set i%ReporterManager = ##class(Frontier.Reporter.Manager).%New($this)
   set i%AuthenticationManager = ##class(Frontier.Authentication.Manager).%New(..Session, ..Request, ..Response)
-  set i%ArgumentValues = 0
+  set i%ArgumentValues = 0  
   set ..Data = ##class(%DynamicObject).%New()
   do ..Response.SetHeader("Content-Type", "application/json")
   set ..CharSet = "utf-8"  
@@ -821,14 +826,19 @@ CreateError(message, status="401 Unauthorized", isStatus=0)
   set iterator = dynamic.%GetIterator()   
   set comma = ""  
   
-  while iterator.%GetNext(.key, .value) {	  
+  while iterator.%GetNext(.key, .value) {   
     write comma
     set comma = ","
     set propertyName = key
+    
     if $isobject(propertyFormatter) {
-    	set propertyName = propertyFormatter.Format(propertyName, depth)
+      set propertyName = propertyFormatter.Format(propertyName, depth)
     }
-    if 'isArray write $$$ZENJSONPROP(propertyName, "s")_":"
+    
+    if 'isArray {
+      write $$$ZENJSONPROP(propertyName, "s")_":"
+    }
+    
     if $isobject(value) {
       set type = $classname(value)
       if ##class(Frontier.Types).IsDynamic(type) {         
@@ -911,7 +921,9 @@ WriteEscaped(v)
   set descriptor = ##class(%Dictionary.CompiledClass).%OpenId(className)
   set properties = descriptor.Properties
   
-	do propertyFormatter.FormatFromCollection(descriptor.Properties, depth)
+  if $isobject(propertyFormatter) {
+    do propertyFormatter.FormatFromCollection(descriptor.Properties, depth)
+  }
   
   set propCount = properties.Count()
   
@@ -922,9 +934,9 @@ WriteEscaped(v)
     set propertyId = className_"||"
     
     if $isobject(propertyFormatter) {
-	    set propertyId = propertyId_propertyFormatter.Normalize(key, depth)
+      set propertyId = propertyId_propertyFormatter.Normalize(key, depth)
     } else {
-    	set propertyId = propertyId_key
+      set propertyId = propertyId_key
     }
     
     set property = ##class(%Dictionary.CompiledProperty).%OpenId(propertyId)    
@@ -1220,7 +1232,7 @@ WriteEscaped(v)
 </Property>
 
 <Method name="%OnNew">
-<FormalSpec>className:%String,methodName:%String,RESTMethodArguments:%String=0,request:%CSP.Request="",propertyFormatter:Frontier.PropertyFormatter=""</FormalSpec>
+<FormalSpec>className:%String,methodName:%String,RESTMethodArguments:%String=0,request:%CSP.Request="",propertyFormatter:Frontier.PropertyFormatter="",strictMode:%Boolean=1</FormalSpec>
 <Private>1</Private>
 <ReturnType>%Status</ReturnType>
 <Implementation><![CDATA[
@@ -1238,7 +1250,7 @@ WriteEscaped(v)
     merge requestQueryParams = request.Data
   }
   
-  $$$ThrowOnError(..MergeArguments(.RESTMethodArguments, .requestQueryParams, .mergedArguments))    
+  $$$ThrowOnError(..MergeArguments(.RESTMethodArguments, .requestQueryParams, .mergedArguments, strictMode))    
   $$$ThrowOnError(..Sequentialize(.mergedArguments, propertyFormatter))
   quit $$$OK
 ]]></Implementation>
@@ -1423,13 +1435,12 @@ ParseArgument(parsedArgument)
     }
   }
   set i%Arguments = argsProcessed
-  merge a = ..Arguments  
   return sc
 ]]></Implementation>
 </Method>
 
 <Method name="MergeArguments">
-<FormalSpec><![CDATA[&routeArguments:%String=0,&requestArguments:%String=0,*preArguments:%String=0]]></FormalSpec>
+<FormalSpec><![CDATA[&routeArguments:%String=0,&requestArguments:%String=0,*preArguments:%String=0,strictMode:%Boolean=1]]></FormalSpec>
 <Private>1</Private>
 <ReturnType>%Status</ReturnType>
 <Implementation><![CDATA[
@@ -1450,7 +1461,11 @@ ParseArgument(parsedArgument)
     set methodArgument = ..FindDescribedArgument(keyGroup)
     
     if '$isobject(methodArgument) {
-      return $$$ERROR($$$GeneralError, "Formal spec doesn't match with request: "_keyGroup_" was not expected.")
+      if strictMode {
+        return $$$ERROR($$$GeneralError, keyGroup_" query parameter was not expected.")
+      } else {
+        continue
+      }
     }
     
     // Don't depend on query parameter repeatance, because JavaScript cannot repeat object keys.
@@ -1458,7 +1473,14 @@ ParseArgument(parsedArgument)
     set value = requestArguments(key, 1)  
     
     // Checks if we have a sequenced query param.
-    if key?.A1.2N {               
+    if key?.A1.2N {
+      if methodArgument.Arity '= 1 {
+        if strictMode {
+          return $$$ERROR($$$GeneralError, keyGroup_" was NOT expected to be sequential.")
+        } else {
+          continue
+        }
+      }               
       if methodArgumentsLength > 1 {     
         set argumentIndex = methodArgumentsLength + nextKeyIndex
       } else {
@@ -1500,14 +1522,21 @@ ParseArgument(parsedArgument)
   }
   
   if $ll(missingArguments) > 0 {
-    return $$$ERROR($$$GeneralError, "Formal spec requires the following missing query parameters: "_$lts(missingArguments, ", ")_".")
+    return $$$ERROR($$$GeneralError, "The following missing query parameters are missing: "_$lts(missingArguments, ", ")_".")
   }
   
   // Now we must merge the route arguments back, remember that they always take priority over query parameters.
   set routeKey = ""
   for {
     set routeKey = $order(routeArguments(routeKey), 1, routeValue)
-    quit:routeKey=""    
+    quit:routeKey=""
+    
+    set methodArgument =  ..FindDescribedArgument(routeKey)
+    
+    if '$isobject(methodArgument) {
+      return $$$ERROR($$$GeneralError, "Route parameter not specified: "_routeKey_".")
+    }
+    
     set preArguments(..FindDescribedArgument(routeKey).Index) = routeValue
   }
   set preArguments = argumentIndex
@@ -1531,26 +1560,27 @@ ParseArgument(parsedArgument)
 <FormalSpec>propertyName:%String,depth:%Integer=1</FormalSpec>
 <ReturnType>%String</ReturnType>
 <Implementation><![CDATA[
-	set storedFormatted = $get(i%Properties(depth, propertyName, "F"))
-	if storedFormatted return storedFormatted
-	
-	set formattedName = ..OnFormat(propertyName)
-	
-	set i%Properties(depth, propertyName, "F") = formattedName
-	set i%Properties(depth, formattedName, "N") = propertyName
-	return formattedName
+  set storedFormatted = $get(i%Properties(depth, propertyName, "F"))
+  if storedFormatted return storedFormatted
+  
+  set formattedName = ..OnFormat(propertyName)
+  
+  set i%Properties(depth, propertyName, "F") = formattedName
+  set i%Properties(depth, formattedName, "N") = propertyName
+  return formattedName
 ]]></Implementation>
 </Method>
 
 <Method name="FormatFromCollection">
+<Internal>1</Internal>
 <FormalSpec>collection:%ListOfObjects,depth:%Integer=1</FormalSpec>
 <Implementation><![CDATA[
-	for i=1:1:collection.Count() {
-		set propertyName = collection.GetAt(i).Name
-		if $extract(propertyName) '= "%" {
-			do ..Format(collection.GetAt(i).Name, depth)
-		}
-	}
+  for i=1:1:collection.Count() {
+    set propertyName = collection.GetAt(i).Name
+    if $extract(propertyName) '= "%" {
+      do ..Format(collection.GetAt(i).Name, depth)
+    }
+  }
 ]]></Implementation>
 </Method>
 
@@ -1558,7 +1588,7 @@ ParseArgument(parsedArgument)
 <FormalSpec>propertyName</FormalSpec>
 <Private>1</Private>
 <ReturnType>%String</ReturnType>
-<Implementation><![CDATA[	return propertyName
+<Implementation><![CDATA[  return propertyName
 ]]></Implementation>
 </Method>
 
@@ -1567,8 +1597,8 @@ ParseArgument(parsedArgument)
 <FormalSpec>formattedName:%String,depth:%Integer=1</FormalSpec>
 <ReturnType>%String</ReturnType>
 <Implementation><![CDATA[
-	
-	return $get(i%Properties(depth, formattedName, "N"))
+  
+  return $get(i%Properties(depth, formattedName, "N"))
 ]]></Implementation>
 </Method>
 </Class>
@@ -1908,7 +1938,7 @@ the fields that aren't private, or you can instantiate it and change it's values
 <Internal>1</Internal>
 <ClassMethod>1</ClassMethod>
 <CodeMode>objectgenerator</CodeMode>
-<FormalSpec>index:%Integer</FormalSpec>
+<FormalSpec>index:%Integer,dispatchClass:%String=$classname()</FormalSpec>
 <ReturnType>%String</ReturnType>
 <Implementation><![CDATA[
   // Don't generate patterns if target class is super.
@@ -1920,181 +1950,202 @@ the fields that aren't private, or you can instantiate it and change it's values
   $$$ThrowOnError(##class(Frontier.Schema.Util).Parse(%compiledclass.Name, .routes))
   $$$ThrowOnError(##class(Frontier.Schema.Util).GeneratePatterns(routes, %compiledclass.Name, .patterns))  
   merge ^Frontier.Patterns(%compiledclass.Name) = patterns
-  do %code.WriteLine("  return $get(^Frontier.Patterns($classname(), index))")
+  do %code.WriteLine("  return $get(^Frontier.Patterns(dispatchClass, index))")
   return $$$OK
 ]]></Implementation>
 </Method>
 
 <Method name="DispatchRequest">
 <ClassMethod>1</ClassMethod>
-<FormalSpec>pUrl:%String,pMethod:%String,pForwarded:%Boolean=0</FormalSpec>
+<FormalSpec>url:%String,httpMethod:%String,forwarded:%Boolean="",routeParameters:%String=0</FormalSpec>
 <ReturnType>%Status</ReturnType>
 <Implementation><![CDATA[
+  set httpStatus = $case(httpMethod, "POST": ..#HTTP201CREATED, : ..#HTTP200OK)
+  set isResourceMatch = 0
+  set isHttpMethodMatch = 0
   
-  #; This is a modified version of %CSP.REST's DispatchRequest that creates an entry point for
-  #; for additional features.
-  #; TODO: Check the possibility of purging this source code to stop overwriting the original method.
+  // Makes sure the http method is following specs.
+  set httpMethod = $$$ucase(httpMethod)
   
-  #dim e As %Exception.AbstractException
-  
-  #dim tMatcher As %Regex.Matcher
-  
-  #dim tArgs,tClass,tMatchUrl,tMapEntry,tRegEx,tCall,tForward,tAccess,tTarget,tType,tHttpStatus As %String
-  #dim tI,tIndex As %Integer
-  #dim tResourceMatched,tContinue As %Boolean
-  #dim tMethodMatched As %Boolean
-  
-  set tHttpStatus = $case(pMethod, "POST": ..#HTTP201CREATED, : ..#HTTP200OK)    
+  try {    
+    set resolvedUrl = $$ResolveUrl(url)    
     
-   try {
-    set (tResourceMatched,tMethodMatched) = 0
-                
-    #; Extract the match url from the application name    
-    if 'pForwarded {
-      set tMatchUrl = "/"_$extract(pUrl, $length(%request.Application)+1,*)     
-    } else {
-      set tMatchUrl = pUrl
-    }    
+    while $$NextDispatchMap(.index, .mapEntry, $classname()) {
+      set matchType = $list(mapEntry, 1)
+      set urlExpression = $list(mapEntry, 2)      
+      set matcher = ##class(%Regex.Matcher).%New(urlExpression)      
       
-    #; Uppercase the method
-    set pMethod=$ZCVT(pMethod,"U")    
-          
-    #; Pre-Dispatch
-    set tContinue = 1
-    $$$ThrowOnError(..OnPreDispatch(tMatchUrl, pMethod, 1))        
-            
-    #; Walk the dispatch map in collation order of defintion
-    for tIndex=1:1 {           
-      
-      #; Get the next map entry
-      set tMapEntry = ..DispatchMap(tIndex) if tMapEntry="" quit      
-             
-      #; Pick out the RegEx
-      set tRegEx = $list(tMapEntry,2)
-      
-      #; Create a matcher
-      set tMatcher = ##class(%Regex.Matcher).%New(tRegEx)
-            
-      #; Test each regular expression in turn, extracting the arguments,
-      #; dispatching to the named method
-      if tMatcher.Match(tMatchUrl) {
+      // If there's no match, skip to the next candidate.
+      if matcher.Match(resolvedUrl) {      
+        set isResourceMatch = 1
+        set resourceScope = $lg(mapEntry, 7)        
         
-        #; We have matched the resource
-        set tResourceMatched = 1
+        // Run pending authentication strategies. If one passes, then the implementation
+        // is responsible for filling the user object.
+        $$$ThrowOnError(%frontier.AuthenticationManager.Verify(.user, resourceScope))
+        set %frontier.User = user
+        
+        // Don't let the user access this resource if this resource the request doesn't match it somehow.           
+        if '%frontier.AuthenticationManager.CheckResourceScope(resourceScope, user.scope) {
+          set %response.Status = ..#HTTP403FORBIDDEN
+          $$$ThrowOnError($$$ERROR($$$GeneralError, "This account has not enough privilege to execute this action."))
+        }                                            
         
         set %frontier.RequestURL = %request.URL
         set %frontier.ClassName = $classname()
-                  
+                 
         $$$ThrowOnError(..OnSetup())
-        $$$ThrowOnError(..OnDataSet(%frontier.Data))        
+        $$$ThrowOnError(..OnDataSet(%frontier.Data))
         
-        set tScope = $lg(tMapEntry, 7)
+        zw urlExpression
+        zw matchType
+        zw mapEntry
+        zw resolvedUrl
+        zw routeParameters
         
-        #; Run pending authentication strategies. If one passes, then the implementation
-        #; is responsible for filling the user object.
-        $$$ThrowOnError(%frontier.AuthenticationManager.Verify(.user, tScope))
-        set %frontier.User = user               
+        if matcher.GroupCount {
+          do FetchRouteParameters(.routeParameters, matcher, mapEntry, matchType)                      
+        }
         
-        #; This checks the user.scope against the resource scope and validates the
-        #; resource access.
-        if '%frontier.AuthenticationManager.CheckResourceScope(tScope, user.scope) {
-          set %response.Status = ..#HTTP403FORBIDDEN
-          $$$ThrowOnError($$$ERROR($$$GeneralError, "This account has not enough privilege to execute this action."))
-        }                
-                
-        set tType = $list(tMapEntry,1)
-                
-        #; If we are a simple route
-        if tType = "R" {
-                   
-          #; Support OPTIONS VERB (cannot be overriden)
-          if pMethod="OPTIONS" {                       
-            set tMethodMatched = 1                      
-            $$$ThrowOnError(..OnHandleOptionsRequest(tMatchUrl))                        
-                        
-            #; Dispatch CORS
-            $$$ThrowOnError(..ProcessCorsRequest(pUrl,$list(tMapEntry,5)))                       
-            return $$$OK
-          }        
-                    
-          #; comparison is case-insensitive now
-          If pMethod '= $ZCVT($list(tMapEntry,3),"U") continue                   
-          set tTarget = $list(tMapEntry,4)
-                      
-          #; We have matched a method
-          set tMethodMatched = 1
-                      
-          #; Dispatch CORS
-          $$$ThrowOnError(..ProcessCorsRequest(pUrl,$list(tMapEntry,5)))
-                   
-          #; Got a match, marshall the arguments can call directly
-          if tMatcher.GroupCount {
-            #; Modified for Frontier compatibility: store key instead of index. We need this info to correlate the arguments later.            
-            for tI=1:1:tMatcher.GroupCount set tArgs($lg($lg(tMapEntry,6), tI))=tMatcher.Group(tI)
-            set tArgs = tI
-          } else {
-            set tArgs=0
-          }          
-                    
-          #; Check for optional ClassName prefix
-          set tClass = $classname()
-          If tTarget [ ":" set tClass = $piece(tTarget,":"), tTarget = $Piece(tTarget,":",2)              
-
-          #; Dispatch
-          #; Modified to add support for type resolution and query parameters
-          set tPublicMethod = ##class(Method).%New(tClass, tTarget, .tArgs, %request, %frontier.PropertyFormatter)
-          merge tMethodArguments = tPublicMethod.Arguments
+        // This is our final router. Search for the dispatch method and prepare it to be called.
+        if matchType = "R" {
+          set shouldQuit = 0
+          set requiresCors = $list(mapEntry, 5)          
           
-          set %frontier.Method = tTarget
-          if tMethodArguments > 0 {
-            merge %frontier.ArgumentValues = tMethodArguments
-            set return = $classmethod(tClass, tTarget, tMethodArguments...)
-          } else {            
-            set return = $classmethod(tClass, tTarget)
-          }
-          $$$ThrowOnError(..DispatchResponse(return, .tReturnParameters))
+          if httpMethod = "OPTIONS" do HandleOptionsRequest(url, requiresCors, .shouldQuit)
+          // Don't continue if we hit this point, let the agent do the rest.
+          if shouldQuit return $$$OK
+                  
+          if httpMethod '= $list(mapEntry, 3) continue
+          
+          $$$ThrowOnError(..ProcessCorsRequest(url, requiresCors))
+          
+          set dispatchMethod = $listget(mapEntry, 4)
+          
+          // If the map uses : then it could be calling a method outside this router.
+          if dispatchMethod [ ":" set dispatchMethod = $piece(dispatchMethod, ":", 2)
+          set dispatchClass = $classname()
+          
+          // Parse dispatchMethod retrieving its metadata.
+          set tPublicMethod = ##class(Method).%New(dispatchClass, dispatchMethod, .routeParameters, %request, %frontier.PropertyFormatter, %frontier.StrictQueryParameters)
+          merge methodArguments = tPublicMethod.Arguments
+          
+          // Executes the method and retrives its value. The method MUST return a value or a 
+          // <COMMAND> will be issued.
+          set methodReturn = $$CallDispatchMethod(.methodArguments, dispatchClass, dispatchMethod)
+          
+          // Now we serialize and output the result back to the agent.
+          $$$ThrowOnError(..DispatchResponse(methodReturn, .tReturnParameters))
+          
+          // Finishes the request.
           return $$$OK
-        } else {                  
-          #; We are a map, message the URL and forward the request
-          set tMatchUrl = $piece(tMatchUrl,tMatcher.Group(1),"2",*)
-          if tMatchUrl = "" set tMatchUrl = "/"
-          set tForward = $listget(tMapEntry,3)
-          set (tResourceMatched, tMethodMatched) = 1
-          #; Dispatch with modified URL          
-          $$$ThrowOnError($classmethod(tForward,"DispatchRequest",tMatchUrl,pMethod,1))
-        }                        
-        return $$$OK
-      }              
+        } elseif matchType = "M" {
+          // We're reading a map, substracts the url to find the last piece.                  
+          set resolvedUrl = $piece(resolvedUrl, "/"_matcher.Group(matcher.GroupCount - 1), "2", *)
+          
+          // If we got empty, reset it back to "/".
+          if resolvedUrl = "" set resolvedUrl = "/"
+          set forwardingClass = $listget(mapEntry, 3)
+          set (isResourceMatch, isHttpMethodMatch) = 1
+                    
+          // Re-invoke this method from the mapped class. 
+          $$$ThrowOnError($classmethod(forwardingClass,"DispatchRequest", resolvedUrl, httpMethod, 1, .routeParameters))
+          return $$$OK
+        }
+      }      
     }
-        
-    #; Didn't have a match for the resource, report not found
-    if tResourceMatched '= 1 && (tMethodMatched '= 1) {
+    
+    // Didn't have a match for the resource, report not found.
+    if isResourceMatch '= 1 || (isHttpMethodMatch '= 1) {
       set %response.Status = ..#HTTP404NOTFOUND
       $$$ThrowOnError($$$ERROR($$$GeneralError, "Resource not found."))
     }
-  } catch (e) {
-    set responseCode = $piece(%response.Status, " ")
     
-    #; There might have cases where we get a success HTTP status, we need to normalize
-    #; it forcing a common 500 error.
-    if responseCode < 300 {
-      set %response.Status = ..#HTTP500INTERNALSERVERERROR
-      set responseCode = 500
-    }
-    
-    set exceptionJSON = ##class(Exception).ToDynamicObject(e)
-    set exceptionJSON.error."response_code" = responseCode    
-    set sc = e.AsStatus()    
-    
-    if %frontier.ThrownByApplication || ($$$GETERRORCODE(sc) '= $$$GeneralError) {
-      set %frontier.Error = sc
-      set %frontier.Stack = ##class(Exception).CaptureStack()
-    }
-    
-    set %response.OutputSessionToken = 0
-    write exceptionJSON.%ToJSON()    
-  }   
+    return $$$OK       
+  } catch ex {
+    set %session.EndSession = 1
+    set exceptionPayload = ..HandleException(ex)
+    write exceptionPayload.%ToJSON()
+  }
   return $$$OK
+  
+ResolveUrl(url)
+  if 'forwarded return "/"_$extract(url, $length(%request.Application)+1,*)
+  return url
+  
+NextDispatchMap(index=0, mapEntry="", dispatchClass="")  
+  set index = index + 1
+  if dispatchClass = "" set dispatchClass = $classname()
+  set mapEntry = ..DispatchMap(index, dispatchClass)
+  return (mapEntry '= "")
+  
+FetchRouteParameters(routeParameters=0, matcher, mapEntry, matchType)
+  if matchType = "R" { set max = $ll($lg(mapEntry,6)) }
+  elseif matchType = "M" { set max = $ll($lg(mapEntry,4)) }
+  
+  for p=1:1:max {
+    if matchType = "R" {
+      set routeParameterName = $lg($lg(mapEntry,6), p)
+      if '$data(routeParameters(routeParameterName)) {
+        set routeParameters(routeParameterName) = matcher.Group(p)
+        set routeParameters = routeParameters + 1
+      }
+    } elseif matchType = "M" {      
+      set routeParameterName = $lg($lg(mapEntry, 4), p)
+      set routeParameters(routeParameterName) = matcher.Group(p)
+      set routeParameters = routeParameters + 1
+    }
+  }
+  quit
+ 
+HandleOptionsRequest(url, requireCors, shouldQuit)
+ if httpMethod = "OPTIONS" {
+   set isHttpMethodMatch = 1 
+   $$$ThrowOnError(..OnHandleOptionsRequest(resolvedUrl))                
+                      
+   #; Dispatch CORS
+   $$$ThrowOnError(..ProcessCorsRequest(url, requireCors))
+   set shouldQuit = 1
+ }
+ quit
+ 
+CallDispatchMethod(methodArguments, dispatchClass, dispatchMethod)
+  set methodReturn = ""
+  if methodArguments > 0 {
+    merge %frontier.ArgumentValues = tMethodArguments
+    set methodReturn = $classmethod(dispatchClass, dispatchMethod, methodArguments...)
+  } else {            
+    set methodReturn = $classmethod(dispatchClass, dispatchMethod)
+  }
+  return methodReturn
+]]></Implementation>
+</Method>
+
+<Method name="HandleException">
+<ClassMethod>1</ClassMethod>
+<FormalSpec>exception:%Exception.AbstractException</FormalSpec>
+<ReturnType>%DynamicObject</ReturnType>
+<Implementation><![CDATA[
+  set responseCode = $piece(%response.Status, " ")
+    
+  #; There might have cases where we get a success HTTP status, we need to normalize
+  #; it forcing a common 500 error.
+  if responseCode < 300 {
+    set %response.Status = ..#HTTP500INTERNALSERVERERROR
+    set responseCode = 500
+  }
+    
+  set exceptionJSON = ##class(Exception).ToDynamicObject(exception)
+  set exceptionJSON.error."response_code" = responseCode    
+  set sc = exception.AsStatus()
+    
+  if %frontier.ThrownByApplication || ($$$GETERRORCODE(sc) '= $$$GeneralError) {
+    set %frontier.Error = sc
+    set %frontier.Stack = ##class(Exception).CaptureStack()
+  }
+    
+  set %response.OutputSessionToken = 0
+  return exceptionJSON
 ]]></Implementation>
 </Method>
 
@@ -2421,9 +2472,9 @@ This is the Schema which defines the form of the dispatch map</Description>
         set columnName = columnNames(c)
         set value = results.%Get(columnName)        
         
-	  		if $isobject(propertyFormatter) {
-		  		set columnName = propertyFormatter.Format(columnName, depth)
-	  		}
+        if $isobject(propertyFormatter) {
+          set columnName = propertyFormatter.Format(columnName, depth)
+        }
         
         $$$WriteThrowable(propertyComma)
         
@@ -2465,7 +2516,7 @@ This is the Schema which defines the form of the dispatch map</Description>
   set columns = metadata.columns
   set columnNames = columns.Count()
   for i=1:1:columnNames {
-	  set columnNames(i) = columns.GetAt(i).label
+    set columnNames(i) = columns.GetAt(i).label
   }
   return $$$OK
 ]]></Implementation>
@@ -2599,30 +2650,38 @@ This is the Schema which defines the form of the dispatch map</Description>
     set resourceType = "M"
     for i=1:1:totalMaps {
       set map = routes.Map.GetAt(i)
-      set patterns(i) = $lb(resourceType, $$WritePattern(map.Prefix), map.Forward)
+      set pattern = $$WritePattern(map.Prefix, .placeholders)
+      set patterns(i) = $lb(resourceType, $$WritePattern(map.Prefix), map.Forward, placeholders)
     }
   }
   
   return $$$OK
   
 WritePattern(resource, placeholders)
+  #define GetPlaceholder(%exp) $piece(%exp, ":", 2)
+  
   set pattern = ""
   set placeholders = ""
+  
+  if $extract(resource) = ":" {
+    set $list(placeholders, *+1) = $$$GetPlaceholder($piece(resource, "/", 1))
+  }
+  
   for resourceIndex=2:1:$length(resource,"/") {
     set resourcePart = $piece(resource,"/", resourceIndex)
     if $extract(resourcePart) = ":" {
-      set $list(placeholders, *+1) = $piece(resourcePart, ":", 2)
+      set $list(placeholders, *+1) = $$$GetPlaceholder(resourcePart)
       if resourceType = "R" {
-        set pattern = pattern_"/?([^"_$char(0)_"]+)"        
+        set pattern = pattern_"/?([^"_$char(0)_"]+)?+"        
       } else {        
-        set pattern = pattern_"/[^/]+"
+        set pattern = pattern_"/([A-Za-z0-9-._~:]+)"
       }
     } else {
       set pattern = pattern_"/"_resourcePart
     }
   }
   if resourceType = "R" return $translate(pattern, $char(0), "/")
-  return "("_pattern_")/?.*"
+  return pattern_"/?(.*)"
 ]]></Implementation>
 </Method>
 </Class>
@@ -4138,7 +4197,7 @@ curl -H "Authorization: Basic Zm9vOmJhcg==" 'http://localhost:57772/api/frontier
 ]]></Routine>
 
 
-<Project name="frontier" LastModified="2017-10-05 14:58:21.663733" Target="Test^test" TargetType="2" HttpServer="http://localhost:57772">
+<Project name="frontier" LastModified="2017-10-06 17:47:00.787013" Target="PUT api/mobile/accounts/I432/devices/101" TargetType="3" HttpServer="http://localhost:57772">
   <Items>
     <ProjectItem name="Frontier.AbstractSerializer" type="CLS"></ProjectItem>
     <ProjectItem name="Frontier.ArgumentDescription" type="CLS"></ProjectItem>
@@ -4153,6 +4212,9 @@ curl -H "Authorization: Basic Zm9vOmJhcg==" 'http://localhost:57772/api/frontier
     <ProjectItem name="Frontier.Dynamic.Unmarshaller" type="CLS"></ProjectItem>
     <ProjectItem name="Frontier.Exception" type="CLS"></ProjectItem>
     <ProjectItem name="Frontier.Method" type="CLS"></ProjectItem>
+    <ProjectItem name="Frontier.PropertyFormatter" type="CLS"></ProjectItem>
+    <ProjectItem name="Frontier.PropertyFormatter.CamelCase" type="CLS"></ProjectItem>
+    <ProjectItem name="Frontier.PropertyFormatter.SnakeCase" type="CLS"></ProjectItem>
     <ProjectItem name="Frontier.Reporter" type="CLS"></ProjectItem>
     <ProjectItem name="Frontier.Reporter.Email" type="CLS"></ProjectItem>
     <ProjectItem name="Frontier.Reporter.Manager" type="CLS"></ProjectItem>
@@ -4177,15 +4239,9 @@ curl -H "Authorization: Basic Zm9vOmJhcg==" 'http://localhost:57772/api/frontier
     <ProjectItem name="UnitTest.Frontier.Reporter.Manager" type="CLS"></ProjectItem>
     <ProjectItem name="UnitTest.Frontier.Router" type="CLS"></ProjectItem>
     <ProjectItem name="UnitTest.Frontier.Types" type="CLS"></ProjectItem>
+    <ProjectItem name="UnitTest.Frontier.Util.Formatter.SnakeCase" type="CLS"></ProjectItem>
     <ProjectItem name="csp/dev/email-template.html" type="CSP"></ProjectItem>
     <ProjectItem name="frontier.INC" type="MAC"></ProjectItem>
-    <ProjectItem name="UnitTest.Frontier.Util.Formatter.SnakeCase" type="CLS"></ProjectItem>
-    <ProjectItem name="Frontier.PropertyFormatter" type="CLS"></ProjectItem>
-    <ProjectItem name="Frontier.PropertyFormatter.SnakeCase" type="CLS"></ProjectItem>
-    <ProjectItem name="Frontier.PropertyFormatter.CamelCase" type="CLS"></ProjectItem>
   </Items>
-  <BreakPoints>
-    <BreakPoint Routine="test.MAC" Offset="22"></BreakPoint>
-  </BreakPoints>
 </Project>
 </Export>

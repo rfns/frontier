@@ -15,7 +15,7 @@ Property HttpMethod As %String [ InitialExpression = "GET" ];
 
 Property Arguments As %CacheString [ InitialExpression = 0, MultiDimensional, ReadOnly ];
 
-Method %OnNew(className As %String, methodName As %String, RESTMethodArguments As %String = 0, request As %CSP.Request = "", propertyFormatter As Frontier.PropertyFormatter = "") As %Status [ Private ]
+Method %OnNew(className As %String, methodName As %String, RESTMethodArguments As %String = 0, request As %CSP.Request = "", propertyFormatter As Frontier.PropertyFormatter = "", strictMode As %Boolean = 1) As %Status [ Private ]
 {
   set requestQueryParams = 0
   $$$ThrowOnError(..AssertMethodExists(className, methodName))
@@ -31,7 +31,7 @@ Method %OnNew(className As %String, methodName As %String, RESTMethodArguments A
     merge requestQueryParams = request.Data
   }
   
-  $$$ThrowOnError(..MergeArguments(.RESTMethodArguments, .requestQueryParams, .mergedArguments))    
+  $$$ThrowOnError(..MergeArguments(.RESTMethodArguments, .requestQueryParams, .mergedArguments, strictMode))    
   $$$ThrowOnError(..Sequentialize(.mergedArguments, propertyFormatter))
   quit $$$OK
 }
@@ -195,11 +195,10 @@ Method Sequentialize(ByRef mergedArguments = 0, propertyFormatter As Frontier.Pr
     }
   }
   set i%Arguments = argsProcessed
-  merge a = ..Arguments  
   return sc
 }
 
-Method MergeArguments(ByRef routeArguments As %String = 0, ByRef requestArguments As %String = 0, Output preArguments As %String = 0) As %Status [ Private ]
+Method MergeArguments(ByRef routeArguments As %String = 0, ByRef requestArguments As %String = 0, Output preArguments As %String = 0, strictMode As %Boolean = 1) As %Status [ Private ]
 {
   
   set argumentIndex = routeArguments 
@@ -218,7 +217,11 @@ Method MergeArguments(ByRef routeArguments As %String = 0, ByRef requestArgument
     set methodArgument = ..FindDescribedArgument(keyGroup)
     
     if '$isobject(methodArgument) {
-      return $$$ERROR($$$GeneralError, "Formal spec doesn't match with request: "_keyGroup_" was not expected.")
+      if strictMode {
+        return $$$ERROR($$$GeneralError, keyGroup_" query parameter was not expected.")
+      } else {
+        continue
+      }
     }
     
     // Don't depend on query parameter repeatance, because JavaScript cannot repeat object keys.
@@ -226,7 +229,14 @@ Method MergeArguments(ByRef routeArguments As %String = 0, ByRef requestArgument
     set value = requestArguments(key, 1)  
     
     // Checks if we have a sequenced query param.
-    if key?.A1.2N {               
+    if key?.A1.2N {
+      if methodArgument.Arity '= 1 {
+        if strictMode {
+          return $$$ERROR($$$GeneralError, keyGroup_" was NOT expected to be sequential.")
+        } else {
+          continue
+        }
+      }               
       if methodArgumentsLength > 1 {     
         set argumentIndex = methodArgumentsLength + nextKeyIndex
       } else {
@@ -268,14 +278,21 @@ Method MergeArguments(ByRef routeArguments As %String = 0, ByRef requestArgument
   }
   
   if $ll(missingArguments) > 0 {
-    return $$$ERROR($$$GeneralError, "Formal spec requires the following missing query parameters: "_$lts(missingArguments, ", ")_".")
+    return $$$ERROR($$$GeneralError, "The following missing query parameters are missing: "_$lts(missingArguments, ", ")_".")
   }
   
   // Now we must merge the route arguments back, remember that they always take priority over query parameters.
   set routeKey = ""
   for {
     set routeKey = $order(routeArguments(routeKey), 1, routeValue)
-    quit:routeKey=""    
+    quit:routeKey=""
+    
+    set methodArgument =  ..FindDescribedArgument(routeKey)
+    
+    if '$isobject(methodArgument) {
+      return $$$ERROR($$$GeneralError, "Route parameter not specified: "_routeKey_".")
+    }
+    
     set preArguments(..FindDescribedArgument(routeKey).Index) = routeValue
   }
   set preArguments = argumentIndex

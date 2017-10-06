@@ -45,30 +45,38 @@ ClassMethod GeneratePatterns(routes As Frontier.Schema.Routes, targetClass As %S
     set resourceType = "M"
     for i=1:1:totalMaps {
       set map = routes.Map.GetAt(i)
-      set patterns(i) = $lb(resourceType, $$WritePattern(map.Prefix), map.Forward)
+      set pattern = $$WritePattern(map.Prefix, .placeholders)
+      set patterns(i) = $lb(resourceType, $$WritePattern(map.Prefix), map.Forward, placeholders)
     }
   }
   
   return $$$OK
   
 WritePattern(resource, placeholders)
+  #define GetPlaceholder(%exp) $piece(%exp, ":", 2)
+  
   set pattern = ""
   set placeholders = ""
+  
+  if $extract(resource) = ":" {
+    set $list(placeholders, *+1) = $$$GetPlaceholder($piece(resource, "/", 1))
+  }
+  
   for resourceIndex=2:1:$length(resource,"/") {
     set resourcePart = $piece(resource,"/", resourceIndex)
     if $extract(resourcePart) = ":" {
-      set $list(placeholders, *+1) = $piece(resourcePart, ":", 2)
+      set $list(placeholders, *+1) = $$$GetPlaceholder(resourcePart)
       if resourceType = "R" {
-        set pattern = pattern_"/?([^"_$char(0)_"]+)"        
+        set pattern = pattern_"/?([^"_$char(0)_"]+)?+"        
       } else {        
-        set pattern = pattern_"/[^/]+"
+        set pattern = pattern_"/([A-Za-z0-9-._~:]+)"
       }
     } else {
       set pattern = pattern_"/"_resourcePart
     }
   }
   if resourceType = "R" return $translate(pattern, $char(0), "/")
-  return "("_pattern_")/?.*"
+  return pattern_"/?(.*)"
 }
 
 }

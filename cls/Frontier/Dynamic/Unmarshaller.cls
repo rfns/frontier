@@ -32,7 +32,9 @@ ClassMethod MakeObject(className As %String, dynamicObject As %DynamicAbstractOb
   set descriptor = ##class(%Dictionary.CompiledClass).%OpenId(className)
   set properties = descriptor.Properties
   
-	do propertyFormatter.FormatFromCollection(descriptor.Properties, depth)
+  if $isobject(propertyFormatter) {
+    do propertyFormatter.FormatFromCollection(descriptor.Properties, depth)
+  }
   
   set propCount = properties.Count()
   
@@ -43,9 +45,9 @@ ClassMethod MakeObject(className As %String, dynamicObject As %DynamicAbstractOb
     set propertyId = className_"||"
     
     if $isobject(propertyFormatter) {
-	    set propertyId = propertyId_propertyFormatter.Normalize(key, depth)
+      set propertyId = propertyId_propertyFormatter.Normalize(key, depth)
     } else {
-    	set propertyId = propertyId_key
+      set propertyId = propertyId_key
     }
     
     set property = ##class(%Dictionary.CompiledProperty).%OpenId(propertyId)    
