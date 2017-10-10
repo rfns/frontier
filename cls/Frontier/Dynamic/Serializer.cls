@@ -40,13 +40,16 @@ ClassMethod Serialize(dynamic As %DynamicAbstractObject, depth As %String = 1, p
         do WriteEscaped(value)
         write $c(34)        
       } elseif ##class(Frontier.Types).IsSQLProvider(type) {
-        if 'value.StatementExecuted $$$ThrowOnError(value.Execute())
+        if 'value.StatementExecuted set sc = value.Execute()
+        if $$$ISERR(sc) quit
         $$$ThrowOnError(##class(Frontier.SQL.Serializer).Serialize(value.Results, depth, propertyFormatter))
       }
     } else {
       write $$$ZENJSONVALUE(value, "s")
     }    
   }
+  
+  $$$QuitOnError(sc)
   
   if isArray write "]"
   else  write "}"

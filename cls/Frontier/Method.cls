@@ -278,7 +278,7 @@ Method MergeArguments(ByRef routeArguments As %String = 0, ByRef requestArgument
   }
   
   if $ll(missingArguments) > 0 {
-    return $$$ERROR($$$GeneralError, "The following missing query parameters are missing: "_$lts(missingArguments, ", ")_".")
+    return $$$ERROR($$$GeneralError, "The following query parameters are missing: "_$lts(missingArguments, ", ")_".")
   }
   
   // Now we must merge the route arguments back, remember that they always take priority over query parameters.

@@ -110,7 +110,7 @@ Method ThrowException(message As %String, statusCode As %Integer = {$$$GeneralEr
   set args(2) = message
   
   for i=1:1:parameters set args(2+i) = parameters(i)
-  set ..ThrownByApplication = 1
+  set i%ThrownByApplication = 1
   throw ##class(%Exception.StatusException).CreateFromStatus($$$ERROR(args...))
 }
 

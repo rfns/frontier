@@ -32,28 +32,29 @@ ClassMethod GeneratePatterns(routes As Frontier.Schema.Routes, targetClass As %S
   
   set totalRoutes = routes.Route.Count()
   set totalMaps = routes.Map.Count()
+  set i = ""
   
   if totalRoutes > 0 {
     set resourceType = "R"
     for i=1:1:totalRoutes {
       set route = routes.Route.GetAt(i)
       set pattern = $$WritePattern(route.Url, .placeholders)
-      set patterns(i) = $lb(resourceType, pattern, route.Method, route.Call, route.Cors, placeholders, route.Scope)
+      set patterns(i) = $lb(resourceType, pattern, route.Method, route.Call, route.Cors, placeholders, route.Scope, route.UseAuth)
     }    
   } 
   if totalMaps > 0 {
     set resourceType = "M"
-    for i=1:1:totalMaps {
-      set map = routes.Map.GetAt(i)
+    for j=1:1:totalMaps {
+      set map = routes.Map.GetAt(j)
       set pattern = $$WritePattern(map.Prefix, .placeholders)
-      set patterns(i) = $lb(resourceType, $$WritePattern(map.Prefix), map.Forward, placeholders)
+      set patterns(i + j) = $lb(resourceType, pattern, map.Forward, placeholders)
     }
   }
   
   return $$$OK
   
 WritePattern(resource, placeholders)
-  #define GetPlaceholder(%exp) $piece(%exp, ":", 2)
+  #define GetPlaceholder(%exp) $piece(%exp, ":", 2) 
   
   set pattern = ""
   set placeholders = ""
@@ -69,10 +70,14 @@ WritePattern(resource, placeholders)
       if resourceType = "R" {
         set pattern = pattern_"/?([^"_$char(0)_"]+)?+"        
       } else {        
-        set pattern = pattern_"/([A-Za-z0-9-._~:]+)"
+        set pattern = pattern_"/([A-Za-z0-9-._~:]+"
       }
-    } else {
+    } else {      
       set pattern = pattern_"/"_resourcePart
+      if resourceType = "M" {
+        if pattern [ "/([A-Za-z0-9-._~:]+" set pattern = pattern_")"
+        else  set pattern = "("_pattern_")"
+      }
     }
   }
   if resourceType = "R" return $translate(pattern, $char(0), "/")
