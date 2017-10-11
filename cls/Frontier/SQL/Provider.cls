@@ -19,6 +19,8 @@ Property StatementExecuted As %Boolean [ InitialExpression = 0 ];
 
 Property Results As %SQL.StatementResult [ Internal, ReadOnly ];
 
+Property Metadata As %SQL.StatementMetadata [ Internal, ReadOnly ];
+
 Method %OnNew(statement As %String) As %Status
 {
   
@@ -82,7 +84,9 @@ Method CreateAndExecute() As %Status [ Private ]
     set sc = statement.%PrepareClassQuery(..QueryClass, ..QueryName)    
   } elseif ..SQL '= "" {
     set sc = statement.%Prepare(..SQL)
-  }  
+  }
+  
+  set i%Metadata = statement.%Metadata 
   
   $$$QuitOnError(sc)
   set results = statement.%Execute(parameters...)

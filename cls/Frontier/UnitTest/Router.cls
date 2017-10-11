@@ -4,27 +4,27 @@ Class Frontier.UnitTest.Router Extends Frontier.Router
 XData UrlMap [ XMLNamespace = "http://github.com/rfns/frontier" ]
 {
 <Routes>
-  <Route Url="/route_params/:class" Method="GET" Call="TestGETRouteParams"/>
-  <Route Url="/query_params" Method="GET" Call="TestGETOneQueryParameter"/>
-  <Route Url="/rest_params" Method="GET" Call="TestGETRestParametersSum"/>
-  <Route Url="/sql/dynamic" Method="GET" Call="TestGETDynamicSQLResult"/>
-  <Route Url="/sql/query" Method="GET" Call="TestGETQuerySQLResult"/>
-  <Route Url="/raw" Method="GET" Call="TestGETRawMode"/>
-  <Route Url="/shared_data" Method="GET" Call="TestGETData"/>
-  <Route Url="/stream" Method="GET" Call="TestGETStream"/>
-  <Route Url="/alias" Method="GET" Call="TestGETAliasedQueryParameter"/>
-  <Route Url="/payload/single_object" Method="POST" Call="TestPOSTObjectPayloadSingle"/>
-  <Route Url="/payload/object_with_query_params" Method="POST" Call="TestPOSTObjectPayloadQueryParams"/>  
-  <Route Url="/payload/single_array" Method="POST" Call="TestPOSTArrayPayloadSingle"/>
-  <Route Url="/payload/array_with_query_params" Method="POST" Call="TestPOSTArrayPayloadQueryParams"/>
-  <Route Url="/payload/invalid" Method="POST" Call="TestPOSTInvalidPayload"/>
-  <Route Url="/mixed/object" Method="GET" Call="TestGETMixedDynamicObject"/>
-  <Route Url="/mixed/array" Method="GET" Call="TestGETMixedDynamicArray"/>
-  <Route Url="/mixed/rest" Method="POST" Call="TestPOSTMixedRestParametersSum"/>
-  <Route Url="/unmarshall" Method="POST" Call="TestPOSTUnmarshallToClass"/>
-  <Route Url="/unmarshall/:classId" Method="PUT" Call="TestPUTUnmarshallToClass"/>
-  <Route Url="/user" Method="GET" Call="GetUserInfo"/>
- </Routes>
+<Route Url="/route_params/:class" Method="GET" Call="TestGETRouteParams"/>
+<Route Url="/query_params" Method="GET" Call="TestGETOneQueryParameter"/>
+<Route Url="/rest_params" Method="GET" Call="TestGETRestParametersSum"/>
+<Route Url="/sql/dynamic" Method="GET" Call="TestGETDynamicSQLResult"/>
+<Route Url="/sql/query" Method="GET" Call="TestGETQuerySQLResult"/>
+<Route Url="/raw" Method="GET" Call="TestGETRawMode"/>
+<Route Url="/shared_data" Method="GET" Call="TestGETData"/>
+<Route Url="/stream" Method="GET" Call="TestGETStream"/>
+<Route Url="/alias" Method="GET" Call="TestGETAliasedQueryParameter"/>
+<Route Url="/payload/single_object" Method="POST" Call="TestPOSTObjectPayloadSingle"/>
+<Route Url="/payload/object_with_query_params" Method="POST" Call="TestPOSTObjectPayloadQueryParams"/>  
+<Route Url="/payload/single_array" Method="POST" Call="TestPOSTArrayPayloadSingle"/>
+<Route Url="/payload/array_with_query_params" Method="POST" Call="TestPOSTArrayPayloadQueryParams"/>
+<Route Url="/payload/invalid" Method="POST" Call="TestPOSTInvalidPayload"/>
+<Route Url="/mixed/object" Method="GET" Call="TestGETMixedDynamicObject"/>
+<Route Url="/mixed/array" Method="GET" Call="TestGETMixedDynamicArray"/>
+<Route Url="/mixed/rest" Method="POST" Call="TestPOSTMixedRestParametersSum"/>
+<Route Url="/unmarshall" Method="POST" Call="TestPOSTUnmarshallToClass"/>
+<Route Url="/unmarshall/:classId" Method="PUT" Call="TestPUTUnmarshallToClass"/>
+<Route Url="/user" Method="GET" Call="GetUserInfo"/>
+</Routes>
 }
 
 /// Use this method to share data between methods.

@@ -2,6 +2,7 @@
 <Export generator="Cache" version="25">
 <Class name="Frontier.AbstractSerializer">
 <Abstract>1</Abstract>
+<IncludeCode>frontier,%ZEN.Utils</IncludeCode>
 <TimeCreated>64553,37866.500056</TimeCreated>
 
 <Method name="SerializeToStream">
@@ -51,6 +52,18 @@ wff Do str.Write($char(13,10,13,10)) Quit
 wtab(n) Do str.Write($c(9)) Quit
 rstr(len,time) Quit ""
 rchr(time) Quit ""
+]]></Implementation>
+</Method>
+
+<Method name="HandleJSONWord">
+<ClassMethod>1</ClassMethod>
+<FormalSpec>value:%String</FormalSpec>
+<Implementation><![CDATA[
+  if value = "" set value = "null"
+  if value?1(1"true",1"false",1"null") {
+    return value    
+  }
+  return $$$ZENJSONVALUE(value, "s")
 ]]></Implementation>
 </Method>
 </Class>
@@ -133,12 +146,12 @@ rchr(time) Quit ""
   set authHeader = request.GetCgiEnv("HTTP_AUTHORIZATION")
   
   if authHeader = "" {
-	  set ..Next = 1
+    set ..Next = 1
     return $$CreateError("You must be authenticated to access this resource.")
   }
   
   if $extract(authHeader, 1, 5) '= "Basic" {
-	  set ..Next = 1
+    set ..Next = 1
     return $$CreateError("Malformed authorization header.", "400 Bad Request")
   }
 
@@ -157,6 +170,10 @@ rchr(time) Quit ""
     }
   } else {
     return $$CreateError("Credentials validator was not specified", "500 Internal Server Error")
+  }
+  
+  if $$$ISERR(sc) {
+    return $$CreateError(sc, httpStatus, 1)
   }
   
   if httpStatus = "" {
@@ -571,12 +588,14 @@ CreateError(message, status="401 Unauthorized", isStatus=0)
 </Method>
 
 <Method name="ThrowException">
-<FormalSpec>message:%String,statusCode:%Integer=$$$GeneralError,parameters...:%String</FormalSpec>
+<FormalSpec>message:%String,httpStatus:%String="500 Internal Server Error",parameters...:%String</FormalSpec>
 <Implementation><![CDATA[
   if '$data(parameters) set parameters = 0
   set args = 2 + parameters
-  set args(1) = statusCode
+  set args(1) = $$$GeneralError
   set args(2) = message
+  
+  set ..Response.Status = httpStatus
   
   for i=1:1:parameters set args(2+i) = parameters(i)
   set i%ThrownByApplication = 1
@@ -719,7 +738,8 @@ CreateError(message, status="401 Unauthorized", isStatus=0)
       // DO NOT DISABLE THIS FLAG WHEN SERIALIZING TO JSON!
       if '..DropCyclicReferences set $property(dynamicObject, parentKey) = i%Cache(parentObject)
       continue
-    }    
+    }
+    set jsonDataFormat = ##class(Frontier.Types).GetJSONDataFormat(propertyDescriptors.Type)
     set value = $property(object, propertyDescriptors.Name)
     if $isobject(value) {
       if value.%IsA("%RelationshipObject") {
@@ -737,11 +757,14 @@ CreateError(message, status="401 Unauthorized", isStatus=0)
       } else {
         set sc = ..MakeDynamicCollection(value, .dynamicChild, parentKey, parentObject)          
       }
-      if $$$ISERR(sc) quit
-      set $property(dynamicObject, propertyDescriptors.Name) = dynamicChild                  
+      if $$$ISERR(sc) quit      
+      //set $property(dynamicObject, propertyDescriptors.Name) = dynamicChild
+      if $isobject(dynamicChild) do dynamicObject.%Set(propertyDescriptors.Name, dynamicChild)
+      else  do dynamicObject.%Set(propertyDescriptors.Name, "", jsonDataFormat)
     } else {
       set internalValue = $property(object, propertyDescriptors.Name)
-      set $property(dynamicObject, propertyDescriptors.Name) = internalValue
+      set d = propertyDescriptors.Type
+      do dynamicObject.%Set(propertyDescriptors.Name, internalValue, jsonDataFormat)
       if ##class(%Dictionary.CompiledMethod).%ExistsId(propertyDescriptors.Type_"||LogicalToDisplay") {                
         set externalValue = $classmethod(propertyDescriptors.Type, "LogicalToDisplay", internalValue)
         if externalValue '= internalValue {
@@ -803,7 +826,6 @@ CreateError(message, status="401 Unauthorized", isStatus=0)
 
 
 <Class name="Frontier.Dynamic.Serializer">
-<IncludeCode>frontier,%ZEN.Utils</IncludeCode>
 <Super>Frontier.AbstractSerializer</Super>
 <TimeCreated>64531,58689.528672</TimeCreated>
 
@@ -830,6 +852,13 @@ CreateError(message, status="401 Unauthorized", isStatus=0)
     write comma
     set comma = ","
     set propertyName = key
+    set type = dynamic.%GetTypeOf(key)
+    
+    if type = "null" && (value = "") {
+      set value = "null"
+    } elseif type = "boolean" {
+      set value = $$$FormatBoolean(value)
+    }
     
     if $isobject(propertyFormatter) {
       set propertyName = propertyFormatter.Format(propertyName, depth)
@@ -850,10 +879,10 @@ CreateError(message, status="401 Unauthorized", isStatus=0)
       } elseif ##class(Frontier.Types).IsSQLProvider(type) {
         if 'value.StatementExecuted set sc = value.Execute()
         if $$$ISERR(sc) quit
-        $$$ThrowOnError(##class(Frontier.SQL.Serializer).Serialize(value.Results, depth, propertyFormatter))
+        $$$ThrowOnError(##class(Frontier.SQL.Serializer).Serialize(value.Results, value.Metadata, depth, propertyFormatter))
       }
     } else {
-      write $$$ZENJSONVALUE(value, "s")
+      write ..HandleJSONWord(value)
     }    
   }
   
@@ -1390,7 +1419,7 @@ ParseArgument(parsedArgument)
     
   set methodArgumentsLength = ..MethodArguments.Count()
   
-  set jsonErrorMessage = "Invalid JSON format, expected a %1 compatible notation."  
+  set jsonErrorMessage = "Invalid JSON payload: expected a %1 compatible notation."  
   if $$$ISERR(sc) return sc  
   
   set maxLength = methodArgumentsLength
@@ -1410,15 +1439,16 @@ ParseArgument(parsedArgument)
       }      
     
       if ##class(Frontier.Types).IsDynamic(methodArgument.Type) {
+        if ..Payload = "" return $$$ERROR($$$GeneralError, $$$FormatText(jsonErrorMessage, methodArgument.Type))
         $$$AssertSinglePayloadParameter
         $$$TriggerPayloadFlag
         set unmarshallTo = methodArgument.Parameters.GetAt("UNMARSHALLTO")
-        set idColumn = methodArgument.Parameters.GetAt("IDCOLUMN")
+        set idFrom = methodArgument.Parameters.GetAt("IDFROM")
         set value = $classmethod(methodArgument.Type, "%FromJSON", ..Payload)
         if unmarshallTo '= "" {
           set instanceId = value."__id__"    
-          if idColumn '= "" {
-            set value."__id__" = $get(mergedArguments(..FindDescribedArgument(idColumn).Index))
+          if idFrom '= "" {
+            set value."__id__" = $get(mergedArguments(..FindDescribedArgument(idFrom).Index))
             if value."__id__" = "" set value."__id__" = instanceId
           }
           if value."__id__" = "" && (..HttpMethod = "PUT" || (..HttpMethod = "PATCH")) {
@@ -1653,7 +1683,7 @@ ParseArgument(parsedArgument)
 	for i=1:1:nameLength {
 		set c = $extract(propertyName, i)
 		set n = $extract(propertyName, i+1)
-		if c = $$$ucase(c) && (n '= $$$ucase(n)) && (i > 1) set c = "_"_c
+		if c?1A = 1 && (c = $$$ucase(c) && (n '= $$$ucase(n)) && (i > 1)) set c = "_"_c
 		set snakedName = snakedName_c
 	}	
 	return $$$lcase(snakedName)
@@ -1919,7 +1949,7 @@ the fields that aren't private, or you can instantiate it and change it's values
 
 
 <Class name="Frontier.Router">
-<IncludeCode>%occErrors,%occStatus</IncludeCode>
+<IncludeCode>%occErrors,%occStatus,frontier</IncludeCode>
 <Super>%CSP.REST</Super>
 <TimeCreated>64492,32085.189445</TimeCreated>
 
@@ -1998,14 +2028,13 @@ the fields that aren't private, or you can instantiate it and change it's values
         // This is our final router. Search for the dispatch method and prepare it to be called.
         if matchType = "R" {
           set shouldQuit = 0
-          set requiresCors = $list(mapEntry, 5)
-                                    
+          set requiresCors = $list(mapEntry, 5)                                    
           
           if httpMethod = "OPTIONS" do HandleOptionsRequest(url, requiresCors, .shouldQuit)
           // Don't continue if we hit this point, let the agent do the rest.
-          if shouldQuit return $$$OK
+          if shouldQuit return $$$OK                   
                   
-          if httpMethod '= $list(mapEntry, 3) continue
+          if httpMethod '= $list(mapEntry, 3) continue                   
           
           $$$ThrowOnError(..ProcessCorsRequest(url, requiresCors))
                    
@@ -2017,7 +2046,9 @@ the fields that aren't private, or you can instantiate it and change it's values
           
           // Don't let the user access this resource if this request doesn't match it somehow.           
             if '%frontier.AuthenticationManager.CheckResourceScope(resourceScope, user.scope) {
-              set %response.Status = ..#HTTP403FORBIDDEN
+              if %response.Status = ..#HTTP200OK || (%response.Status = ..#HTTP201CREATED) {
+                set %response.Status = ..#HTTP403FORBIDDEN
+              }
               $$$ThrowOnError($$$ERROR($$$GeneralError, "This account has not enough privilege to execute this action."))
             }                                            
           }                                                
@@ -2108,7 +2139,7 @@ FetchRouteParameters(routeParameters=0, matcher, mapEntry, matchType)
 HandleOptionsRequest(url, requireCors, shouldQuit)
  if httpMethod = "OPTIONS" {
    set isHttpMethodMatch = 1 
-   $$$ThrowOnError(..OnHandleOptionsRequest(resolvedUrl))                
+   $$$ThrowOnError(..OnHandleOptionsRequest(resolvedUrl))        
                       
    #; Dispatch CORS
    $$$ThrowOnError(..ProcessCorsRequest(url, requireCors))
@@ -2349,6 +2380,12 @@ This is the Schema which defines the form of the dispatch map</Description>
 <ReadOnly>1</ReadOnly>
 </Property>
 
+<Property name="Metadata">
+<Type>%SQL.StatementMetadata</Type>
+<Internal>1</Internal>
+<ReadOnly>1</ReadOnly>
+</Property>
+
 <Method name="%OnNew">
 <FormalSpec>statement:%String</FormalSpec>
 <ReturnType>%Status</ReturnType>
@@ -2432,7 +2469,9 @@ This is the Schema which defines the form of the dispatch map</Description>
     set sc = statement.%PrepareClassQuery(..QueryClass, ..QueryName)    
   } elseif ..SQL '= "" {
     set sc = statement.%Prepare(..SQL)
-  }  
+  }
+  
+  set i%Metadata = statement.%Metadata 
   
   $$$QuitOnError(sc)
   set results = statement.%Execute(parameters...)
@@ -2448,71 +2487,65 @@ This is the Schema which defines the form of the dispatch map</Description>
 
 
 <Class name="Frontier.SQL.Serializer">
-<IncludeCode>frontier,%ZEN.Utils</IncludeCode>
 <Super>Frontier.AbstractSerializer</Super>
 <TimeCreated>64539,50921.256251</TimeCreated>
 
 <Method name="Serialize">
 <ClassMethod>1</ClassMethod>
-<FormalSpec>results:%SQL.Statement,depth:%Integer=1,propertyFormatter:Frontier.PropertyFormatter=""</FormalSpec>
+<FormalSpec>results:%SQL.Statement,metadata:%SQL.StatementMetadata,depth:%Integer=1,propertyFormatter:Frontier.PropertyFormatter=""</FormalSpec>
 <ReturnType>%Status</ReturnType>
 <Implementation><![CDATA[
   
   #define WriteThrowable(%expr) $$$ThrowOnError(data.Write(%expr))
   
   set sc = $$$OK
-  set metadata = results.%GetMetadata()
   $$$QuitOnError(..FetchColumnNames(metadata, .columnNames))
   
   set data = ##class(%Stream.GlobalCharacter).%New()
   
-  $$$WriteThrowable("[")
+  write "["
   
   set itemComma = ""
   set propertyComma = ""
   
   try {               
     while results.%Next(.sc) {
-      $$$WriteThrowable(itemComma)
+      $$$ThrowOnError(sc)
+      
+      write itemComma
       
       set itemComma = ","
       set propertyComma = ""
       
-      $$$WriteThrowable("{")
-      $$$ThrowOnError(sc)      
+      write "{"         
       
       for c=1:1:columnNames {
         set columnName = columnNames(c)
-        set value = results.%Get(columnName)        
+        set columnType = columnNames(c, "type")
+        set value = results.%Get(columnName)
+        set jsonDataFormat = ##class(Frontier.Types).GetJSONDataFormat(columnType)     
+        
+        if jsonDataFormat = "null" && (value = "") {
+          set value = jsonDataFormat
+        } elseif jsonDataFormat = "boolean" {          
+          set value = $$$FormatBoolean(value)
+        }        
         
         if $isobject(propertyFormatter) {
           set columnName = propertyFormatter.Format(columnName, depth)
         }
         
-        $$$WriteThrowable(propertyComma)
+        write propertyComma        
         
-        if $listvalid(value) && ($listlength(value) > 0) {
-          set arrayComma = ""
-          
-          $$$WriteThrowable("[")
-          
-          for i=1:$listlength(value) {
-            $$$WriteThrowable($$$ZENJSONVALUE(value, "s"))
-            $$$WriteThrowable(arrayComma)
-            set arrayComma = ","
-          }
-          
-          $$$WriteThrowable("]")
-        }
-        $$$WriteThrowable($$$ZENJSONPAIR(columnName, value, "s"))
+        write $$$ZENJSONPROP(columnName, "s")_":"                
+        write ..HandleJSONWord(value)
+        
         set propertyComma = ","
       }
-      $$$WriteThrowable("}")
+      write "}"
     }   
-    $$$WriteThrowable("]")
-    $$$ThrowOnError(data.OutputToDevice())    
+    write "]"
   } catch ex {
-    write "null"
     set sc = ex.AsStatus()
   }
   return sc
@@ -2529,8 +2562,14 @@ This is the Schema which defines the form of the dispatch map</Description>
   set columns = metadata.columns
   set columnNames = columns.Count()
   for i=1:1:columnNames {
-    set columnNames(i) = columns.GetAt(i).label
-  }
+    set column = columns.GetAt(i)
+    set columnNames(i) = column.label
+    if $isobject(column.typeClass) {
+      set columnNames(i, "type") = column.typeClass.Name
+    } else {
+      set columnNames(i, "type") = ""
+    }
+  }  
   return $$$OK
 ]]></Implementation>
 </Method>
@@ -2712,6 +2751,7 @@ WritePattern(resource, placeholders)
 
 <Class name="Frontier.Types">
 <Abstract>1</Abstract>
+<IncludeCode>frontier</IncludeCode>
 <TimeCreated>64502,35492.335596</TimeCreated>
 
 <Method name="IsInstantiable">
@@ -2809,8 +2849,7 @@ WritePattern(resource, placeholders)
 <Private>1</Private>
 <ReturnType>%Boolean</ReturnType>
 <Implementation><![CDATA[
-  
-  #define NormalizeClassName(%cn) if $l(%cn, ".") = 1 && ($e(%cn) = "%") set %cn = "%Library."_$e(%cn, 2, *)   
+   
   if className = "" quit 0
   
   $$$NormalizeClassName(className)
@@ -2820,6 +2859,34 @@ WritePattern(resource, placeholders)
   
   // Uses default %Extends method to check for common cases and improve performance.
   return ##class(%Dictionary.CompiledClass).%ExistsId(className) && $classmethod(className, "%Extends", expectedType)
+]]></Implementation>
+</Method>
+
+<Method name="GetJSONDataFormat">
+<Internal>1</Internal>
+<ClassMethod>1</ClassMethod>
+<FormalSpec>cacheType:%String</FormalSpec>
+<ReturnType>%String</ReturnType>
+<Implementation><![CDATA[
+  
+  $$$NormalizeClassName(cacheType)
+  
+  if ..IsDataType(cacheType) { 
+    set type = $case(cacheType,
+      "%Library.Boolean": "boolean",
+      "%Library.Double": "number",
+      "%Library.BigInt": "number",
+      "%Library.TinyInt": "number",
+      "%Library.Decimal": "number",
+      "%Library.Integer": "number",
+      "%Library.Float": "number",
+      "%Library.Date": "number",
+      "%Library.Time": "number",
+      : "string")
+  } else {
+    set type = "null"
+  }
+  return type
 ]]></Implementation>
 </Method>
 </Class>
@@ -3056,27 +3123,27 @@ WritePattern(resource, placeholders)
 <XMLNamespace>http://github.com/rfns/frontier</XMLNamespace>
 <Data><![CDATA[
 <Routes>
-  <Route Url="/route_params/:class" Method="GET" Call="TestGETRouteParams"/>
-  <Route Url="/query_params" Method="GET" Call="TestGETOneQueryParameter"/>
-  <Route Url="/rest_params" Method="GET" Call="TestGETRestParametersSum"/>
-  <Route Url="/sql/dynamic" Method="GET" Call="TestGETDynamicSQLResult"/>
-  <Route Url="/sql/query" Method="GET" Call="TestGETQuerySQLResult"/>
-  <Route Url="/raw" Method="GET" Call="TestGETRawMode"/>
-  <Route Url="/shared_data" Method="GET" Call="TestGETData"/>
-  <Route Url="/stream" Method="GET" Call="TestGETStream"/>
-  <Route Url="/alias" Method="GET" Call="TestGETAliasedQueryParameter"/>
-  <Route Url="/payload/single_object" Method="POST" Call="TestPOSTObjectPayloadSingle"/>
-  <Route Url="/payload/object_with_query_params" Method="POST" Call="TestPOSTObjectPayloadQueryParams"/>  
-  <Route Url="/payload/single_array" Method="POST" Call="TestPOSTArrayPayloadSingle"/>
-  <Route Url="/payload/array_with_query_params" Method="POST" Call="TestPOSTArrayPayloadQueryParams"/>
-  <Route Url="/payload/invalid" Method="POST" Call="TestPOSTInvalidPayload"/>
-  <Route Url="/mixed/object" Method="GET" Call="TestGETMixedDynamicObject"/>
-  <Route Url="/mixed/array" Method="GET" Call="TestGETMixedDynamicArray"/>
-  <Route Url="/mixed/rest" Method="POST" Call="TestPOSTMixedRestParametersSum"/>
-  <Route Url="/unmarshall" Method="POST" Call="TestPOSTUnmarshallToClass"/>
-  <Route Url="/unmarshall/:classId" Method="PUT" Call="TestPUTUnmarshallToClass"/>
-  <Route Url="/user" Method="GET" Call="GetUserInfo"/>
- </Routes>
+<Route Url="/route_params/:class" Method="GET" Call="TestGETRouteParams"/>
+<Route Url="/query_params" Method="GET" Call="TestGETOneQueryParameter"/>
+<Route Url="/rest_params" Method="GET" Call="TestGETRestParametersSum"/>
+<Route Url="/sql/dynamic" Method="GET" Call="TestGETDynamicSQLResult"/>
+<Route Url="/sql/query" Method="GET" Call="TestGETQuerySQLResult"/>
+<Route Url="/raw" Method="GET" Call="TestGETRawMode"/>
+<Route Url="/shared_data" Method="GET" Call="TestGETData"/>
+<Route Url="/stream" Method="GET" Call="TestGETStream"/>
+<Route Url="/alias" Method="GET" Call="TestGETAliasedQueryParameter"/>
+<Route Url="/payload/single_object" Method="POST" Call="TestPOSTObjectPayloadSingle"/>
+<Route Url="/payload/object_with_query_params" Method="POST" Call="TestPOSTObjectPayloadQueryParams"/>  
+<Route Url="/payload/single_array" Method="POST" Call="TestPOSTArrayPayloadSingle"/>
+<Route Url="/payload/array_with_query_params" Method="POST" Call="TestPOSTArrayPayloadQueryParams"/>
+<Route Url="/payload/invalid" Method="POST" Call="TestPOSTInvalidPayload"/>
+<Route Url="/mixed/object" Method="GET" Call="TestGETMixedDynamicObject"/>
+<Route Url="/mixed/array" Method="GET" Call="TestGETMixedDynamicArray"/>
+<Route Url="/mixed/rest" Method="POST" Call="TestPOSTMixedRestParametersSum"/>
+<Route Url="/unmarshall" Method="POST" Call="TestPOSTUnmarshallToClass"/>
+<Route Url="/unmarshall/:classId" Method="PUT" Call="TestPUTUnmarshallToClass"/>
+<Route Url="/user" Method="GET" Call="GetUserInfo"/>
+</Routes>
 ]]></Data>
 </XData>
 
@@ -3601,74 +3668,62 @@ curl -H "Authorization: Basic Zm9vOmJhcg==" 'http://localhost:57772/api/frontier
 <Method name="OnAfterOneTest">
 <ReturnType>%Status</ReturnType>
 <Implementation><![CDATA[
-	set ..Request = ""
-	set ..Response = ""
-	set ..Session = ""
-	set ..AuthenticationManager = ""
-	return $$$OK
+  set ..Request = ""
+  set ..Response = ""
+  set ..Session = ""
+  set ..AuthenticationManager = ""
+  return $$$OK
 ]]></Implementation>
 </Method>
 
 <Method name="TestVerify">
 <Implementation><![CDATA[
-	// This will fail but move to the next strategy. The Next flag indicates that there
-	// isn't enough info about the authentication method to decide a strategy thus making the manager ignores it.
-	set dummyStrategy1 = ##class(Frontier.UnitTest.Authentication.DummyStrategy).%New()
-	set dummyStrategy1.ShouldPass = 0
-	set dummyStrategy1.Next = 1
-	
-	// Same here.
-	set dummyStrategy2 = ##class(Frontier.UnitTest.Authentication.DummyStrategy).%New()
-	set dummyStrategy2.ShouldPass = 0
-	set dummyStrategy2.Next = 1
-	
-	// If the flag is not set, then it'll validate the input.
-	// Luckly, we're informing our dummy strategy that it should allow the access.
-	set dummyStrategy3 = ##class(Frontier.UnitTest.Authentication.DummyStrategy).%New()
-	set dummyStrategy3.ShouldPass = 1
-	
-	//do $$$AssertStatusOK(..AuthenticationManager.AddStrategy(dummyStrategy1), "can add strategy")
-	do ..AuthenticationManager.AddStrategy(dummyStrategy1)
-	
-	do ..AuthenticationManager.AddStrategy(dummyStrategy2)
-	do ..AuthenticationManager.AddStrategy(dummyStrategy3)
-	
-	set sc = ..AuthenticationManager.Verify(.user)	
-	
-	do $$$AssertStatusOK(sc, "allows access")
-	
-	do $$$AssertTrue(..Response.GetHeader("WWW-Authenticate") = "", "doesn't output the WWW-Authenticate if one strategy works.")
-	
-	set dummyStrategy4 = ##class(Frontier.UnitTest.Authentication.DummyStrategy).%New()
-	set dummyStrategy4.ShouldPass = 0
-	
-	do ..AuthenticationManager.AddStrategy(dummyStrategy4)	
-	
-	set sc = ..AuthenticationManager.Verify(.user)
-	do $$$AssertStatusOK(sc, "skips pending strategies if one works")
-	
-	// This time we're forcing our passing strategy to fail, and there's no Next flag
-	// so assume that the user sent us a valid authentication but the credentials are
-	// not what we expected.
-	set dummyStrategy3.ShouldPass = 0
-	
-	set sc = ..AuthenticationManager.Verify(.user)
-	
-	do $$$AssertEquals(user.name, "", "always return an user object even if empty")
-	do $$$AssertStatusNotOK(sc, "returns the last strategy error")
-	
-	// Now we have the WWW-Authenticate header set.
-	do $$$AssertTrue(..Response.GetHeader("WWW-Authenticate") '= "", "outputs the WWW-Authenticate when neither of the provided strategies succeed.")
-]]></Implementation>
-</Method>
-
-<Method name="T">
-<ClassMethod>1</ClassMethod>
-<Implementation><![CDATA[
-	set t = ..%New(##class(Port.UnitTest.Manager).%New())
-	do t.OnBeforeOneTest()
-	do t.TestVerify()
-	do t.OnBeforeOneTest()
+  // This will fail but move to the next strategy. The Next flag indicates that there
+  // isn't enough info about the authentication method to decide a strategy thus making the manager ignores it.
+  set dummyStrategy1 = ##class(Frontier.UnitTest.Authentication.DummyStrategy).%New()
+  set dummyStrategy1.ShouldPass = 0
+  set dummyStrategy1.Next = 1
+  
+  // Same here.
+  set dummyStrategy2 = ##class(Frontier.UnitTest.Authentication.DummyStrategy).%New()
+  set dummyStrategy2.ShouldPass = 0
+  set dummyStrategy2.Next = 1
+  
+  // If the flag is not set, then it'll validate the input.
+  // Luckly, we're informing our dummy strategy that it should allow the access.
+  set dummyStrategy3 = ##class(Frontier.UnitTest.Authentication.DummyStrategy).%New()
+  set dummyStrategy3.ShouldPass = 1
+  
+  do ..AuthenticationManager.AddStrategy(dummyStrategy1)  
+  do ..AuthenticationManager.AddStrategy(dummyStrategy2)
+  do ..AuthenticationManager.AddStrategy(dummyStrategy3)
+  
+  set sc = ..AuthenticationManager.Verify(.user)  
+  
+  do $$$AssertStatusOK(sc, "allows access")
+  
+  do $$$AssertTrue(..Response.GetHeader("WWW-Authenticate") = "", "doesn't include the challenge if one strategy works.")
+  
+  set dummyStrategy4 = ##class(Frontier.UnitTest.Authentication.DummyStrategy).%New()
+  set dummyStrategy4.ShouldPass = 0
+  
+  do ..AuthenticationManager.AddStrategy(dummyStrategy4)  
+  
+  set sc = ..AuthenticationManager.Verify(.user)
+  do $$$AssertStatusOK(sc, "skips pending strategies if one works")
+  
+  // This time we're forcing our passing strategy to fail, and there's no Next flag
+  // so assume that the user sent us a valid authentication but the credentials are
+  // not what we expected.
+  set dummyStrategy3.ShouldPass = 0
+  
+  set sc = ..AuthenticationManager.Verify(.user)
+  
+  do $$$AssertEquals(user.name, "", "always return an user object even if empty")
+  do $$$AssertStatusNotOK(sc, "returns the last strategy error")
+  
+  // Now we have the WWW-Authenticate header set.
+  do $$$AssertTrue(..Response.GetHeader("WWW-Authenticate") '= "", "outputs the challenge when none of the provided strategies succeed.")
 ]]></Implementation>
 </Method>
 </Class>
@@ -4037,18 +4092,6 @@ curl -H "Authorization: Basic Zm9vOmJhcg==" 'http://localhost:57772/api/frontier
   return $$$AssertStatusOK(..AssertRequest(resource, expected.%ToJSON()), $$$FormatText("can retrieve the expected data from the resource %1", resource))
 ]]></Implementation>
 </Method>
-
-<Method name="T">
-<ClassMethod>1</ClassMethod>
-<Implementation><![CDATA[
-  set t = ..%New(##class(Port.UnitTest.Manager).%New())
-  do t.OnBeforeAllTests()
-  do t.OnBeforeOneTest()
-  do t.TestGETDynamicSQLResult()
-  do t.OnAfterOneTest()
-  do t.OnAfterAllTests()
-]]></Implementation>
-</Method>
 </Class>
 
 
@@ -4153,16 +4196,6 @@ curl -H "Authorization: Basic Zm9vOmJhcg==" 'http://localhost:57772/api/frontier
 </Class>
 
 
-<Class name="UnitTest.Frontier.Util.Formatter.SnakeCase">
-<Super>Frontier.Util.Formatter</Super>
-<TimeCreated>64561,31150.13181</TimeCreated>
-
-<Method name="OnFormat">
-<ReturnType>%String</ReturnType>
-</Method>
-</Class>
-
-
 <CSP name="email-template.html" application="/csp/dev/" default="1"><![CDATA[
 <!DOCTYPE html>
 <html>
@@ -4217,10 +4250,12 @@ curl -H "Authorization: Basic Zm9vOmJhcg==" 'http://localhost:57772/api/frontier
 #define IsSQLQuery(%str)  ($$$ucase($extract($$$trim(%str), 6)) = "SELECT")
 #define KeyGroup(%requestKey)  $zstrip($zstrip(%requestKey, "<=N"), "=>N")
 #define KeyIndex(%requestKey)  $zstrip($zstrip(%requestKey, "<=N"), "<=A")
+#define FormatBoolean(%value) $select(%value = 1 : "true", 1: "false")
+#define NormalizeClassName(%cn) if $l(%cn, ".") = 1 && ($e(%cn) = "%") set %cn = "%Library."_$e(%cn, 2, *)
 ]]></Routine>
 
 
-<Project name="frontier" LastModified="2017-10-10 16:26:35.860281" Target="api/mobile/accounts/I432/devices" TargetType="3" HttpServer="http://localhost:57772">
+<Project name="frontier" LastModified="2017-10-11 16:57:00.907304" Target="##class(Frontier.Types).GetJSONDataFormat(&quot;%String&quot;)" TargetType="2" HttpServer="http://localhost:57772">
   <Items>
     <ProjectItem name="Frontier.AbstractSerializer" type="CLS"></ProjectItem>
     <ProjectItem name="Frontier.ArgumentDescription" type="CLS"></ProjectItem>
@@ -4262,12 +4297,8 @@ curl -H "Authorization: Basic Zm9vOmJhcg==" 'http://localhost:57772/api/frontier
     <ProjectItem name="UnitTest.Frontier.Reporter.Manager" type="CLS"></ProjectItem>
     <ProjectItem name="UnitTest.Frontier.Router" type="CLS"></ProjectItem>
     <ProjectItem name="UnitTest.Frontier.Types" type="CLS"></ProjectItem>
-    <ProjectItem name="UnitTest.Frontier.Util.Formatter.SnakeCase" type="CLS"></ProjectItem>
     <ProjectItem name="csp/dev/email-template.html" type="CSP"></ProjectItem>
     <ProjectItem name="frontier.INC" type="MAC"></ProjectItem>
   </Items>
-  <BreakPoints>
-    <BreakPoint Routine="Frontier.Schema.Util.CLS" Offset="T+1"></BreakPoint>
-  </BreakPoints>
 </Project>
 </Export>

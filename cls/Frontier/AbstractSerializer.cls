@@ -1,3 +1,5 @@
+Include (frontier, %ZEN.Utils)
+
 Class Frontier.AbstractSerializer [ Abstract ]
 {
 
@@ -44,6 +46,15 @@ wff Do str.Write($char(13,10,13,10)) Quit
 wtab(n) Do str.Write($c(9)) Quit
 rstr(len,time) Quit ""
 rchr(time) Quit ""
+}
+
+ClassMethod HandleJSONWord(value As %String)
+{
+  if value = "" set value = "null"
+  if value?1(1"true",1"false",1"null") {
+    return value    
+  }
+  return $$$ZENJSONVALUE(value, "s")
 }
 
 }

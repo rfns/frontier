@@ -1,66 +1,59 @@
-Include (frontier, %ZEN.Utils)
-
 Class Frontier.SQL.Serializer Extends Frontier.AbstractSerializer
 {
 
-ClassMethod Serialize(results As %SQL.Statement, depth As %Integer = 1, propertyFormatter As Frontier.PropertyFormatter = "") As %Status
+ClassMethod Serialize(results As %SQL.Statement, metadata As %SQL.StatementMetadata, depth As %Integer = 1, propertyFormatter As Frontier.PropertyFormatter = "") As %Status
 {
   
   #define WriteThrowable(%expr) $$$ThrowOnError(data.Write(%expr))
   
   set sc = $$$OK
-  set metadata = results.%GetMetadata()
   $$$QuitOnError(..FetchColumnNames(metadata, .columnNames))
   
   set data = ##class(%Stream.GlobalCharacter).%New()
   
-  $$$WriteThrowable("[")
+  write "["
   
   set itemComma = ""
   set propertyComma = ""
   
   try {               
     while results.%Next(.sc) {
-      $$$WriteThrowable(itemComma)
+      $$$ThrowOnError(sc)
+      
+      write itemComma
       
       set itemComma = ","
       set propertyComma = ""
       
-      $$$WriteThrowable("{")
-      $$$ThrowOnError(sc)      
+      write "{"         
       
       for c=1:1:columnNames {
         set columnName = columnNames(c)
-        set value = results.%Get(columnName)        
+        set columnType = columnNames(c, "type")
+        set value = results.%Get(columnName)
+        set jsonDataFormat = ##class(Frontier.Types).GetJSONDataFormat(columnType)     
+        
+        if jsonDataFormat = "null" && (value = "") {
+          set value = jsonDataFormat
+        } elseif jsonDataFormat = "boolean" {          
+          set value = $$$FormatBoolean(value)
+        }        
         
         if $isobject(propertyFormatter) {
           set columnName = propertyFormatter.Format(columnName, depth)
         }
         
-        $$$WriteThrowable(propertyComma)
+        write propertyComma        
         
-        if $listvalid(value) && ($listlength(value) > 0) {
-          set arrayComma = ""
-          
-          $$$WriteThrowable("[")
-          
-          for i=1:$listlength(value) {
-            $$$WriteThrowable($$$ZENJSONVALUE(value, "s"))
-            $$$WriteThrowable(arrayComma)
-            set arrayComma = ","
-          }
-          
-          $$$WriteThrowable("]")
-        }
-        $$$WriteThrowable($$$ZENJSONPAIR(columnName, value, "s"))
+        write $$$ZENJSONPROP(columnName, "s")_":"                
+        write ..HandleJSONWord(value)
+        
         set propertyComma = ","
       }
-      $$$WriteThrowable("}")
+      write "}"
     }   
-    $$$WriteThrowable("]")
-    $$$ThrowOnError(data.OutputToDevice())    
+    write "]"
   } catch ex {
-    write "null"
     set sc = ex.AsStatus()
   }
   return sc
@@ -72,8 +65,14 @@ ClassMethod FetchColumnNames(metadata As %SQL.StatementMetadata, Output columnNa
   set columns = metadata.columns
   set columnNames = columns.Count()
   for i=1:1:columnNames {
-    set columnNames(i) = columns.GetAt(i).label
-  }
+    set column = columns.GetAt(i)
+    set columnNames(i) = column.label
+    if $isobject(column.typeClass) {
+      set columnNames(i, "type") = column.typeClass.Name
+    } else {
+      set columnNames(i, "type") = ""
+    }
+  }  
   return $$$OK
 }
 

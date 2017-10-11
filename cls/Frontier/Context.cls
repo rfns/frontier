@@ -102,12 +102,14 @@ Method Status(statusCode As %String) As %Status
   return $$$OK
 }
 
-Method ThrowException(message As %String, statusCode As %Integer = {$$$GeneralError}, parameters... As %String)
+Method ThrowException(message As %String, httpStatus As %String = "500 Internal Server Error", parameters... As %String)
 {
   if '$data(parameters) set parameters = 0
   set args = 2 + parameters
-  set args(1) = statusCode
+  set args(1) = $$$GeneralError
   set args(2) = message
+  
+  set ..Response.Status = httpStatus
   
   for i=1:1:parameters set args(2+i) = parameters(i)
   set i%ThrownByApplication = 1

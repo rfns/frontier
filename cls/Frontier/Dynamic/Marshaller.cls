@@ -102,7 +102,8 @@ Method MakeDynamicObject(object As %RegisteredObject, Output dynamicObject As %D
       // DO NOT DISABLE THIS FLAG WHEN SERIALIZING TO JSON!
       if '..DropCyclicReferences set $property(dynamicObject, parentKey) = i%Cache(parentObject)
       continue
-    }    
+    }
+    set jsonDataFormat = ##class(Frontier.Types).GetJSONDataFormat(propertyDescriptors.Type)
     set value = $property(object, propertyDescriptors.Name)
     if $isobject(value) {
       if value.%IsA("%RelationshipObject") {
@@ -120,11 +121,14 @@ Method MakeDynamicObject(object As %RegisteredObject, Output dynamicObject As %D
       } else {
         set sc = ..MakeDynamicCollection(value, .dynamicChild, parentKey, parentObject)          
       }
-      if $$$ISERR(sc) quit
-      set $property(dynamicObject, propertyDescriptors.Name) = dynamicChild                  
+      if $$$ISERR(sc) quit      
+      //set $property(dynamicObject, propertyDescriptors.Name) = dynamicChild
+      if $isobject(dynamicChild) do dynamicObject.%Set(propertyDescriptors.Name, dynamicChild)
+      else  do dynamicObject.%Set(propertyDescriptors.Name, "", jsonDataFormat)
     } else {
       set internalValue = $property(object, propertyDescriptors.Name)
-      set $property(dynamicObject, propertyDescriptors.Name) = internalValue
+      set d = propertyDescriptors.Type
+      do dynamicObject.%Set(propertyDescriptors.Name, internalValue, jsonDataFormat)
       if ##class(%Dictionary.CompiledMethod).%ExistsId(propertyDescriptors.Type_"||LogicalToDisplay") {                
         set externalValue = $classmethod(propertyDescriptors.Type, "LogicalToDisplay", internalValue)
         if externalValue '= internalValue {

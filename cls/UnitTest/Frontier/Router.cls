@@ -216,15 +216,5 @@ Method TestGETQuerySQLResult()
   return $$$AssertStatusOK(..AssertRequest(resource, expected.%ToJSON()), $$$FormatText("can retrieve the expected data from the resource %1", resource))
 }
 
-ClassMethod T()
-{
-  set t = ..%New(##class(Port.UnitTest.Manager).%New())
-  do t.OnBeforeAllTests()
-  do t.OnBeforeOneTest()
-  do t.TestGETDynamicSQLResult()
-  do t.OnAfterOneTest()
-  do t.OnAfterAllTests()
-}
-
 }
 

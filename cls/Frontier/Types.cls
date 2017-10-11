@@ -1,3 +1,5 @@
+Include frontier
+
 Class Frontier.Types [ Abstract ]
 {
 
@@ -58,8 +60,7 @@ ClassMethod IsSQLProvider(className As %String) As %Boolean
 
 ClassMethod IsTypeOf(className As %String, expectedType As %String) As %Boolean [ Final, Private ]
 {
-  
-  #define NormalizeClassName(%cn) if $l(%cn, ".") = 1 && ($e(%cn) = "%") set %cn = "%Library."_$e(%cn, 2, *)   
+   
   if className = "" quit 0
   
   $$$NormalizeClassName(className)
@@ -69,6 +70,29 @@ ClassMethod IsTypeOf(className As %String, expectedType As %String) As %Boolean 
   
   // Uses default %Extends method to check for common cases and improve performance.
   return ##class(%Dictionary.CompiledClass).%ExistsId(className) && $classmethod(className, "%Extends", expectedType)
+}
+
+ClassMethod GetJSONDataFormat(cacheType As %String) As %String [ Internal ]
+{
+  
+  $$$NormalizeClassName(cacheType)
+  
+  if ..IsDataType(cacheType) { 
+    set type = $case(cacheType,
+      "%Library.Boolean": "boolean",
+      "%Library.Double": "number",
+      "%Library.BigInt": "number",
+      "%Library.TinyInt": "number",
+      "%Library.Decimal": "number",
+      "%Library.Integer": "number",
+      "%Library.Float": "number",
+      "%Library.Date": "number",
+      "%Library.Time": "number",
+      : "string")
+  } else {
+    set type = "null"
+  }
+  return type
 }
 
 }

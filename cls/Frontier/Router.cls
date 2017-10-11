@@ -1,4 +1,4 @@
-Include (%occErrors, %occStatus)
+Include (%occErrors, %occStatus, frontier)
 
 Class Frontier.Router Extends %CSP.REST
 {
@@ -63,14 +63,13 @@ ClassMethod DispatchRequest(url As %String, httpMethod As %String, forwarded As 
         // This is our final router. Search for the dispatch method and prepare it to be called.
         if matchType = "R" {
           set shouldQuit = 0
-          set requiresCors = $list(mapEntry, 5)
-                                    
+          set requiresCors = $list(mapEntry, 5)                                    
           
           if httpMethod = "OPTIONS" do HandleOptionsRequest(url, requiresCors, .shouldQuit)
           // Don't continue if we hit this point, let the agent do the rest.
-          if shouldQuit return $$$OK
+          if shouldQuit return $$$OK                   
                   
-          if httpMethod '= $list(mapEntry, 3) continue
+          if httpMethod '= $list(mapEntry, 3) continue                   
           
           $$$ThrowOnError(..ProcessCorsRequest(url, requiresCors))
                    
@@ -82,7 +81,9 @@ ClassMethod DispatchRequest(url As %String, httpMethod As %String, forwarded As 
           
           // Don't let the user access this resource if this request doesn't match it somehow.           
             if '%frontier.AuthenticationManager.CheckResourceScope(resourceScope, user.scope) {
-              set %response.Status = ..#HTTP403FORBIDDEN
+              if %response.Status = ..#HTTP200OK || (%response.Status = ..#HTTP201CREATED) {
+                set %response.Status = ..#HTTP403FORBIDDEN
+              }
               $$$ThrowOnError($$$ERROR($$$GeneralError, "This account has not enough privilege to execute this action."))
             }                                            
           }                                                
@@ -173,7 +174,7 @@ FetchRouteParameters(routeParameters=0, matcher, mapEntry, matchType)
 HandleOptionsRequest(url, requireCors, shouldQuit)
  if httpMethod = "OPTIONS" {
    set isHttpMethodMatch = 1 
-   $$$ThrowOnError(..OnHandleOptionsRequest(resolvedUrl))                
+   $$$ThrowOnError(..OnHandleOptionsRequest(resolvedUrl))        
                       
    #; Dispatch CORS
    $$$ThrowOnError(..ProcessCorsRequest(url, requireCors))

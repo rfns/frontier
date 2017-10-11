@@ -147,7 +147,7 @@ Method Sequentialize(ByRef mergedArguments = 0, propertyFormatter As Frontier.Pr
     
   set methodArgumentsLength = ..MethodArguments.Count()
   
-  set jsonErrorMessage = "Invalid JSON format, expected a %1 compatible notation."  
+  set jsonErrorMessage = "Invalid JSON payload: expected a %1 compatible notation."  
   if $$$ISERR(sc) return sc  
   
   set maxLength = methodArgumentsLength
@@ -167,15 +167,16 @@ Method Sequentialize(ByRef mergedArguments = 0, propertyFormatter As Frontier.Pr
       }      
     
       if ##class(Frontier.Types).IsDynamic(methodArgument.Type) {
+        if ..Payload = "" return $$$ERROR($$$GeneralError, $$$FormatText(jsonErrorMessage, methodArgument.Type))
         $$$AssertSinglePayloadParameter
         $$$TriggerPayloadFlag
         set unmarshallTo = methodArgument.Parameters.GetAt("UNMARSHALLTO")
-        set idColumn = methodArgument.Parameters.GetAt("IDCOLUMN")
+        set idFrom = methodArgument.Parameters.GetAt("IDFROM")
         set value = $classmethod(methodArgument.Type, "%FromJSON", ..Payload)
         if unmarshallTo '= "" {
           set instanceId = value."__id__"    
-          if idColumn '= "" {
-            set value."__id__" = $get(mergedArguments(..FindDescribedArgument(idColumn).Index))
+          if idFrom '= "" {
+            set value."__id__" = $get(mergedArguments(..FindDescribedArgument(idFrom).Index))
             if value."__id__" = "" set value."__id__" = instanceId
           }
           if value."__id__" = "" && (..HttpMethod = "PUT" || (..HttpMethod = "PATCH")) {

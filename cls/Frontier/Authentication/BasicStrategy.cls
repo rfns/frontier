@@ -22,12 +22,12 @@ Method Verify(session As %CSP.Session, request As %CSP.Request, response As %CSP
   set authHeader = request.GetCgiEnv("HTTP_AUTHORIZATION")
   
   if authHeader = "" {
-	  set ..Next = 1
+    set ..Next = 1
     return $$CreateError("You must be authenticated to access this resource.")
   }
   
   if $extract(authHeader, 1, 5) '= "Basic" {
-	  set ..Next = 1
+    set ..Next = 1
     return $$CreateError("Malformed authorization header.", "400 Bad Request")
   }
 
@@ -46,6 +46,10 @@ Method Verify(session As %CSP.Session, request As %CSP.Request, response As %CSP
     }
   } else {
     return $$CreateError("Credentials validator was not specified", "500 Internal Server Error")
+  }
+  
+  if $$$ISERR(sc) {
+    return $$CreateError(sc, httpStatus, 1)
   }
   
   if httpStatus = "" {

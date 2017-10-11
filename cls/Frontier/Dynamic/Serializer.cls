@@ -1,5 +1,3 @@
-Include (frontier, %ZEN.Utils)
-
 Class Frontier.Dynamic.Serializer Extends Frontier.AbstractSerializer
 {
 
@@ -22,6 +20,13 @@ ClassMethod Serialize(dynamic As %DynamicAbstractObject, depth As %String = 1, p
     write comma
     set comma = ","
     set propertyName = key
+    set type = dynamic.%GetTypeOf(key)
+    
+    if type = "null" && (value = "") {
+      set value = "null"
+    } elseif type = "boolean" {
+      set value = $$$FormatBoolean(value)
+    }
     
     if $isobject(propertyFormatter) {
       set propertyName = propertyFormatter.Format(propertyName, depth)
@@ -42,10 +47,10 @@ ClassMethod Serialize(dynamic As %DynamicAbstractObject, depth As %String = 1, p
       } elseif ##class(Frontier.Types).IsSQLProvider(type) {
         if 'value.StatementExecuted set sc = value.Execute()
         if $$$ISERR(sc) quit
-        $$$ThrowOnError(##class(Frontier.SQL.Serializer).Serialize(value.Results, depth, propertyFormatter))
+        $$$ThrowOnError(##class(Frontier.SQL.Serializer).Serialize(value.Results, value.Metadata, depth, propertyFormatter))
       }
     } else {
-      write $$$ZENJSONVALUE(value, "s")
+      write ..HandleJSONWord(value)
     }    
   }
   
