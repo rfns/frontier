@@ -24,6 +24,11 @@ XData UrlMap [ XMLNamespace = "http://github.com/rfns/frontier" ]
 <Route Url="/unmarshall" Method="POST" Call="TestPOSTUnmarshallToClass"/>
 <Route Url="/unmarshall/:classId" Method="PUT" Call="TestPUTUnmarshallToClass"/>
 <Route Url="/user" Method="GET" Call="GetUserInfo"/>
+<Map Prefix="/map/A/:param1" Forward="Frontier.UnitTest.Router.Map.A" />
+<Map Prefix="/map/B/:param1/:param2" Forward="Frontier.UnitTest.Router.Map.B" />
+<Map Prefix="/map/C" Forward="Frontier.UnitTest.Router.Map.C" />
+<Map Prefix="/map/D/:paramA/fixed/:paramB" Forward="Frontier.UnitTest.Router.Map.D"/> 
+<Map Prefix="/map/E/(value|val)" Strict="false" Forward="Frontier.UnitTest.Router.Map.E"/>
 </Routes>
 }
 
@@ -38,13 +43,15 @@ ClassMethod OnDataSet(data As %DynamicObject) As %Status
 /// This method is reserved for setting up configurations.
 ClassMethod OnSetup() As %Status
 {
+ 
   // Reporters should be used to signal the developer about request errors.   
   // $$$QuitOnError(%frontier.ReporterManager.AddReporter(##class(MyReporter.Email).%New()))
   
   // Asks the user for a Basic + Base64(username:password) encoded Authorization header.
   set basicStrategy = ##class(Frontier.Authentication.BasicStrategy).%New({
     "realm": "tests", 
-    "validator": ($classname()_":ValidateCredentials")
+    "validator": ($classname()_":ValidateCredentials"),
+    "required": true
   })
   
   // This provides a way to check if the current user is authenticated using Basic scheme.
@@ -244,7 +251,7 @@ ClassMethod TestPOSTUnmarshallToClass(class As %DynamicObject(UNMARSHALLTO="Fron
 /// found, the id will be searched inside the payload. Note that when the id is not found, an exception will be thrown regarding  the
 /// incorrect PUT usage.
 /// curl -H "Content-Type: application/json" -X POST -d '{"Plate": "R-2948","Students": [{"Name": "Rubens","BirthDate": "04/21/1970","SomeValue": 0}]}' 'http://localhost:57772/api/frontier/unmarshall/15'
-ClassMethod TestPUTUnmarshallToClass(class As %DynamicObject(UNMARSHALLTO="Frontier.UnitTest.Fixtures.Class",IDCOLUMN="classId"), classId As %Integer) As Frontier.UnitTest.Fixtures.Student
+ClassMethod TestPUTUnmarshallToClass(class As %DynamicObject(UNMARSHALLTO="Frontier.UnitTest.Fixtures.Class",IDFROM="classId"), classId As %Integer) As Frontier.UnitTest.Fixtures.Student
 {
   $$$ThrowOnError(class.%Save())
   return {
@@ -264,12 +271,18 @@ ClassMethod GetUserInfo() As %Status
 
 ClassMethod ValidateCredentials(login As %String, password As %String, found As %Boolean = 1, Output httpStatus As %String, Output user As %DynamicObject) As %Status
 {
-  set found = (login = "foo" && (password = "bar"))
+  set useScope = 0
+  if login = "foo" && (password = "bar") set found = 1  
+  if login = "admin" && (password = "admin") set found = 1 set useScope = 1
   if found set httpStatus = ..#HTTP200OK
   else  set httpStatus = ..#HTTP403FORBIDDEN
   
   set user = { 
-    "user": (login) 
+    "login": (login)
+  }
+  
+  if useScope {
+    set user.scope = "admin"
   }
   return $$$OK
 }

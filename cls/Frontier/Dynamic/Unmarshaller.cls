@@ -16,6 +16,12 @@ ClassMethod Unmarshall(className As %String, dynamicObject As %DynamicAbstractOb
   return $$$ERROR($$$GeneralError, "Cannot unmarshall data types.")
 }
 
+ClassMethod UnmarshallUsingObject(object As %RegisteredObject, dynamicObject As %DynamicAbstractObject, Output registeredObject As %RegisteredObject = "", propertyFormatter As Frontier.PropertyFormatter) As %Status
+{
+  set dynamicObject."__id__" = object.%Id()
+  return ..Unmarshall($classname(object), dynamicObject, .registeredObject, propertyFormatter)
+}
+
 ClassMethod MakeObject(className As %String, dynamicObject As %DynamicAbstractObject, Output object As %RegisteredObject = "", depth As %String = 1, propertyFormatter As Frontier.PropertyFormatter = "") As %Status [ Private ]
 {
   set object = ""

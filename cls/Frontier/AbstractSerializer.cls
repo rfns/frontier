@@ -3,9 +3,9 @@ Include (frontier, %ZEN.Utils)
 Class Frontier.AbstractSerializer [ Abstract ]
 {
 
-ClassMethod SerializeToStream(dynamic As %DynamicAbstractObject, Output str As %Stream.Object = "", propertyFormatter As Frontier.PropertyFormatter = "") As %Status [ ProcedureBlock = 0 ]
+ClassMethod SerializeToStream(Output str As %Stream.Object = "", arguments...) As %Status [ ProcedureBlock = 0 ]
 {
-  new oldMnemonic, alreadyRedirected, sc, className
+  new oldMnemonic, alreadyRedirected, sc
   
   set sc = $$$OK
   set isRedirected = 0
@@ -20,8 +20,7 @@ ClassMethod SerializeToStream(dynamic As %DynamicAbstractObject, Output str As %
     
     do ##class(%Device).ReDirectIO(1)
     set isRedirected = 1
-    set className = $classname()
-    set sc = ..Serialize(dynamic, 1, propertyFormatter)
+    set sc = ..Serialize(arguments...)
   } catch ex {
     set str = ""
     set sc = ex.AsStatus()
@@ -50,7 +49,6 @@ rchr(time) Quit ""
 
 ClassMethod HandleJSONWord(value As %String)
 {
-  if value = "" set value = "null"
   if value?1(1"true",1"false",1"null") {
     return value    
   }

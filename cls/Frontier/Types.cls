@@ -77,7 +77,7 @@ ClassMethod GetJSONDataFormat(cacheType As %String) As %String [ Internal ]
   
   $$$NormalizeClassName(cacheType)
   
-  if ..IsDataType(cacheType) { 
+  if ..IsDataType(cacheType) {
     set type = $case(cacheType,
       "%Library.Boolean": "boolean",
       "%Library.Double": "number",
@@ -88,6 +88,8 @@ ClassMethod GetJSONDataFormat(cacheType As %String) As %String [ Internal ]
       "%Library.Float": "number",
       "%Library.Date": "number",
       "%Library.Time": "number",
+      "%Library.DateTime": "number",
+      "%Library.TimeStamp": "number",
       : "string")
   } else {
     set type = "null"

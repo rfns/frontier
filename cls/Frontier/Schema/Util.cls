@@ -39,7 +39,7 @@ ClassMethod GeneratePatterns(routes As Frontier.Schema.Routes, targetClass As %S
     for i=1:1:totalRoutes {
       set route = routes.Route.GetAt(i)
       set pattern = $$WritePattern(route.Url, .placeholders)
-      set patterns(i) = $lb(resourceType, pattern, route.Method, route.Call, route.Cors, placeholders, route.Scope, route.UseAuth)
+      set patterns(i) = $lb(resourceType, pattern, route.Method, route.Call, route.Cors, placeholders, route.Scope, route.UseAuth, route.Strict)
     }    
   } 
   if totalMaps > 0 {
@@ -47,7 +47,7 @@ ClassMethod GeneratePatterns(routes As Frontier.Schema.Routes, targetClass As %S
     for j=1:1:totalMaps {
       set map = routes.Map.GetAt(j)
       set pattern = $$WritePattern(map.Prefix, .placeholders)
-      set patterns(i + j) = $lb(resourceType, pattern, map.Forward, placeholders)
+      set patterns(i + j) = $lb(resourceType, pattern, map.Forward, placeholders, map.Strict)
     }
   }
   
@@ -55,33 +55,32 @@ ClassMethod GeneratePatterns(routes As Frontier.Schema.Routes, targetClass As %S
   
 WritePattern(resource, placeholders)
   #define GetPlaceholder(%exp) $piece(%exp, ":", 2) 
+  #define AddPlaceholderIfNotDefined(%placeholder)  ##continue
+  if '$lf(placeholders, %placeholder) { ##continue
+    set $list(placeholders, *+1) = $$$GetPlaceholder(%placeholder) ##continue 
+  }
+    
   
   set pattern = ""
   set placeholders = ""
+  set shouldCloseParenthesis = 0
   
   if $extract(resource) = ":" {
-    set $list(placeholders, *+1) = $$$GetPlaceholder($piece(resource, "/", 1))
+    $$$AddPlaceholderIfNotDefined($piece(resource, "/", 1))
   }
   
-  for resourceIndex=2:1:$length(resource,"/") {
+  set resourcePartsLength = $length(resource,"/")
+  
+  for resourceIndex=2:1:resourcePartsLength {
     set resourcePart = $piece(resource,"/", resourceIndex)
     if $extract(resourcePart) = ":" {
-      set $list(placeholders, *+1) = $$$GetPlaceholder(resourcePart)
-      if resourceType = "R" {
-        set pattern = pattern_"/?([^"_$char(0)_"]+)?+"        
-      } else {        
-        set pattern = pattern_"/([A-Za-z0-9-._~:]+"
-      }
+      $$$AddPlaceholderIfNotDefined(resourcePart) 
+      set pattern = pattern_"/([A-Za-z0-9-._~:]+)"
     } else {      
       set pattern = pattern_"/"_resourcePart
-      if resourceType = "M" {
-        if pattern [ "/([A-Za-z0-9-._~:]+" set pattern = pattern_")"
-        else  set pattern = "("_pattern_")"
-      }
-    }
+    }   
   }
-  if resourceType = "R" return $translate(pattern, $char(0), "/")
-  return pattern_"/?(.*)"
+  return $case(resourceType, "M" : pattern_"/?(.*)", : pattern)
 }
 
 }

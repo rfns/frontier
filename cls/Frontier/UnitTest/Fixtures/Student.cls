@@ -52,11 +52,11 @@ Storage Default
 <Selectivity>10.0000%</Selectivity>
 </Property>
 <Property name="Class">
-<AverageFieldSize>1</AverageFieldSize>
+<AverageFieldSize>1.1</AverageFieldSize>
 <Selectivity>14.2857%</Selectivity>
 </Property>
 <Property name="Name">
-<AverageFieldSize>15.4</AverageFieldSize>
+<AverageFieldSize>16</AverageFieldSize>
 <Selectivity>10.0000%</Selectivity>
 </Property>
 <Property name="SomeValue">

@@ -39,6 +39,7 @@
   set ..Class = ##class(Frontier.UnitTest.Fixtures.Class).%OpenId(classId)
   set ..Student = ##class(Frontier.UnitTest.Fixtures.Student).%OpenId(studentId)
   
+  
   return $$$OK
 ]]></Implementation>
 </Method>
@@ -54,6 +55,12 @@
 ]]></Implementation>
 </Method>
 
+<Method name="OnAfterAllTests">
+<ReturnType>%Status</ReturnType>
+<Implementation><![CDATA[  return $$$OK
+]]></Implementation>
+</Method>
+
 <Method name="AssertRequest">
 <FormalSpec>resource:%String,expected:%DynamicAbstractObject="",method:%String="GET",payload:%DynamicAbstractObject="",authHeader:%String="Basic Zm9vOmJhcg=="</FormalSpec>
 <ReturnType>%Status</ReturnType>
@@ -65,6 +72,7 @@
   }
   
   // Default is Basic foo:bar. Refer to the ValidateCredentials method defined in the Frontier.UnitTest.Router class.
+  // There's also an admin:admin account that is used to simulate scope usage.
   $$$QuitOnError(..Request.SetHeader("Authorization", authHeader))
   
   $$$QuitOnError(..Request.Send(method, resource))
@@ -80,14 +88,13 @@
       if ##class(Frontier.Types).IsDynamicObject(response) && (response.errors '= ""){        
         return ##class(Frontier.UnitTest.Util).MergeErrors(response.errors)
       } elseif ##class(Frontier.Types).IsDynamic($classname(expected)) {
-        $$$QuitOnError(##class(Frontier.Dynamic.Serializer).SerializeToStream(expected, .str))
+        $$$QuitOnError(##class(Frontier.Dynamic.Serializer).SerializeToStream(.str, expected))
         set expectedText = str.Read()
       }
     }
   }
-  
   if responseText '= expectedText {
-    return $$$ERROR($$$GeneralError, $$$FormatText("The received content mismatches with the expected one: %1%2 '= %3%2", $c(10,13), responseText, $c(10,13), expectedText))
+    return $$$ERROR($$$GeneralError, $$$FormatText("The received content mismatches with the expected one: %1%2 '= %3%4", $c(10,13), responseText, $c(10,13), expectedText))
   }  
   
   return $$$OK
@@ -254,6 +261,72 @@
   do $$$AssertStatusOK(##class(Frontier.UnitTest.Util).MarshallSQLResult(rd, .array), "can read SQL result")
   set expected = {"results":(array)}
   return $$$AssertStatusOK(..AssertRequest(resource, expected.%ToJSON()), $$$FormatText("can retrieve the expected data from the resource %1", resource))
+]]></Implementation>
+</Method>
+
+<Method name="TestGETRouteParameterNotSpecified">
+<Implementation><![CDATA[
+  set resource = $$$FormatText("%1map/A/1/route-parameter-not-specified", ..WebApplicationName)
+  set expected = {"error":{"internalCode":5001,"message":"Route parameter 'param1' was not specified as an argument on the receiving method 'TestGETRouteParameterNotSpecified'.","responseCode":500}}
+  return $$$AssertStatusOK(..AssertRequest(resource, expected), $$$FormatText("can retrieve the expected data from the resource %1", resource))
+]]></Implementation>
+</Method>
+
+<Method name="TestGETPassRouteParamToChild">
+<Implementation><![CDATA[
+  set resource = $$$FormatText("%1map/A/hello-from-parent/pass-route-param-to-child", ..WebApplicationName)
+  set expected = {"result":"hello-from-parent"}
+  return $$$AssertStatusOK(..AssertRequest(resource, expected), $$$FormatText("can retrieve the expected data from the resource %1", resource))
+]]></Implementation>
+</Method>
+
+<Method name="TestGETPrioritizeRouteParameter">
+<Implementation><![CDATA[
+  set resource = $$$FormatText("%1map/A/hello-from-route/prioritize-route-parameter?param1=hello_from_query", ..WebApplicationName)
+  set expected = {"result":"hello-from-route"}
+  return $$$AssertStatusOK(..AssertRequest(resource, expected), $$$FormatText("can retrieve the expected data from the resource %1", resource))
+]]></Implementation>
+</Method>
+
+<Method name="TestGETRouteWithoutParameters">
+<Implementation><![CDATA[
+  set resource = $$$FormatText("%1map/C/", ..WebApplicationName)
+  set expected = {"result":"Hello from a simple but mapped route!"}
+  return $$$AssertStatusOK(..AssertRequest(resource, expected), $$$FormatText("can retrieve the expected data from the resource %1", resource))
+]]></Implementation>
+</Method>
+
+<Method name="TestGETScopedResponse">
+<Implementation><![CDATA[
+  set resource = $$$FormatText("%1map/C/scoped", ..WebApplicationName)
+  set expected = {"result":"Hello admin! If you're seeing this, then you have enough privilege for it!"}
+  return $$$AssertStatusNotOK(..AssertRequest(resource, expected), $$$FormatText("can NOT retrieve the expected data from the resource %1 because it's scoped", resource))
+  return $$$AssertStatusOK(..AssertRequest(resource, expected,,,"Basic "_$System.Encryption.Base64Encode("admin:admin")), $$$FormatText("can retrieve the expected data from the resource %1", resource))
+]]></Implementation>
+</Method>
+
+<Method name="TestGETBypassAuth">
+<Implementation><![CDATA[
+  set resource = $$$FormatText("%1map/C/auth/bypass", ..WebApplicationName)
+  set expected = {"result":"This is an unprotected resource!"}
+  return $$$AssertStatusOK(..AssertRequest(resource, expected), $$$FormatText("can retrieve the expected data from the resource %1", resource))
+]]></Implementation>
+</Method>
+
+<Method name="TestGETCalculateResult">
+<Implementation><![CDATA[
+  set resource = $$$FormatText("%1map/D/5/fixed/3/calc/sum", ..WebApplicationName)
+  set expected = {"result":8}
+  return $$$AssertStatusOK(..AssertRequest(resource, expected), $$$FormatText("can retrieve the expected data from the resource %1", resource))
+]]></Implementation>
+</Method>
+
+<Method name="T">
+<ClassMethod>1</ClassMethod>
+<Implementation><![CDATA[
+  set sc = ##class(Frontier.Schema.Util).Parse("API.Mobile.Accounts", .r)
+  set sc = ##class(Frontier.Schema.Util).GeneratePatterns(r, "Frontier.UnitTest.Router",.p)
+  return sc
 ]]></Implementation>
 </Method>
 </Class>

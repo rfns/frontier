@@ -11,7 +11,9 @@ Property Cors As %String(XMLPROJECTION = "ATTRIBUTE");
 
 Property Scope As %String(XMLPROJECTION = "ATTRIBUTE");
 
-Property UseAuth As %String(XMLPROJECTION = "ATTRIBUTE");
+Property UseAuth As %Boolean(XMLPROJECTION = "ATTRIBUTE") [ InitialExpression = 1 ];
+
+Property Strict As %Boolean(XMLPROJECTION = "ATTRIBUTE") [ InitialExpression = 1 ];
 
 }
 

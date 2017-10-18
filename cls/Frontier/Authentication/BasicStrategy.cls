@@ -7,10 +7,13 @@ Property Realm As %String [ Private ];
 
 Property Validator As %String [ Private ];
 
+Property Required As %Boolean [ InitialExpression = 0, Private ];
+
 Method %OnNew(config As %DynamicObject) As %Status
 {
   set ..Realm = config.realm
   set ..Validator = config.validator
+  set ..Required = config.required
   return $$$OK
 }
 
@@ -22,12 +25,11 @@ Method Verify(session As %CSP.Session, request As %CSP.Request, response As %CSP
   set authHeader = request.GetCgiEnv("HTTP_AUTHORIZATION")
   
   if authHeader = "" {
-    set ..Next = 1
+    if '..Required set ..Next = 1 return $$$OK
     return $$CreateError("You must be authenticated to access this resource.")
   }
   
   if $extract(authHeader, 1, 5) '= "Basic" {
-    set ..Next = 1
     return $$CreateError("Malformed authorization header.", "400 Bad Request")
   }
 

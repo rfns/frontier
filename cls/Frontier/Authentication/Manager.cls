@@ -21,7 +21,7 @@ Method %OnNew(session As %CSP.Session, request As %CSP.Request, response As %CSP
 
 Method ScopeSeparatorSet(value As %String) As %Status [ Final, Internal, Private ]
 {
-	set i%ScopeSeparator = $get(value, ",")
+  set i%ScopeSeparator = $get(value, ",")
 }
 
 Method AddStrategy(strategy As Frontier.Authentication.Strategy) As %Status
@@ -42,11 +42,11 @@ Method Verify(Output user As %DynamicObject = {{}}, resourceScope As %String = "
       set strategy = ..Strategies.GetAt(i)
       set sc = strategy.Verify(..Session, ..Request, ..Response, .user, resourceScope)
       if $$$ISOK(sc) {
-	      quit
+        quit
       } elseif 'strategy.Next {
-		    set challengeSC = strategy.GetChallenge(..Session, ..Request, ..Response, .challenge)
-				if $$$ISOK(challengeSC) do ..Response.SetHeader("WWW-Authenticate", challenge)
-				quit		    
+        set challengeSC = strategy.GetChallenge(..Session, ..Request, ..Response, .challenge)
+        if $$$ISOK(challengeSC) do ..Response.SetHeader("WWW-Authenticate", challenge)
+        quit        
       }
     }
   } catch ex {

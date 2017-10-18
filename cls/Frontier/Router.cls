@@ -27,7 +27,7 @@ ClassMethod DispatchMap(index As %Integer, dispatchClass As %String = {$classnam
   return $$$OK
 }
 
-ClassMethod DispatchRequest(url As %String, httpMethod As %String, forwarded As %Boolean = "", routeParameters As %String = 0) As %Status
+ClassMethod DispatchRequest(url As %String, httpMethod As %String, forwarded As %Boolean = "", routeParameters As %String = 0, matches As %DynamicArray = {[]}, parentIsStrict As %Boolean = "") As %Status
 {
   set httpStatus = $case(httpMethod, "POST": ..#HTTP201CREATED, : ..#HTTP200OK)
   set isResourceMatch = 0
@@ -48,38 +48,43 @@ ClassMethod DispatchRequest(url As %String, httpMethod As %String, forwarded As 
       if matcher.Match(resolvedUrl) {      
         set isResourceMatch = 1
         set resourceScope = $lg(mapEntry, 7)
-        set useAuth = $lg(mapEntry, 8)       
+        set strictRouteParameters = $case(matchType, "R": $lg(mapEntry, 9), : $lg(mapEntry, 5))        
                 
         set %frontier.RequestURL = %request.URL
         set %frontier.ClassName = $classname()
                  
         $$$ThrowOnError(..OnSetup())
-        $$$ThrowOnError(..OnDataSet(%frontier.Data))        
+        $$$ThrowOnError(..OnDataSet(%frontier.Data))
+        
+        if parentIsStrict '= "" && (parentIsStrict '= strictRouteParameters) {
+          $$$ThrowOnError($$$ERROR($$$GeneralError, "Cannot use route with mixed Strict definition."))
+        }           
         
         if matcher.GroupCount {
-          do FetchRouteParameters(.routeParameters, matcher, mapEntry, matchType)                      
+          do FetchRouteParameters(.routeParameters)
         }        
         
         // This is our final router. Search for the dispatch method and prepare it to be called.
         if matchType = "R" {
           set shouldQuit = 0
-          set requiresCors = $list(mapEntry, 5)                                    
+          set requiresCors = $list(mapEntry, 5)
+          set useAuth = $lg(mapEntry, 8)                                           
           
           if httpMethod = "OPTIONS" do HandleOptionsRequest(url, requiresCors, .shouldQuit)
           // Don't continue if we hit this point, let the agent do the rest.
           if shouldQuit return $$$OK                   
                   
-          if httpMethod '= $list(mapEntry, 3) continue                   
+          if httpMethod '= $list(mapEntry, 3) continue                
           
           $$$ThrowOnError(..ProcessCorsRequest(url, requiresCors))
                    
-          if useAuth '= "false" {
+          if useAuth {
             // Run pending authentication strategies. If one passes, then the implementation
             // is responsible for filling the user object.
             $$$ThrowOnError(%frontier.AuthenticationManager.Verify(.user, resourceScope))
             set %frontier.User = user
           
-          // Don't let the user access this resource if this request doesn't match it somehow.           
+            // Don't let the user access this resource if this request doesn't match it.           
             if '%frontier.AuthenticationManager.CheckResourceScope(resourceScope, user.scope) {
               if %response.Status = ..#HTTP200OK || (%response.Status = ..#HTTP201CREATED) {
                 set %response.Status = ..#HTTP403FORBIDDEN
@@ -98,7 +103,7 @@ ClassMethod DispatchRequest(url As %String, httpMethod As %String, forwarded As 
           }
           
           // Parse dispatchMethod retrieving its metadata.
-          set tPublicMethod = ##class(Method).%New(dispatchClass, dispatchMethod, .routeParameters, %request, %frontier.PropertyFormatter, %frontier.StrictQueryParameters)
+          set tPublicMethod = ##class(Method).%New(dispatchClass, dispatchMethod, .routeParameters, %request, %frontier.PropertyFormatter, %frontier.StrictQueryParameters, matches)
           merge methodArguments = tPublicMethod.Arguments
           
           // Executes the method and retrives its value. The method MUST return a value or a 
@@ -111,17 +116,15 @@ ClassMethod DispatchRequest(url As %String, httpMethod As %String, forwarded As 
           // Finishes the request.
           return $$$OK
         } elseif matchType = "M" {
-          set g1 = matcher.Group(matcher.GroupCount - 1)
-          // We're reading a map, substracts the url to find the remaining unmatched part.
-          set resolvedUrl = $piece(resolvedUrl, matcher.Group(matcher.GroupCount - 1), 2, *)          
-          
-          // If we got empty, reset it back to "/". So that it matches "/" Url attribute.
-          if resolvedUrl = "" set resolvedUrl = "/"
+          // We're reading a map, Map patterns already include everything needed to forward the
+          // correct URL part, as long as we always consider targeting its the last match.
+          set resolvedUrl = "/"_matcher.Group(matcher.GroupCount)          
           set forwardingClass = $listget(mapEntry, 3)
-          set (isResourceMatch, isHttpMethodMatch) = 1
+          set parentIsStrict = strictRouteParameters              
                     
-          // Re-invoke this method from the mapped class. 
-          $$$ThrowOnError($classmethod(forwardingClass,"DispatchRequest", resolvedUrl, httpMethod, 1, .routeParameters))
+          // Re-invoke this method using the class that this map forwards the request to. 
+          $$$ThrowOnError($classmethod(forwardingClass,"DispatchRequest", resolvedUrl, httpMethod, 1, .routeParameters, matches, strictRouteParameters))
+          // Maps are also a match, so abort everything else and let the forwarding class handle the rest.
           return $$$OK
         }
       }      
@@ -136,7 +139,6 @@ ClassMethod DispatchRequest(url As %String, httpMethod As %String, forwarded As 
     return $$$OK       
   } catch ex {    
     set exceptionPayload = ..HandleException(ex)
-    set s = exceptionPayload.%ToJSON()
     do ##class(Frontier.Dynamic.Serializer).Serialize(exceptionPayload, 1, %frontier.PropertyFormatter)
   }
   return $$$OK
@@ -149,25 +151,32 @@ NextDispatchMap(index=0, mapEntry="", dispatchClass="")
   set index = index + 1
   if dispatchClass = "" set dispatchClass = $classname()
   set mapEntry = ..DispatchMap(index, dispatchClass)
-  return (mapEntry '= "")
+  return (mapEntry '= "")  
   
-FetchRouteParameters(routeParameters=0, matcher, mapEntry, matchType)
-  if matchType = "R" && (httpMethod '= $list(mapEntry, 3)) quit  
-  if matchType = "R" { set max = $ll($lg(mapEntry,6)) }
-  elseif matchType = "M" { set max = $ll($lg(mapEntry,4)) }
+FetchRouteParameters(routeParameters=0)  
+  if matchType = "R" {
+    if httpMethod '= $lg(mapEntry, 3) quit
+    set max = $ll($lg(mapEntry,6)) 
+  } elseif matchType = "M" { 
+    set max = $ll($lg(mapEntry,4))
+  }
   
-  for p=1:1:max {
-    if matchType = "R" {
-      set routeParameterName = $lg($lg(mapEntry,6), p)
-      if '$data(routeParameters(routeParameterName)) {
-        set routeParameters(routeParameterName) = matcher.Group(p)
+  if strictRouteParameters { 
+    for p=1:1:max {
+      if matchType = "R" {
+        set routeParameterName = $lg($lg(mapEntry,6), p)
+        if '$data(routeParameters(routeParameterName)) {
+          set routeParameters(routeParameterName) = matcher.Group(p)
+          set routeParameters = routeParameters + 1
+        }
+      } elseif matchType = "M" {      
+        set routeParameterName = $lg($lg(mapEntry, 4), p)      
+        set routeParameters(routeParameterName) = $piece(matcher.Group(p), "/")
         set routeParameters = routeParameters + 1
       }
-    } elseif matchType = "M" {      
-      set routeParameterName = $lg($lg(mapEntry, 4), p)      
-      set routeParameters(routeParameterName) = $piece(matcher.Group(p), "/")
-      set routeParameters = routeParameters + 1
     }
+  } else {
+    for p=1:1:matcher.GroupCount  do matches.%Push(matcher.Group(p))
   }
   quit
  
@@ -211,7 +220,7 @@ ClassMethod HandleException(exception As %Exception.AbstractException) As %Dynam
   set exceptionJSON.error.responseCode = responseCode    
   set sc = exception.AsStatus()
     
-  if '%frontier.ThrownByApplication || ($$$GETERRORCODE(sc) '= $$$GeneralError) {
+  if '%frontier.ThrownByApplication && ($$$GETERRORCODE(sc) '= $$$GeneralError) {
     set %frontier.Error = sc
     set %frontier.Stack = ##class(Exception).CaptureStack()
   }
@@ -258,7 +267,7 @@ ClassMethod DispatchResponse(returnedData As %CacheString, method As Frontier.Ro
   if %frontier.DirectWrite = 1 {
     return ##class(Frontier.Dynamic.Serializer).Serialize(response, 1, %frontier.PropertyFormatter)
   } else {
-    $$$QuitOnError(##class(Frontier.Dynamic.Serializer).SerializeToStream(response, .stream, %frontier.PropertyFormatter))
+    $$$QuitOnError(##class(Frontier.Dynamic.Serializer).SerializeToStream(.stream, response, 1, %frontier.PropertyFormatter))
     do stream.OutputToDevice()
   }
   return $$$OK
@@ -296,13 +305,15 @@ XData Schema [ Internal ]
 <xs:attribute name="Call" type="call" use="required"/>
 <xs:attribute name="Cors" type="xs:boolean" use="optional" default="false"/>
 <xs:attribute name="Scope" type="string" use="optional" default="false"/>
-<xs:attribute name="UseAuth" type="string" use="optional" default="true"/>
+<xs:attribute name="UseAuth" type="xs:boolean" use="optional" default="true"/>
+<xs:attribute name="Strict" type="xs:boolean" use="optional" default="true"/>
 </xs:complexType>
 </xs:element>
 <xs:element name="Map">
 <xs:complexType>
 <xs:attribute name="Prefix" type="string" use="required"/>
 <xs:attribute name="Forward" type="forward" use="required"/>
+<xs:attribute name="Strict" type="xs:boolean" use="optional" default="true"/>
 </xs:complexType>
 </xs:element>
 </xs:choice>

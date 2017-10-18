@@ -15,7 +15,7 @@ Property HttpMethod As %String [ InitialExpression = "GET" ];
 
 Property Arguments As %CacheString [ InitialExpression = 0, MultiDimensional, ReadOnly ];
 
-Method %OnNew(className As %String, methodName As %String, RESTMethodArguments As %String = 0, request As %CSP.Request = "", propertyFormatter As Frontier.PropertyFormatter = "", strictMode As %Boolean = 1) As %Status [ Private ]
+Method %OnNew(className As %String, methodName As %String, RESTMethodArguments As %String = 0, request As %CSP.Request = "", propertyFormatter As Frontier.PropertyFormatter = "", strictQueryParameters As %Boolean = 1, matches As %DynamicObject = "") As %Status [ Private ]
 {
   set requestQueryParams = 0
   $$$ThrowOnError(..AssertMethodExists(className, methodName))
@@ -31,8 +31,13 @@ Method %OnNew(className As %String, methodName As %String, RESTMethodArguments A
     merge requestQueryParams = request.Data
   }
   
-  $$$ThrowOnError(..MergeArguments(.RESTMethodArguments, .requestQueryParams, .mergedArguments, strictMode))    
-  $$$ThrowOnError(..Sequentialize(.mergedArguments, propertyFormatter))
+  if '$isobject(matches) || ($isobject(matches) && (matches.%Size() = 0)) {  
+    $$$ThrowOnError(..MergeArguments(.RESTMethodArguments, .requestQueryParams, .mergedArguments, strictQueryParameters)) 
+    $$$ThrowOnError(..Sequentialize(.mergedArguments, propertyFormatter))
+  } else {
+    set i%Arguments = 1
+    set i%Arguments(1) = matches
+  }   
   quit $$$OK
 }
 
@@ -215,7 +220,11 @@ Method MergeArguments(ByRef routeArguments As %String = 0, ByRef requestArgument
     
     set keyGroup = $$$KeyGroup(key)
     set $list(keysFound, *+1) = keyGroup
-    set methodArgument = ..FindDescribedArgument(keyGroup)
+    set methodArgument = ..FindDescribedArgument(key)
+    
+    if '$isobject(methodArgument) {
+      set methodArgument = ..FindDescribedArgument(keyGroup)
+    }
     
     if '$isobject(methodArgument) {
       if strictMode {
@@ -230,10 +239,10 @@ Method MergeArguments(ByRef routeArguments As %String = 0, ByRef requestArgument
     set value = requestArguments(key, 1)  
     
     // Checks if we have a sequenced query param.
-    if key?.A1.2N {
+    if key?.A1.2N && (key '= methodArgument.Name) {
       if methodArgument.Arity '= 1 {
         if strictMode {
-          return $$$ERROR($$$GeneralError, keyGroup_" was NOT expected to be sequential.")
+          return $$$ERROR($$$GeneralError, $$$FormatText("'%1' was NOT expected to be sequential.", keyGroup))
         } else {
           continue
         }
@@ -247,7 +256,7 @@ Method MergeArguments(ByRef routeArguments As %String = 0, ByRef requestArgument
       set nextKeyIndex = nextKeyIndex + 1
       
       if nextKeyIndex '= $$$KeyIndex(key) {
-        return $$$ERROR($$$GeneralError, keyGroup_" was expected to be sequential.")
+        return $$$ERROR($$$GeneralError, $$$FormatText("'%1' was expected to be sequential.", keyGroup))
       }
     } else {
       set argumentIndex = methodArgument.Index
@@ -269,7 +278,9 @@ Method MergeArguments(ByRef routeArguments As %String = 0, ByRef requestArgument
           1: methodArgument.Name
         )
         
-        set queryParameterName = $$$KeyGroup(queryParameterName)
+        if methodArgument.Arity {
+          set queryParameterName = $$$KeyGroup(queryParameterName)
+        }
         
         if '$lf(keysFound, queryParameterName) && '$data(routeArguments(queryParameterName)) {
           set $list(missingArguments, *+1) = queryParameterName
@@ -281,7 +292,7 @@ Method MergeArguments(ByRef routeArguments As %String = 0, ByRef requestArgument
   if $ll(missingArguments) > 0 {
     return $$$ERROR($$$GeneralError, "The following query parameters are missing: "_$lts(missingArguments, ", ")_".")
   }
-  
+    
   // Now we must merge the route arguments back, remember that they always take priority over query parameters.
   set routeKey = ""
   for {
@@ -291,7 +302,7 @@ Method MergeArguments(ByRef routeArguments As %String = 0, ByRef requestArgument
     set methodArgument =  ..FindDescribedArgument(routeKey)
     
     if '$isobject(methodArgument) {
-      return $$$ERROR($$$GeneralError, "Route parameter not specified: "_routeKey_".")
+      return $$$ERROR($$$GeneralError, $$$FormatText("Route parameter '%1' was not specified as an argument on the receiving method '%2'.", routeKey, ..MethodDescriptor.Name))
     }
     
     set preArguments(..FindDescribedArgument(routeKey).Index) = routeValue

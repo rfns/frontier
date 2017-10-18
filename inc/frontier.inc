@@ -7,5 +7,5 @@
 #define IsSQLQuery(%str)  ($$$ucase($extract($$$trim(%str), 6)) = "SELECT")
 #define KeyGroup(%requestKey)  $zstrip($zstrip(%requestKey, "<=N"), "=>N")
 #define KeyIndex(%requestKey)  $zstrip($zstrip(%requestKey, "<=N"), "<=A")
-#define FormatBoolean(%value) $select(%value = 1 : "true", 1: "false")
+#define FormatBoolean(%value) $case(%value, 1: "true", 0: "false", : "")
 #define NormalizeClassName(%cn) if $l(%cn, ".") = 1 && ($e(%cn) = "%") set %cn = "%Library."_$e(%cn, 2, *)

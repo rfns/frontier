@@ -3,11 +3,9 @@ Class Frontier.SQL.Serializer Extends Frontier.AbstractSerializer
 
 ClassMethod Serialize(results As %SQL.Statement, metadata As %SQL.StatementMetadata, depth As %Integer = 1, propertyFormatter As Frontier.PropertyFormatter = "") As %Status
 {
-  
-  #define WriteThrowable(%expr) $$$ThrowOnError(data.Write(%expr))
-  
+   
   set sc = $$$OK
-  $$$QuitOnError(..FetchColumnNames(metadata, .columnNames))
+  $$$QuitOnError(..FetchColumnNames(metadata, .columnNames))  
   
   set data = ##class(%Stream.GlobalCharacter).%New()
   
@@ -31,13 +29,13 @@ ClassMethod Serialize(results As %SQL.Statement, metadata As %SQL.StatementMetad
         set columnName = columnNames(c)
         set columnType = columnNames(c, "type")
         set value = results.%Get(columnName)
-        set jsonDataFormat = ##class(Frontier.Types).GetJSONDataFormat(columnType)     
+        set jsonDataFormat = ##class(Frontier.Types).GetJSONDataFormat(columnType)       
         
-        if jsonDataFormat = "null" && (value = "") {
+        if value = "" && (jsonDataFormat = "null") {
           set value = jsonDataFormat
-        } elseif jsonDataFormat = "boolean" {          
+        } elseif jsonDataFormat = "boolean" {
           set value = $$$FormatBoolean(value)
-        }        
+        }
         
         if $isobject(propertyFormatter) {
           set columnName = propertyFormatter.Format(columnName, depth)
