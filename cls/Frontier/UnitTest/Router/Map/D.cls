@@ -4,11 +4,11 @@ Class Frontier.UnitTest.Router.Map.D Extends Frontier.Router
 XData UrlMap [ XMLNamespace = "http://github.com/rfns/frontier" ]
 {
 <Routes>
- <Route Url="/calc/:operation" Method="GET" Call="TestGETCalculateResult"/>
+ <Route Url="/parent-sparse-params/:operation" Method="GET" Call="TestGETParentSparseParams"/>
 </Routes>
 }
 
-ClassMethod TestGETCalculateResult(operation As %String, paramA As %Integer, paramB As %Integer)
+ClassMethod TestGETParentSparseParams(operation As %String, paramA As %Integer, paramB As %Integer)
 {
   if operation = "sum" return paramA + paramB
   if operation = "subtract" return paramA - paramB

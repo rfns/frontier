@@ -80,7 +80,7 @@ Method CreateAndExecute() As %Status [ Private ]
   set statement = ##class(%SQL.Statement).%New()
   set statement.%SelectMode = ..Mode  
   
-  if ..QueryClass '= "" && (..QueryName '= "") {    
+  if ..QueryClass '= "" && (..QueryName '= "") {
     set sc = statement.%PrepareClassQuery(..QueryClass, ..QueryName)    
   } elseif ..SQL '= "" {
     set sc = statement.%Prepare(..SQL)

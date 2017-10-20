@@ -103,7 +103,7 @@
 
 <Method name="TestGETRouteParams">
 <Implementation><![CDATA[
-  set resource = $$$FormatText("%1route_params/%2", ..WebApplicationName, ..Class.%Id())
+  set resource = $$$FormatText("%1route-params/%2", ..WebApplicationName, ..Class.%Id())
   do ##class(Frontier.Dynamic.Marshaller).Marshall(..Class, .expected)
   return $$$AssertStatusOK(..AssertRequest(resource, expected), $$$FormatText("can retrieve the expected data from the resource %1", resource))
 ]]></Implementation>
@@ -112,7 +112,7 @@
 <Method name="TestGETOneQueryParameter">
 <Implementation><![CDATA[
   set expected = { "result": "hello" }  
-  set resource = $$$FormatText("%1query_params?msg=%2", ..WebApplicationName, "hello")
+  set resource = $$$FormatText("%1query-params?msg=%2", ..WebApplicationName, "hello")
   return $$$AssertStatusOK(..AssertRequest(resource, expected), $$$FormatText("can retrieve the expected data from the resource %1", resource))
 ]]></Implementation>
 </Method>
@@ -120,7 +120,7 @@
 <Method name="TestGETRestParametersSum">
 <Implementation><![CDATA[
   set expected = { "result": 60 }
-  set resource = $$$FormatText("%1rest_params?n1=10&n2=20&n3=30", ..WebApplicationName)
+  set resource = $$$FormatText("%1rest-params?n1=10&n2=20&n3=30", ..WebApplicationName)
   return $$$AssertStatusOK(..AssertRequest(resource, expected), $$$FormatText("can retrieve the expected data from the resource %1", resource))
 ]]></Implementation>
 </Method>
@@ -136,7 +136,7 @@
 
 <Method name="TestPOSTObjectPayloadSingle">
 <Implementation><![CDATA[
-  set resource = $$$FormatText("%1payload/single_object", ..WebApplicationName)
+  set resource = $$$FormatText("%1payload/single-object", ..WebApplicationName)
   set payload = {"username":"xyz","password":"xyz"}
   set expected = payload
   return $$$AssertStatusOK(..AssertRequest(resource, expected, "POST", payload), $$$FormatText("can retrieve the expected data from the resource %1", resource))
@@ -145,7 +145,7 @@
 
 <Method name="TestPOSTObjectPayloadQueryParams">
 <Implementation><![CDATA[
-  set resource = $$$FormatText("%1payload/object_with_query_params?msg=hello", ..WebApplicationName)
+  set resource = $$$FormatText("%1payload/object-with-query-params?msg=hello", ..WebApplicationName)
   set payload = {"username":"xyz","password":"xyz"}
   set expected = {"msg":"hello","payload":(payload)}
   return $$$AssertStatusOK(..AssertRequest(resource, expected, "POST", payload), $$$FormatText("can retrieve the expected data from the resource %1", resource))
@@ -154,7 +154,7 @@
 
 <Method name="TestPOSTArrayPayloadSingle">
 <Implementation><![CDATA[
-  set resource = $$$FormatText("%1payload/single_array", ..WebApplicationName)
+  set resource = $$$FormatText("%1payload/single-array", ..WebApplicationName)
   set payload = [{"password":"xyz","username":"xyz"}]
   set expected = payload
   return $$$AssertStatusOK(..AssertRequest(resource, expected, "POST", payload), $$$FormatText("can retrieve the expected data from the resource %1", resource))
@@ -163,7 +163,7 @@
 
 <Method name="TestPOSTArrayPayloadQueryParams">
 <Implementation><![CDATA[
-  set resource =  $$$FormatText("%1payload/array_with_query_params?msg=hello", ..WebApplicationName)
+  set resource =  $$$FormatText("%1payload/array-with-query-params?msg=hello", ..WebApplicationName)
   set payload = [{"password":"xyz","username":"xyz"}]
   set expected = ["hello",(payload)]
   return $$$AssertStatusOK(..AssertRequest(resource, expected, "POST", payload), $$$FormatText("can retrieve the expected data from the resource %1", resource))
@@ -180,14 +180,14 @@
 
 <Method name="TestGETInvalidRestSequence">
 <Implementation><![CDATA[
-  set resource =  $$$FormatText("%1rest_params?n1=&n4=10", ..WebApplicationName)
+  set resource =  $$$FormatText("%1rest-params?n1=&n4=10", ..WebApplicationName)
   return $$$AssertStatusNotOK(..AssertRequest(resource, "" /* we're expecting an error */), "returns an error if rest argument index is not sequential")
 ]]></Implementation>
 </Method>
 
 <Method name="TestGETUnspecifiedArgument">
 <Implementation><![CDATA[
-  set resource = $$$FormatText("%1query_params?unknown=1", ..WebApplicationName)
+  set resource = $$$FormatText("%1query-params?unknown=1", ..WebApplicationName)
   return $$$AssertStatusNotOK(..AssertRequest(resource, "" /* we're expecting an error */), "returns an error if an unknown argument is provided")
 ]]></Implementation>
 </Method>
@@ -264,6 +264,14 @@
 ]]></Implementation>
 </Method>
 
+<Method name="TestGETSessionUserInfo">
+<Implementation><![CDATA[
+  set resource = $$$FormatText("%1user-info", ..WebApplicationName)
+  set expected = {"login":"foo"}
+  return $$$AssertStatusOK(..AssertRequest(resource, expected), $$$FormatText("can retrieve the expected data from the resource %1", resource))
+]]></Implementation>
+</Method>
+
 <Method name="TestGETRouteParameterNotSpecified">
 <Implementation><![CDATA[
   set resource = $$$FormatText("%1map/A/1/route-parameter-not-specified", ..WebApplicationName)
@@ -315,18 +323,9 @@
 
 <Method name="TestGETCalculateResult">
 <Implementation><![CDATA[
-  set resource = $$$FormatText("%1map/D/5/fixed/3/calc/sum", ..WebApplicationName)
+  set resource = $$$FormatText("%1map/D/5/fixed/3/parent-sparse-params/sum", ..WebApplicationName)
   set expected = {"result":8}
   return $$$AssertStatusOK(..AssertRequest(resource, expected), $$$FormatText("can retrieve the expected data from the resource %1", resource))
-]]></Implementation>
-</Method>
-
-<Method name="T">
-<ClassMethod>1</ClassMethod>
-<Implementation><![CDATA[
-  set sc = ##class(Frontier.Schema.Util).Parse("API.Mobile.Accounts", .r)
-  set sc = ##class(Frontier.Schema.Util).GeneratePatterns(r, "Frontier.UnitTest.Router",.p)
-  return sc
 ]]></Implementation>
 </Method>
 </Class>

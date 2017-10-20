@@ -5,7 +5,7 @@ XData UrlMap [ XMLNamespace = "http://github.com/rfns/frontier" ]
 {
 <Routes>
 <Route Url="/result" Method="GET" Call="TestGETParentSinglePlaceholder" />
-<Route Url="/something_(up|down)" Method="GET" Call="TestMe" />
+<Route Url="/something_(up|down)" Strict="false" Method="GET" Call="TestMe" />
 </Routes>
 }
 

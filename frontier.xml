@@ -2501,7 +2501,7 @@ This is the Schema which defines the form of the dispatch map</Description>
   set statement = ##class(%SQL.Statement).%New()
   set statement.%SelectMode = ..Mode  
   
-  if ..QueryClass '= "" && (..QueryName '= "") {    
+  if ..QueryClass '= "" && (..QueryName '= "") {
     set sc = statement.%PrepareClassQuery(..QueryClass, ..QueryName)    
   } elseif ..SQL '= "" {
     set sc = statement.%Prepare(..SQL)
@@ -3171,26 +3171,26 @@ WritePattern(resource, placeholders)
 <XMLNamespace>http://github.com/rfns/frontier</XMLNamespace>
 <Data><![CDATA[
 <Routes>
-<Route Url="/route_params/:class" Method="GET" Call="TestGETRouteParams"/>
-<Route Url="/query_params" Method="GET" Call="TestGETOneQueryParameter"/>
-<Route Url="/rest_params" Method="GET" Call="TestGETRestParametersSum"/>
+<Route Url="/route-params/:class" Method="GET" Call="TestGETRouteParams"/>
+<Route Url="/query-params" Method="GET" Call="TestGETOneQueryParameter"/>
+<Route Url="/rest-params" Method="GET" Call="TestGETRestParametersSum"/>
 <Route Url="/sql/dynamic" Method="GET" Call="TestGETDynamicSQLResult"/>
 <Route Url="/sql/query" Method="GET" Call="TestGETQuerySQLResult"/>
 <Route Url="/raw" Method="GET" Call="TestGETRawMode"/>
 <Route Url="/shared_data" Method="GET" Call="TestGETData"/>
 <Route Url="/stream" Method="GET" Call="TestGETStream"/>
 <Route Url="/alias" Method="GET" Call="TestGETAliasedQueryParameter"/>
-<Route Url="/payload/single_object" Method="POST" Call="TestPOSTObjectPayloadSingle"/>
-<Route Url="/payload/object_with_query_params" Method="POST" Call="TestPOSTObjectPayloadQueryParams"/>  
-<Route Url="/payload/single_array" Method="POST" Call="TestPOSTArrayPayloadSingle"/>
-<Route Url="/payload/array_with_query_params" Method="POST" Call="TestPOSTArrayPayloadQueryParams"/>
+<Route Url="/payload/single-object" Method="POST" Call="TestPOSTObjectPayloadSingle"/>
+<Route Url="/payload/object-with-query-params" Method="POST" Call="TestPOSTObjectPayloadQueryParams"/>  
+<Route Url="/payload/single-array" Method="POST" Call="TestPOSTArrayPayloadSingle"/>
+<Route Url="/payload/array-with-query-params" Method="POST" Call="TestPOSTArrayPayloadQueryParams"/>
 <Route Url="/payload/invalid" Method="POST" Call="TestPOSTInvalidPayload"/>
 <Route Url="/mixed/object" Method="GET" Call="TestGETMixedDynamicObject"/>
 <Route Url="/mixed/array" Method="GET" Call="TestGETMixedDynamicArray"/>
 <Route Url="/mixed/rest" Method="POST" Call="TestPOSTMixedRestParametersSum"/>
 <Route Url="/unmarshall" Method="POST" Call="TestPOSTUnmarshallToClass"/>
 <Route Url="/unmarshall/:classId" Method="PUT" Call="TestPUTUnmarshallToClass"/>
-<Route Url="/user" Method="GET" Call="GetUserInfo"/>
+<Route Url="/user-info" Method="GET" Call="TestGETSessionUserInfo"/>
 <Map Prefix="/map/A/:param1" Forward="Frontier.UnitTest.Router.Map.A" />
 <Map Prefix="/map/B/:param1/:param2" Forward="Frontier.UnitTest.Router.Map.B" />
 <Map Prefix="/map/C" Forward="Frontier.UnitTest.Router.Map.C" />
@@ -3520,7 +3520,7 @@ curl -H "Content-Type: application/json" -X POST -d '{"Plate": "R-2948","Student
 ]]></Implementation>
 </Method>
 
-<Method name="GetUserInfo">
+<Method name="TestGETSessionUserInfo">
 <Description>
 This method depends on the authorization header sent by the client and validated with the validator method.
 The validator method is also responsible for defining the user object.
@@ -3674,12 +3674,12 @@ curl -H "Authorization: Basic Zm9vOmJhcg==" 'http://localhost:57772/api/frontier
 <XMLNamespace>http://github.com/rfns/frontier</XMLNamespace>
 <Data><![CDATA[
 <Routes>
- <Route Url="/calc/:operation" Method="GET" Call="TestGETCalculateResult"/>
+ <Route Url="/parent-sparse-params/:operation" Method="GET" Call="TestGETParentSparseParams"/>
 </Routes>
 ]]></Data>
 </XData>
 
-<Method name="TestGETCalculateResult">
+<Method name="TestGETParentSparseParams">
 <ClassMethod>1</ClassMethod>
 <FormalSpec>operation:%String,paramA:%Integer,paramB:%Integer</FormalSpec>
 <Implementation><![CDATA[
@@ -3702,7 +3702,7 @@ curl -H "Authorization: Basic Zm9vOmJhcg==" 'http://localhost:57772/api/frontier
 <Data><![CDATA[
 <Routes>
 <Route Url="/result" Method="GET" Call="TestGETParentSinglePlaceholder" />
-<Route Url="/something_(up|down)" Method="GET" Call="TestMe" />
+<Route Url="/something_(up|down)" Strict="false" Method="GET" Call="TestMe" />
 </Routes>
 ]]></Data>
 </XData>
@@ -4166,7 +4166,7 @@ curl -H "Authorization: Basic Zm9vOmJhcg==" 'http://localhost:57772/api/frontier
 
 <Method name="TestGETRouteParams">
 <Implementation><![CDATA[
-  set resource = $$$FormatText("%1route_params/%2", ..WebApplicationName, ..Class.%Id())
+  set resource = $$$FormatText("%1route-params/%2", ..WebApplicationName, ..Class.%Id())
   do ##class(Frontier.Dynamic.Marshaller).Marshall(..Class, .expected)
   return $$$AssertStatusOK(..AssertRequest(resource, expected), $$$FormatText("can retrieve the expected data from the resource %1", resource))
 ]]></Implementation>
@@ -4175,7 +4175,7 @@ curl -H "Authorization: Basic Zm9vOmJhcg==" 'http://localhost:57772/api/frontier
 <Method name="TestGETOneQueryParameter">
 <Implementation><![CDATA[
   set expected = { "result": "hello" }  
-  set resource = $$$FormatText("%1query_params?msg=%2", ..WebApplicationName, "hello")
+  set resource = $$$FormatText("%1query-params?msg=%2", ..WebApplicationName, "hello")
   return $$$AssertStatusOK(..AssertRequest(resource, expected), $$$FormatText("can retrieve the expected data from the resource %1", resource))
 ]]></Implementation>
 </Method>
@@ -4183,7 +4183,7 @@ curl -H "Authorization: Basic Zm9vOmJhcg==" 'http://localhost:57772/api/frontier
 <Method name="TestGETRestParametersSum">
 <Implementation><![CDATA[
   set expected = { "result": 60 }
-  set resource = $$$FormatText("%1rest_params?n1=10&n2=20&n3=30", ..WebApplicationName)
+  set resource = $$$FormatText("%1rest-params?n1=10&n2=20&n3=30", ..WebApplicationName)
   return $$$AssertStatusOK(..AssertRequest(resource, expected), $$$FormatText("can retrieve the expected data from the resource %1", resource))
 ]]></Implementation>
 </Method>
@@ -4199,7 +4199,7 @@ curl -H "Authorization: Basic Zm9vOmJhcg==" 'http://localhost:57772/api/frontier
 
 <Method name="TestPOSTObjectPayloadSingle">
 <Implementation><![CDATA[
-  set resource = $$$FormatText("%1payload/single_object", ..WebApplicationName)
+  set resource = $$$FormatText("%1payload/single-object", ..WebApplicationName)
   set payload = {"username":"xyz","password":"xyz"}
   set expected = payload
   return $$$AssertStatusOK(..AssertRequest(resource, expected, "POST", payload), $$$FormatText("can retrieve the expected data from the resource %1", resource))
@@ -4208,7 +4208,7 @@ curl -H "Authorization: Basic Zm9vOmJhcg==" 'http://localhost:57772/api/frontier
 
 <Method name="TestPOSTObjectPayloadQueryParams">
 <Implementation><![CDATA[
-  set resource = $$$FormatText("%1payload/object_with_query_params?msg=hello", ..WebApplicationName)
+  set resource = $$$FormatText("%1payload/object-with-query-params?msg=hello", ..WebApplicationName)
   set payload = {"username":"xyz","password":"xyz"}
   set expected = {"msg":"hello","payload":(payload)}
   return $$$AssertStatusOK(..AssertRequest(resource, expected, "POST", payload), $$$FormatText("can retrieve the expected data from the resource %1", resource))
@@ -4217,7 +4217,7 @@ curl -H "Authorization: Basic Zm9vOmJhcg==" 'http://localhost:57772/api/frontier
 
 <Method name="TestPOSTArrayPayloadSingle">
 <Implementation><![CDATA[
-  set resource = $$$FormatText("%1payload/single_array", ..WebApplicationName)
+  set resource = $$$FormatText("%1payload/single-array", ..WebApplicationName)
   set payload = [{"password":"xyz","username":"xyz"}]
   set expected = payload
   return $$$AssertStatusOK(..AssertRequest(resource, expected, "POST", payload), $$$FormatText("can retrieve the expected data from the resource %1", resource))
@@ -4226,7 +4226,7 @@ curl -H "Authorization: Basic Zm9vOmJhcg==" 'http://localhost:57772/api/frontier
 
 <Method name="TestPOSTArrayPayloadQueryParams">
 <Implementation><![CDATA[
-  set resource =  $$$FormatText("%1payload/array_with_query_params?msg=hello", ..WebApplicationName)
+  set resource =  $$$FormatText("%1payload/array-with-query-params?msg=hello", ..WebApplicationName)
   set payload = [{"password":"xyz","username":"xyz"}]
   set expected = ["hello",(payload)]
   return $$$AssertStatusOK(..AssertRequest(resource, expected, "POST", payload), $$$FormatText("can retrieve the expected data from the resource %1", resource))
@@ -4243,14 +4243,14 @@ curl -H "Authorization: Basic Zm9vOmJhcg==" 'http://localhost:57772/api/frontier
 
 <Method name="TestGETInvalidRestSequence">
 <Implementation><![CDATA[
-  set resource =  $$$FormatText("%1rest_params?n1=&n4=10", ..WebApplicationName)
+  set resource =  $$$FormatText("%1rest-params?n1=&n4=10", ..WebApplicationName)
   return $$$AssertStatusNotOK(..AssertRequest(resource, "" /* we're expecting an error */), "returns an error if rest argument index is not sequential")
 ]]></Implementation>
 </Method>
 
 <Method name="TestGETUnspecifiedArgument">
 <Implementation><![CDATA[
-  set resource = $$$FormatText("%1query_params?unknown=1", ..WebApplicationName)
+  set resource = $$$FormatText("%1query-params?unknown=1", ..WebApplicationName)
   return $$$AssertStatusNotOK(..AssertRequest(resource, "" /* we're expecting an error */), "returns an error if an unknown argument is provided")
 ]]></Implementation>
 </Method>
@@ -4327,6 +4327,14 @@ curl -H "Authorization: Basic Zm9vOmJhcg==" 'http://localhost:57772/api/frontier
 ]]></Implementation>
 </Method>
 
+<Method name="TestGETSessionUserInfo">
+<Implementation><![CDATA[
+  set resource = $$$FormatText("%1user-info", ..WebApplicationName)
+  set expected = {"login":"foo"}
+  return $$$AssertStatusOK(..AssertRequest(resource, expected), $$$FormatText("can retrieve the expected data from the resource %1", resource))
+]]></Implementation>
+</Method>
+
 <Method name="TestGETRouteParameterNotSpecified">
 <Implementation><![CDATA[
   set resource = $$$FormatText("%1map/A/1/route-parameter-not-specified", ..WebApplicationName)
@@ -4378,18 +4386,9 @@ curl -H "Authorization: Basic Zm9vOmJhcg==" 'http://localhost:57772/api/frontier
 
 <Method name="TestGETCalculateResult">
 <Implementation><![CDATA[
-  set resource = $$$FormatText("%1map/D/5/fixed/3/calc/sum", ..WebApplicationName)
+  set resource = $$$FormatText("%1map/D/5/fixed/3/parent-sparse-params/sum", ..WebApplicationName)
   set expected = {"result":8}
   return $$$AssertStatusOK(..AssertRequest(resource, expected), $$$FormatText("can retrieve the expected data from the resource %1", resource))
-]]></Implementation>
-</Method>
-
-<Method name="T">
-<ClassMethod>1</ClassMethod>
-<Implementation><![CDATA[
-  set sc = ##class(Frontier.Schema.Util).Parse("API.Mobile.Accounts", .r)
-  set sc = ##class(Frontier.Schema.Util).GeneratePatterns(r, "Frontier.UnitTest.Router",.p)
-  return sc
 ]]></Implementation>
 </Method>
 </Class>

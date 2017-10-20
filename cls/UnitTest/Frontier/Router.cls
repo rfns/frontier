@@ -79,7 +79,7 @@ Method AssertRequest(resource As %String, expected As %DynamicAbstractObject = "
 
 Method TestGETRouteParams()
 {
-  set resource = $$$FormatText("%1route_params/%2", ..WebApplicationName, ..Class.%Id())
+  set resource = $$$FormatText("%1route-params/%2", ..WebApplicationName, ..Class.%Id())
   do ##class(Frontier.Dynamic.Marshaller).Marshall(..Class, .expected)
   return $$$AssertStatusOK(..AssertRequest(resource, expected), $$$FormatText("can retrieve the expected data from the resource %1", resource))
 }
@@ -87,14 +87,14 @@ Method TestGETRouteParams()
 Method TestGETOneQueryParameter()
 {
   set expected = { "result": "hello" }  
-  set resource = $$$FormatText("%1query_params?msg=%2", ..WebApplicationName, "hello")
+  set resource = $$$FormatText("%1query-params?msg=%2", ..WebApplicationName, "hello")
   return $$$AssertStatusOK(..AssertRequest(resource, expected), $$$FormatText("can retrieve the expected data from the resource %1", resource))
 }
 
 Method TestGETRestParametersSum()
 {
   set expected = { "result": 60 }
-  set resource = $$$FormatText("%1rest_params?n1=10&n2=20&n3=30", ..WebApplicationName)
+  set resource = $$$FormatText("%1rest-params?n1=10&n2=20&n3=30", ..WebApplicationName)
   return $$$AssertStatusOK(..AssertRequest(resource, expected), $$$FormatText("can retrieve the expected data from the resource %1", resource))
 }
 
@@ -108,7 +108,7 @@ Method TestPOSTMixedRestParametersSum()
 
 Method TestPOSTObjectPayloadSingle()
 {
-  set resource = $$$FormatText("%1payload/single_object", ..WebApplicationName)
+  set resource = $$$FormatText("%1payload/single-object", ..WebApplicationName)
   set payload = {"username":"xyz","password":"xyz"}
   set expected = payload
   return $$$AssertStatusOK(..AssertRequest(resource, expected, "POST", payload), $$$FormatText("can retrieve the expected data from the resource %1", resource))
@@ -116,7 +116,7 @@ Method TestPOSTObjectPayloadSingle()
 
 Method TestPOSTObjectPayloadQueryParams()
 {
-  set resource = $$$FormatText("%1payload/object_with_query_params?msg=hello", ..WebApplicationName)
+  set resource = $$$FormatText("%1payload/object-with-query-params?msg=hello", ..WebApplicationName)
   set payload = {"username":"xyz","password":"xyz"}
   set expected = {"msg":"hello","payload":(payload)}
   return $$$AssertStatusOK(..AssertRequest(resource, expected, "POST", payload), $$$FormatText("can retrieve the expected data from the resource %1", resource))
@@ -124,7 +124,7 @@ Method TestPOSTObjectPayloadQueryParams()
 
 Method TestPOSTArrayPayloadSingle()
 {
-  set resource = $$$FormatText("%1payload/single_array", ..WebApplicationName)
+  set resource = $$$FormatText("%1payload/single-array", ..WebApplicationName)
   set payload = [{"password":"xyz","username":"xyz"}]
   set expected = payload
   return $$$AssertStatusOK(..AssertRequest(resource, expected, "POST", payload), $$$FormatText("can retrieve the expected data from the resource %1", resource))
@@ -132,7 +132,7 @@ Method TestPOSTArrayPayloadSingle()
 
 Method TestPOSTArrayPayloadQueryParams()
 {
-  set resource =  $$$FormatText("%1payload/array_with_query_params?msg=hello", ..WebApplicationName)
+  set resource =  $$$FormatText("%1payload/array-with-query-params?msg=hello", ..WebApplicationName)
   set payload = [{"password":"xyz","username":"xyz"}]
   set expected = ["hello",(payload)]
   return $$$AssertStatusOK(..AssertRequest(resource, expected, "POST", payload), $$$FormatText("can retrieve the expected data from the resource %1", resource))
@@ -147,13 +147,13 @@ Method TestPOSTInvalidPayload()
 
 Method TestGETInvalidRestSequence()
 {
-  set resource =  $$$FormatText("%1rest_params?n1=&n4=10", ..WebApplicationName)
+  set resource =  $$$FormatText("%1rest-params?n1=&n4=10", ..WebApplicationName)
   return $$$AssertStatusNotOK(..AssertRequest(resource, "" /* we're expecting an error */), "returns an error if rest argument index is not sequential")
 }
 
 Method TestGETUnspecifiedArgument()
 {
-  set resource = $$$FormatText("%1query_params?unknown=1", ..WebApplicationName)
+  set resource = $$$FormatText("%1query-params?unknown=1", ..WebApplicationName)
   return $$$AssertStatusNotOK(..AssertRequest(resource, "" /* we're expecting an error */), "returns an error if an unknown argument is provided")
 }
 
@@ -222,6 +222,13 @@ Method TestGETQuerySQLResult()
   return $$$AssertStatusOK(..AssertRequest(resource, expected.%ToJSON()), $$$FormatText("can retrieve the expected data from the resource %1", resource))
 }
 
+Method TestGETSessionUserInfo()
+{
+  set resource = $$$FormatText("%1user-info", ..WebApplicationName)
+  set expected = {"login":"foo"}
+  return $$$AssertStatusOK(..AssertRequest(resource, expected), $$$FormatText("can retrieve the expected data from the resource %1", resource))
+}
+
 Method TestGETRouteParameterNotSpecified()
 {
   set resource = $$$FormatText("%1map/A/1/route-parameter-not-specified", ..WebApplicationName)
@@ -267,16 +274,9 @@ Method TestGETBypassAuth()
 
 Method TestGETCalculateResult()
 {
-  set resource = $$$FormatText("%1map/D/5/fixed/3/calc/sum", ..WebApplicationName)
+  set resource = $$$FormatText("%1map/D/5/fixed/3/parent-sparse-params/sum", ..WebApplicationName)
   set expected = {"result":8}
   return $$$AssertStatusOK(..AssertRequest(resource, expected), $$$FormatText("can retrieve the expected data from the resource %1", resource))
-}
-
-ClassMethod T()
-{
-  set sc = ##class(Frontier.Schema.Util).Parse("API.Mobile.Accounts", .r)
-  set sc = ##class(Frontier.Schema.Util).GeneratePatterns(r, "Frontier.UnitTest.Router",.p)
-  return sc
 }
 
 }

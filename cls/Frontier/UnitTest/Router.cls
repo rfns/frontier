@@ -4,26 +4,26 @@ Class Frontier.UnitTest.Router Extends Frontier.Router
 XData UrlMap [ XMLNamespace = "http://github.com/rfns/frontier" ]
 {
 <Routes>
-<Route Url="/route_params/:class" Method="GET" Call="TestGETRouteParams"/>
-<Route Url="/query_params" Method="GET" Call="TestGETOneQueryParameter"/>
-<Route Url="/rest_params" Method="GET" Call="TestGETRestParametersSum"/>
+<Route Url="/route-params/:class" Method="GET" Call="TestGETRouteParams"/>
+<Route Url="/query-params" Method="GET" Call="TestGETOneQueryParameter"/>
+<Route Url="/rest-params" Method="GET" Call="TestGETRestParametersSum"/>
 <Route Url="/sql/dynamic" Method="GET" Call="TestGETDynamicSQLResult"/>
 <Route Url="/sql/query" Method="GET" Call="TestGETQuerySQLResult"/>
 <Route Url="/raw" Method="GET" Call="TestGETRawMode"/>
 <Route Url="/shared_data" Method="GET" Call="TestGETData"/>
 <Route Url="/stream" Method="GET" Call="TestGETStream"/>
 <Route Url="/alias" Method="GET" Call="TestGETAliasedQueryParameter"/>
-<Route Url="/payload/single_object" Method="POST" Call="TestPOSTObjectPayloadSingle"/>
-<Route Url="/payload/object_with_query_params" Method="POST" Call="TestPOSTObjectPayloadQueryParams"/>  
-<Route Url="/payload/single_array" Method="POST" Call="TestPOSTArrayPayloadSingle"/>
-<Route Url="/payload/array_with_query_params" Method="POST" Call="TestPOSTArrayPayloadQueryParams"/>
+<Route Url="/payload/single-object" Method="POST" Call="TestPOSTObjectPayloadSingle"/>
+<Route Url="/payload/object-with-query-params" Method="POST" Call="TestPOSTObjectPayloadQueryParams"/>  
+<Route Url="/payload/single-array" Method="POST" Call="TestPOSTArrayPayloadSingle"/>
+<Route Url="/payload/array-with-query-params" Method="POST" Call="TestPOSTArrayPayloadQueryParams"/>
 <Route Url="/payload/invalid" Method="POST" Call="TestPOSTInvalidPayload"/>
 <Route Url="/mixed/object" Method="GET" Call="TestGETMixedDynamicObject"/>
 <Route Url="/mixed/array" Method="GET" Call="TestGETMixedDynamicArray"/>
 <Route Url="/mixed/rest" Method="POST" Call="TestPOSTMixedRestParametersSum"/>
 <Route Url="/unmarshall" Method="POST" Call="TestPOSTUnmarshallToClass"/>
 <Route Url="/unmarshall/:classId" Method="PUT" Call="TestPUTUnmarshallToClass"/>
-<Route Url="/user" Method="GET" Call="GetUserInfo"/>
+<Route Url="/user-info" Method="GET" Call="TestGETSessionUserInfo"/>
 <Map Prefix="/map/A/:param1" Forward="Frontier.UnitTest.Router.Map.A" />
 <Map Prefix="/map/B/:param1/:param2" Forward="Frontier.UnitTest.Router.Map.B" />
 <Map Prefix="/map/C" Forward="Frontier.UnitTest.Router.Map.C" />
@@ -264,7 +264,7 @@ ClassMethod TestPUTUnmarshallToClass(class As %DynamicObject(UNMARSHALLTO="Front
 /// The validator method is also responsible for defining the user object.
 /// Call example:
 /// curl -H "Authorization: Basic Zm9vOmJhcg==" 'http://localhost:57772/api/frontier/test/user'
-ClassMethod GetUserInfo() As %Status
+ClassMethod TestGETSessionUserInfo() As %Status
 {
   return %frontier.User
 }

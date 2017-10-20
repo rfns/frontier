@@ -2501,7 +2501,7 @@ This is the Schema which defines the form of the dispatch map</Description>
   set statement = ##class(%SQL.Statement).%New()
   set statement.%SelectMode = ..Mode  
   
-  if ..QueryClass '= "" && (..QueryName '= "") {    
+  if ..QueryClass '= "" && (..QueryName '= "") {
     set sc = statement.%PrepareClassQuery(..QueryClass, ..QueryName)    
   } elseif ..SQL '= "" {
     set sc = statement.%Prepare(..SQL)
@@ -3171,26 +3171,26 @@ WritePattern(resource, placeholders)
 <XMLNamespace>http://github.com/rfns/frontier</XMLNamespace>
 <Data><![CDATA[
 <Routes>
-<Route Url="/route_params/:class" Method="GET" Call="TestGETRouteParams"/>
-<Route Url="/query_params" Method="GET" Call="TestGETOneQueryParameter"/>
-<Route Url="/rest_params" Method="GET" Call="TestGETRestParametersSum"/>
+<Route Url="/route-params/:class" Method="GET" Call="TestGETRouteParams"/>
+<Route Url="/query-params" Method="GET" Call="TestGETOneQueryParameter"/>
+<Route Url="/rest-params" Method="GET" Call="TestGETRestParametersSum"/>
 <Route Url="/sql/dynamic" Method="GET" Call="TestGETDynamicSQLResult"/>
 <Route Url="/sql/query" Method="GET" Call="TestGETQuerySQLResult"/>
 <Route Url="/raw" Method="GET" Call="TestGETRawMode"/>
 <Route Url="/shared_data" Method="GET" Call="TestGETData"/>
 <Route Url="/stream" Method="GET" Call="TestGETStream"/>
 <Route Url="/alias" Method="GET" Call="TestGETAliasedQueryParameter"/>
-<Route Url="/payload/single_object" Method="POST" Call="TestPOSTObjectPayloadSingle"/>
-<Route Url="/payload/object_with_query_params" Method="POST" Call="TestPOSTObjectPayloadQueryParams"/>  
-<Route Url="/payload/single_array" Method="POST" Call="TestPOSTArrayPayloadSingle"/>
-<Route Url="/payload/array_with_query_params" Method="POST" Call="TestPOSTArrayPayloadQueryParams"/>
+<Route Url="/payload/single-object" Method="POST" Call="TestPOSTObjectPayloadSingle"/>
+<Route Url="/payload/object-with-query-params" Method="POST" Call="TestPOSTObjectPayloadQueryParams"/>  
+<Route Url="/payload/single-array" Method="POST" Call="TestPOSTArrayPayloadSingle"/>
+<Route Url="/payload/array-with-query-params" Method="POST" Call="TestPOSTArrayPayloadQueryParams"/>
 <Route Url="/payload/invalid" Method="POST" Call="TestPOSTInvalidPayload"/>
 <Route Url="/mixed/object" Method="GET" Call="TestGETMixedDynamicObject"/>
 <Route Url="/mixed/array" Method="GET" Call="TestGETMixedDynamicArray"/>
 <Route Url="/mixed/rest" Method="POST" Call="TestPOSTMixedRestParametersSum"/>
 <Route Url="/unmarshall" Method="POST" Call="TestPOSTUnmarshallToClass"/>
 <Route Url="/unmarshall/:classId" Method="PUT" Call="TestPUTUnmarshallToClass"/>
-<Route Url="/user" Method="GET" Call="GetUserInfo"/>
+<Route Url="/user-info" Method="GET" Call="TestGETSessionUserInfo"/>
 <Map Prefix="/map/A/:param1" Forward="Frontier.UnitTest.Router.Map.A" />
 <Map Prefix="/map/B/:param1/:param2" Forward="Frontier.UnitTest.Router.Map.B" />
 <Map Prefix="/map/C" Forward="Frontier.UnitTest.Router.Map.C" />
@@ -3520,7 +3520,7 @@ curl -H "Content-Type: application/json" -X POST -d '{"Plate": "R-2948","Student
 ]]></Implementation>
 </Method>
 
-<Method name="GetUserInfo">
+<Method name="TestGETSessionUserInfo">
 <Description>
 This method depends on the authorization header sent by the client and validated with the validator method.
 The validator method is also responsible for defining the user object.
@@ -3674,12 +3674,12 @@ curl -H "Authorization: Basic Zm9vOmJhcg==" 'http://localhost:57772/api/frontier
 <XMLNamespace>http://github.com/rfns/frontier</XMLNamespace>
 <Data><![CDATA[
 <Routes>
- <Route Url="/calc/:operation" Method="GET" Call="TestGETCalculateResult"/>
+ <Route Url="/parent-sparse-params/:operation" Method="GET" Call="TestGETParentSparseParams"/>
 </Routes>
 ]]></Data>
 </XData>
 
-<Method name="TestGETCalculateResult">
+<Method name="TestGETParentSparseParams">
 <ClassMethod>1</ClassMethod>
 <FormalSpec>operation:%String,paramA:%Integer,paramB:%Integer</FormalSpec>
 <Implementation><![CDATA[
@@ -3702,7 +3702,7 @@ curl -H "Authorization: Basic Zm9vOmJhcg==" 'http://localhost:57772/api/frontier
 <Data><![CDATA[
 <Routes>
 <Route Url="/result" Method="GET" Call="TestGETParentSinglePlaceholder" />
-<Route Url="/something_(up|down)" Method="GET" Call="TestMe" />
+<Route Url="/something_(up|down)" Strict="false" Method="GET" Call="TestMe" />
 </Routes>
 ]]></Data>
 </XData>
