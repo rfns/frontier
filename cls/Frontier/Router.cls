@@ -27,7 +27,7 @@ ClassMethod DispatchMap(index As %Integer, dispatchClass As %String = {$classnam
   return $$$OK
 }
 
-ClassMethod DispatchRequest(url As %String, httpMethod As %String, forwarded As %Boolean = "", routeParameters As %String = 0, matches As %DynamicArray = {[]}, parentIsStrict As %Boolean = "") As %Status
+ClassMethod DispatchRequest(url As %String, httpMethod As %String, forwarded As %Boolean = "", routeParameters As %String = 0, ByRef matches As %String = "", parentIsStrict As %Boolean = "") As %Status
 {
   set httpStatus = $case(httpMethod, "POST": ..#HTTP201CREATED, : ..#HTTP200OK)
   set isResourceMatch = 0
@@ -103,8 +103,8 @@ ClassMethod DispatchRequest(url As %String, httpMethod As %String, forwarded As 
           }
           
           // Parse dispatchMethod retrieving its metadata.
-          set tPublicMethod = ##class(Method).%New(dispatchClass, dispatchMethod, .routeParameters, %request, %frontier.PropertyFormatter, %frontier.StrictQueryParameters, matches)
-          merge methodArguments = tPublicMethod.Arguments
+          set publicMethod = ##class(Method).%New(dispatchClass, dispatchMethod, .routeParameters, %request, %frontier.PropertyFormatter, %frontier.StrictQueryParameters, .matches)
+          merge methodArguments = publicMethod.Arguments
           
           // Executes the method and retrives its value. The method MUST return a value or a 
           // <COMMAND> will be issued.
@@ -123,7 +123,7 @@ ClassMethod DispatchRequest(url As %String, httpMethod As %String, forwarded As 
           set parentIsStrict = strictRouteParameters              
                     
           // Re-invoke this method using the class that this map forwards the request to. 
-          $$$ThrowOnError($classmethod(forwardingClass,"DispatchRequest", resolvedUrl, httpMethod, 1, .routeParameters, matches, strictRouteParameters))
+          $$$ThrowOnError($classmethod(forwardingClass,"DispatchRequest", resolvedUrl, httpMethod, 1, .routeParameters, .matches, strictRouteParameters))
           // Maps are also a match, so abort everything else and let the forwarding class handle the rest.
           return $$$OK
         }
@@ -156,9 +156,11 @@ NextDispatchMap(index=0, mapEntry="", dispatchClass="")
 FetchRouteParameters(routeParameters=0)  
   if matchType = "R" {
     if httpMethod '= $lg(mapEntry, 3) quit
-    set max = $ll($lg(mapEntry,6)) 
+    set max = $ll($lg(mapEntry,6))
+    set storedUrl = $lg(mapEntry, 10) 
   } elseif matchType = "M" { 
     set max = $ll($lg(mapEntry,4))
+    set storedUrl = $lg(mapEntry, 6) 
   }
   
   if strictRouteParameters { 
@@ -176,7 +178,14 @@ FetchRouteParameters(routeParameters=0)
       }
     }
   } else {
-    for p=1:1:matcher.GroupCount  do matches.%Push(matcher.Group(p))
+    set storedUrlMatcher = ##class(%Regex.Matcher).%New(storedUrl)
+    set storedUrlMatcher.Text = resolvedUrl
+    do storedUrlMatcher.Locate()
+    for p=1:1:storedUrlMatcher.GroupCount {
+      set matchIndex = $order(matches(""), -1) + 1    
+      set matches(matchIndex) = storedUrlMatcher.Group(p)
+      set matches = matchIndex
+    }
   }
   quit
  
@@ -185,7 +194,7 @@ HandleOptionsRequest(url, requireCors, shouldQuit)
    set isHttpMethodMatch = 1 
    $$$ThrowOnError(..OnHandleOptionsRequest(resolvedUrl))        
                       
-   #; Dispatch CORS
+   // As we got options, we imply that it's CORS request.
    $$$ThrowOnError(..ProcessCorsRequest(url, requireCors))
    set shouldQuit = 1
  }

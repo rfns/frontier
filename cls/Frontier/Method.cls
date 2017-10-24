@@ -15,7 +15,7 @@ Property HttpMethod As %String [ InitialExpression = "GET" ];
 
 Property Arguments As %CacheString [ InitialExpression = 0, MultiDimensional, ReadOnly ];
 
-Method %OnNew(className As %String, methodName As %String, RESTMethodArguments As %String = 0, request As %CSP.Request = "", propertyFormatter As Frontier.PropertyFormatter = "", strictQueryParameters As %Boolean = 1, matches As %DynamicObject = "") As %Status [ Private ]
+Method %OnNew(className As %String, methodName As %String, RESTMethodArguments As %String = 0, request As %CSP.Request = "", propertyFormatter As Frontier.PropertyFormatter = "", strictQueryParameters As %Boolean = 1, ByRef matches As %String = 0) As %Status [ Private ]
 {
   set requestQueryParams = 0
   $$$ThrowOnError(..AssertMethodExists(className, methodName))
@@ -31,12 +31,12 @@ Method %OnNew(className As %String, methodName As %String, RESTMethodArguments A
     merge requestQueryParams = request.Data
   }
   
-  if '$isobject(matches) || ($isobject(matches) && (matches.%Size() = 0)) {  
+  if matches = "" {
     $$$ThrowOnError(..MergeArguments(.RESTMethodArguments, .requestQueryParams, .mergedArguments, strictQueryParameters)) 
     $$$ThrowOnError(..Sequentialize(.mergedArguments, propertyFormatter))
   } else {
-    set i%Arguments = 1
-    set i%Arguments(1) = matches
+    set i%Arguments = matches
+    merge i%Arguments = matches
   }   
   quit $$$OK
 }

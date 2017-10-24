@@ -28,7 +28,7 @@ XData UrlMap [ XMLNamespace = "http://github.com/rfns/frontier" ]
 <Map Prefix="/map/B/:param1/:param2" Forward="Frontier.UnitTest.Router.Map.B" />
 <Map Prefix="/map/C" Forward="Frontier.UnitTest.Router.Map.C" />
 <Map Prefix="/map/D/:paramA/fixed/:paramB" Forward="Frontier.UnitTest.Router.Map.D"/> 
-<Map Prefix="/map/E/(value|val)" Strict="false" Forward="Frontier.UnitTest.Router.Map.E"/>
+<Map Prefix="/map/E/(match)" Strict="false" Forward="Frontier.UnitTest.Router.Map.E"/>
 </Routes>
 }
 

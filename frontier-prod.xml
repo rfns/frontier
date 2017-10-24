@@ -348,73 +348,6 @@ CreateError(message, status="401 Unauthorized", isStatus=0)
 </Class>
 
 
-<Class name="Frontier.Authentication.StrategyCombiner">
-<Super>Frontier.Authentication.Strategy</Super>
-<TimeCreated>64555,31799.710747</TimeCreated>
-
-<Property name="Strategies">
-<Type>Frontier.Authentication.Strategy</Type>
-<Collection>list</Collection>
-<Private>1</Private>
-</Property>
-
-<Method name="Combine">
-<FormalSpec>strategies...:Frontier.Authentication.Strategy</FormalSpec>
-<ReturnType>%Status</ReturnType>
-<Implementation><![CDATA[
-  set sc = $$$OK
-  
-  for i=1=1:strategies {
-    set strategy = strategies(i)
-    set sc = ..Strategies.Insert(strategy)
-    if $$$ISERR(sc) return sc
-  }
-  return $$$OK
-]]></Implementation>
-</Method>
-
-<Method name="Verify">
-<FormalSpec>session:%CSP.Session,request:%CSP.Request,response:%CSP.Response,*user:%DynamicObject={{}},resourceScope:%String=""</FormalSpec>
-<ReturnType>%Status</ReturnType>
-<Implementation><![CDATA[
-  set sc = $$$OK
-  
-  for i=1:1:..Strategies.Count() {
-    set sc = ..Strategies.Verify(session, request, response, .user)
-    if $$$ISERR(sc) return sc
-  }
-  
-  return sc
-]]></Implementation>
-</Method>
-</Class>
-
-
-<Class name="Frontier.Authentication.Util">
-<Abstract>1</Abstract>
-<TimeCreated>64555,36131.383877</TimeCreated>
-
-<Method name="GenerateRandomString">
-<ClassMethod>1</ClassMethod>
-<FormalSpec>size:%Integer,caseType:%String="uppercase",extras:%String=""</FormalSpec>
-<ReturnType>%String</ReturnType>
-<Implementation><![CDATA[
-  set key = ""
-  set alpha = "ABCDEFGHIJKLMNOPQRSTUVWXYZ"
-  if caseType = "mixed" set alpha = alpha_$$$lcase(alpha)
-  if caseType = "lower" set alpha = $$$lcase(alpha)
-  if extras '= "" set alpha = alpha_extras
-  
-  while $length(key) < size {
-    set next = $select($random(2) = 1 : $extract(alpha, $random($length(alpha))), 1: $random(9))
-    set key = key_next
-  }
-  return key
-]]></Implementation>
-</Method>
-</Class>
-
-
 <Class name="Frontier.Context">
 <IncludeCode>%occErrors,%occStatus</IncludeCode>
 <Super>%RegisteredObject</Super>
@@ -1278,7 +1211,7 @@ WriteEscaped(v)
 </Property>
 
 <Method name="%OnNew">
-<FormalSpec>className:%String,methodName:%String,RESTMethodArguments:%String=0,request:%CSP.Request="",propertyFormatter:Frontier.PropertyFormatter="",strictQueryParameters:%Boolean=1,matches:%DynamicObject=""</FormalSpec>
+<FormalSpec><![CDATA[className:%String,methodName:%String,RESTMethodArguments:%String=0,request:%CSP.Request="",propertyFormatter:Frontier.PropertyFormatter="",strictQueryParameters:%Boolean=1,&matches:%String=0]]></FormalSpec>
 <Private>1</Private>
 <ReturnType>%Status</ReturnType>
 <Implementation><![CDATA[
@@ -1296,12 +1229,12 @@ WriteEscaped(v)
     merge requestQueryParams = request.Data
   }
   
-  if '$isobject(matches) || ($isobject(matches) && (matches.%Size() = 0)) {  
+  if matches = "" {
     $$$ThrowOnError(..MergeArguments(.RESTMethodArguments, .requestQueryParams, .mergedArguments, strictQueryParameters)) 
     $$$ThrowOnError(..Sequentialize(.mergedArguments, propertyFormatter))
   } else {
-    set i%Arguments = 1
-    set i%Arguments(1) = matches
+    set i%Arguments = matches
+    merge i%Arguments = matches
   }   
   quit $$$OK
 ]]></Implementation>
@@ -2016,7 +1949,7 @@ the fields that aren't private, or you can instantiate it and change it's values
 
 <Method name="DispatchRequest">
 <ClassMethod>1</ClassMethod>
-<FormalSpec>url:%String,httpMethod:%String,forwarded:%Boolean="",routeParameters:%String=0,matches:%DynamicArray=[],parentIsStrict:%Boolean=""</FormalSpec>
+<FormalSpec><![CDATA[url:%String,httpMethod:%String,forwarded:%Boolean="",routeParameters:%String=0,&matches:%String="",parentIsStrict:%Boolean=""]]></FormalSpec>
 <ReturnType>%Status</ReturnType>
 <Implementation><![CDATA[
   set httpStatus = $case(httpMethod, "POST": ..#HTTP201CREATED, : ..#HTTP200OK)
@@ -2093,8 +2026,8 @@ the fields that aren't private, or you can instantiate it and change it's values
           }
           
           // Parse dispatchMethod retrieving its metadata.
-          set tPublicMethod = ##class(Method).%New(dispatchClass, dispatchMethod, .routeParameters, %request, %frontier.PropertyFormatter, %frontier.StrictQueryParameters, matches)
-          merge methodArguments = tPublicMethod.Arguments
+          set publicMethod = ##class(Method).%New(dispatchClass, dispatchMethod, .routeParameters, %request, %frontier.PropertyFormatter, %frontier.StrictQueryParameters, .matches)
+          merge methodArguments = publicMethod.Arguments
           
           // Executes the method and retrives its value. The method MUST return a value or a 
           // <COMMAND> will be issued.
@@ -2113,7 +2046,7 @@ the fields that aren't private, or you can instantiate it and change it's values
           set parentIsStrict = strictRouteParameters              
                     
           // Re-invoke this method using the class that this map forwards the request to. 
-          $$$ThrowOnError($classmethod(forwardingClass,"DispatchRequest", resolvedUrl, httpMethod, 1, .routeParameters, matches, strictRouteParameters))
+          $$$ThrowOnError($classmethod(forwardingClass,"DispatchRequest", resolvedUrl, httpMethod, 1, .routeParameters, .matches, strictRouteParameters))
           // Maps are also a match, so abort everything else and let the forwarding class handle the rest.
           return $$$OK
         }
@@ -2146,9 +2079,11 @@ NextDispatchMap(index=0, mapEntry="", dispatchClass="")
 FetchRouteParameters(routeParameters=0)  
   if matchType = "R" {
     if httpMethod '= $lg(mapEntry, 3) quit
-    set max = $ll($lg(mapEntry,6)) 
+    set max = $ll($lg(mapEntry,6))
+    set storedUrl = $lg(mapEntry, 10) 
   } elseif matchType = "M" { 
     set max = $ll($lg(mapEntry,4))
+    set storedUrl = $lg(mapEntry, 6) 
   }
   
   if strictRouteParameters { 
@@ -2166,7 +2101,14 @@ FetchRouteParameters(routeParameters=0)
       }
     }
   } else {
-    for p=1:1:matcher.GroupCount  do matches.%Push(matcher.Group(p))
+    set storedUrlMatcher = ##class(%Regex.Matcher).%New(storedUrl)
+    set storedUrlMatcher.Text = resolvedUrl
+    do storedUrlMatcher.Locate()
+    for p=1:1:storedUrlMatcher.GroupCount {
+      set matchIndex = $order(matches(""), -1) + 1    
+      set matches(matchIndex) = storedUrlMatcher.Group(p)
+      set matches = matchIndex
+    }
   }
   quit
  
@@ -2175,7 +2117,7 @@ HandleOptionsRequest(url, requireCors, shouldQuit)
    set isHttpMethodMatch = 1 
    $$$ThrowOnError(..OnHandleOptionsRequest(resolvedUrl))        
                       
-   #; Dispatch CORS
+   // As we got options, we imply that it's CORS request.
    $$$ThrowOnError(..ProcessCorsRequest(url, requireCors))
    set shouldQuit = 1
  }
@@ -2748,7 +2690,7 @@ This is the Schema which defines the form of the dispatch map</Description>
     for i=1:1:totalRoutes {
       set route = routes.Route.GetAt(i)
       set pattern = $$WritePattern(route.Url, .placeholders)
-      set patterns(i) = $lb(resourceType, pattern, route.Method, route.Call, route.Cors, placeholders, route.Scope, route.UseAuth, route.Strict)
+      set patterns(i) = $lb(resourceType, pattern, route.Method, route.Call, route.Cors, placeholders, route.Scope, route.UseAuth, route.Strict, route.Url)
     }    
   } 
   if totalMaps > 0 {
@@ -2756,7 +2698,7 @@ This is the Schema which defines the form of the dispatch map</Description>
     for j=1:1:totalMaps {
       set map = routes.Map.GetAt(j)
       set pattern = $$WritePattern(map.Prefix, .placeholders)
-      set patterns(i + j) = $lb(resourceType, pattern, map.Forward, placeholders, map.Strict)
+      set patterns(i + j) = $lb(resourceType, pattern, map.Forward, placeholders, map.Strict, map.Prefix)
     }
   }
   
@@ -3012,7 +2954,7 @@ WritePattern(resource, placeholders)
 </Property>
 <Property name="Plate">
 <Selectivity>10.0000%</Selectivity>
-<AverageFieldSize>4.9</AverageFieldSize>
+<AverageFieldSize>4.7</AverageFieldSize>
 </Property>
 <SQLMap name="IDKEY">
 <BlockCount>-4</BlockCount>
@@ -3091,12 +3033,12 @@ WritePattern(resource, placeholders)
 <AverageFieldSize>5</AverageFieldSize>
 </Property>
 <Property name="Class">
-<Selectivity>14.2857%</Selectivity>
+<Selectivity>16.6667%</Selectivity>
 <AverageFieldSize>1.1</AverageFieldSize>
 </Property>
 <Property name="Name">
 <Selectivity>10.0000%</Selectivity>
-<AverageFieldSize>16</AverageFieldSize>
+<AverageFieldSize>16.9</AverageFieldSize>
 </Property>
 <Property name="SomeValue">
 <Selectivity>100.0000%</Selectivity>
@@ -3195,7 +3137,7 @@ WritePattern(resource, placeholders)
 <Map Prefix="/map/B/:param1/:param2" Forward="Frontier.UnitTest.Router.Map.B" />
 <Map Prefix="/map/C" Forward="Frontier.UnitTest.Router.Map.C" />
 <Map Prefix="/map/D/:paramA/fixed/:paramB" Forward="Frontier.UnitTest.Router.Map.D"/> 
-<Map Prefix="/map/E/(value|val)" Strict="false" Forward="Frontier.UnitTest.Router.Map.E"/>
+<Map Prefix="/map/E/(match)" Strict="false" Forward="Frontier.UnitTest.Router.Map.E"/>
 </Routes>
 ]]></Data>
 </XData>
@@ -3701,22 +3643,16 @@ curl -H "Authorization: Basic Zm9vOmJhcg==" 'http://localhost:57772/api/frontier
 <XMLNamespace>http://github.com/rfns/frontier</XMLNamespace>
 <Data><![CDATA[
 <Routes>
-<Route Url="/result" Method="GET" Call="TestGETParentSinglePlaceholder" />
-<Route Url="/something_(up|down)" Strict="false" Method="GET" Call="TestMe" />
+<Route Url="/get-parent-and-(this)-(group)" Strict="false" Method="GET" Call="TestGETMultipleRegexMatches" />
 </Routes>
 ]]></Data>
 </XData>
 
-<Method name="TestGETParentSinglePlaceholder">
+<Method name="TestGETMultipleRegexMatches">
 <ClassMethod>1</ClassMethod>
+<FormalSpec>matches...:%String</FormalSpec>
 <ReturnType>%Status</ReturnType>
-</Method>
-
-<Method name="TestMe">
-<ClassMethod>1</ClassMethod>
-<FormalSpec>matches:%DynamicArray,result:%String</FormalSpec>
-<ReturnType>%Status</ReturnType>
-<Implementation><![CDATA[  return matches
+<Implementation><![CDATA[  return [ (matches(1)), (matches(2)), (matches(3)) ]
 ]]></Implementation>
 </Method>
 </Class>

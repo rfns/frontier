@@ -272,10 +272,17 @@ Method TestGETBypassAuth()
   return $$$AssertStatusOK(..AssertRequest(resource, expected), $$$FormatText("can retrieve the expected data from the resource %1", resource))
 }
 
-Method TestGETCalculateResult()
+Method TestGETParentSparseParams()
 {
   set resource = $$$FormatText("%1map/D/5/fixed/3/parent-sparse-params/sum", ..WebApplicationName)
   set expected = {"result":8}
+  return $$$AssertStatusOK(..AssertRequest(resource, expected), $$$FormatText("can retrieve the expected data from the resource %1", resource))
+}
+
+Method TestGETParentRegexParameter()
+{
+  set resource = $$$FormatText("%1map/E/match/get-parent-and-this-group", ..WebApplicationName)
+  set expected = ["match", "this", "group" ]
   return $$$AssertStatusOK(..AssertRequest(resource, expected), $$$FormatText("can retrieve the expected data from the resource %1", resource))
 }
 

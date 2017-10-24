@@ -39,7 +39,7 @@ ClassMethod GeneratePatterns(routes As Frontier.Schema.Routes, targetClass As %S
     for i=1:1:totalRoutes {
       set route = routes.Route.GetAt(i)
       set pattern = $$WritePattern(route.Url, .placeholders)
-      set patterns(i) = $lb(resourceType, pattern, route.Method, route.Call, route.Cors, placeholders, route.Scope, route.UseAuth, route.Strict)
+      set patterns(i) = $lb(resourceType, pattern, route.Method, route.Call, route.Cors, placeholders, route.Scope, route.UseAuth, route.Strict, route.Url)
     }    
   } 
   if totalMaps > 0 {
@@ -47,7 +47,7 @@ ClassMethod GeneratePatterns(routes As Frontier.Schema.Routes, targetClass As %S
     for j=1:1:totalMaps {
       set map = routes.Map.GetAt(j)
       set pattern = $$WritePattern(map.Prefix, .placeholders)
-      set patterns(i + j) = $lb(resourceType, pattern, map.Forward, placeholders, map.Strict)
+      set patterns(i + j) = $lb(resourceType, pattern, map.Forward, placeholders, map.Strict, map.Prefix)
     }
   }
   
