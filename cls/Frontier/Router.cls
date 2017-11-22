@@ -6,25 +6,52 @@ Class Frontier.Router Extends %CSP.REST
 ClassMethod Page(skipheader As %Boolean = 1) As %Status [ ProcedureBlock = 0 ]
 {
   new %frontier
-  set %frontier = ##class(Frontier.Context).%New(%session, %request, %response)  
+  set %frontier = ##class(Frontier.Context).%New(%session, %request, %response)
+  set %session.Data("%frontier") = %frontier
   $$$QuitOnError(##super(skipheader))
-  do ..OnPostHTTP()
   return $$$OK
 }
 
-ClassMethod DispatchMap(index As %Integer, dispatchClass As %String = {$classname()}) As %String [ CodeMode = objectgenerator, Final, Internal ]
+ClassMethod DispatchMap(index As %Integer) As %String [ CodeMode = objectgenerator, Final, Internal ]
 {
   // Don't generate patterns if target class is super.
-  if %compiledclass.Name = "Frontier.Router" return $$$OK
-  
-  // Kills remaining data, so that we can prevent using obsolete patterns.
-  kill ^Frontier.Patterns(%compiledclass.Name)
+  if %compiledclass.Name = "Frontier.Router" return $$$OK  
   
   $$$ThrowOnError(##class(Frontier.Schema.Util).Parse(%compiledclass.Name, .routes))
   $$$ThrowOnError(##class(Frontier.Schema.Util).GeneratePatterns(routes, %compiledclass.Name, .patterns))  
-  merge ^Frontier.Patterns(%compiledclass.Name) = patterns
-  do %code.WriteLine("  return $get(^Frontier.Patterns(dispatchClass, index))")
+  
+  set patternIndex = ""
+  
+  for {
+    set patternIndex = $order(patterns(patternIndex), 1, pattern)
+    quit:patternIndex=""
+    
+    set patternString = ""
+    set patternType = $lg(pattern, 1)
+    
+    for i=1:1:$ll(pattern) {
+      set item = $lg(pattern, i)      
+      if patternType = "M" {
+        if i = 4 set $list(patternString, *+1) = "$lfs("_$$MakeString(item)_")"
+        else  set $list(patternString, *+1) = """"_$lg(pattern, i)_""""
+      } elseif patternType = "R" {
+        if i = 6 set $list(patternString, *+1) = "$lfs("_$$MakeString(item)_")"
+        else  set $list(patternString, *+1) = """"_$lg(pattern, i)_""""
+      }
+    }
+    
+    do %code.WriteLine("  if index = "_patternIndex_ " return $lb("_$lts(patternString)_")")
+  }
+  
   return $$$OK
+  
+MakeString(list)
+  set stringList = ""
+  for li=1:1:$ll(list) {
+    set item = $lg(list, li)
+    set $piece(stringList, ",", li) = ""_item_""
+  }
+  return """"_stringList_""""
 }
 
 ClassMethod DispatchRequest(url As %String, httpMethod As %String, forwarded As %Boolean = "", routeParameters As %String = 0, ByRef matches As %String = "", parentIsStrict As %Boolean = "") As %Status
@@ -33,13 +60,15 @@ ClassMethod DispatchRequest(url As %String, httpMethod As %String, forwarded As 
   set isResourceMatch = 0
   set isHttpMethodMatch = 0
   
+  set %frontier.Method = "DispatchRequest"
+  
   // Makes sure the http method is following specs.
   set httpMethod = $$$ucase(httpMethod)
   
   try {    
     set resolvedUrl = $$ResolveUrl(url)    
     
-    while $$NextDispatchMap(.index, .mapEntry, $classname()) {
+    while $$NextDispatchMap(.index, .mapEntry) {
       set matchType = $list(mapEntry, 1)
       set urlExpression = $list(mapEntry, 2)      
       set matcher = ##class(%Regex.Matcher).%New(urlExpression)      
@@ -53,7 +82,10 @@ ClassMethod DispatchRequest(url As %String, httpMethod As %String, forwarded As 
         set %frontier.RequestURL = %request.URL
         set %frontier.ClassName = $classname()
                  
-        $$$ThrowOnError(..OnSetup())
+        set %frontier.Method = "OnSetup"
+        $$$ThrowOnError(..OnSetup())        
+        
+        set %frontier.Method = "OnDataSet"
         $$$ThrowOnError(..OnDataSet(%frontier.Data))
         
         if parentIsStrict '= "" && (parentIsStrict '= strictRouteParameters) {
@@ -72,7 +104,7 @@ ClassMethod DispatchRequest(url As %String, httpMethod As %String, forwarded As 
           
           if httpMethod = "OPTIONS" do HandleOptionsRequest(url, requiresCors, .shouldQuit)
           // Don't continue if we hit this point, let the agent do the rest.
-          if shouldQuit return $$$OK                   
+          if shouldQuit return $$$OK                       
                   
           if httpMethod '= $list(mapEntry, 3) continue                
           
@@ -103,8 +135,13 @@ ClassMethod DispatchRequest(url As %String, httpMethod As %String, forwarded As 
           }
           
           // Parse dispatchMethod retrieving its metadata.
-          set publicMethod = ##class(Method).%New(dispatchClass, dispatchMethod, .routeParameters, %request, %frontier.PropertyFormatter, %frontier.StrictQueryParameters, .matches)
+          set publicMethod = ##class(Method).%New(dispatchClass, dispatchMethod, .routeParameters, %request, %frontier.PropertyFormatter, %frontier.StrictQueryParameters, .matches)                   
           merge methodArguments = publicMethod.Arguments
+          
+          if matches = "" merge %frontier.RouteParameters = routeParameters
+          else  merge %frontier.RouteParameters = matches
+          
+          set %frontier.Method = dispatchMethod
           
           // Executes the method and retrives its value. The method MUST return a value or a 
           // <COMMAND> will be issued.
@@ -139,7 +176,8 @@ ClassMethod DispatchRequest(url As %String, httpMethod As %String, forwarded As 
     return $$$OK       
   } catch ex {    
     set exceptionPayload = ..HandleException(ex)
-    do ##class(Frontier.Dynamic.Serializer).Serialize(exceptionPayload, 1, %frontier.PropertyFormatter)
+    do ##class(Frontier.Dynamic.Serializer).SerializeToStream(.stream, exceptionPayload, 1, %frontier.PropertyFormatter)
+    do stream.OutputToDevice()
   }
   return $$$OK
   
@@ -149,8 +187,7 @@ ResolveUrl(url)
   
 NextDispatchMap(index=0, mapEntry="", dispatchClass="")  
   set index = index + 1
-  if dispatchClass = "" set dispatchClass = $classname()
-  set mapEntry = ..DispatchMap(index, dispatchClass)
+  set mapEntry = ..DispatchMap(index)
   return (mapEntry '= "")  
   
 FetchRouteParameters(routeParameters=0)  
@@ -194,7 +231,7 @@ HandleOptionsRequest(url, requireCors, shouldQuit)
    set isHttpMethodMatch = 1 
    $$$ThrowOnError(..OnHandleOptionsRequest(resolvedUrl))        
                       
-   // As we got options, we imply that it's CORS request.
+   // As we got options, we imply that it's a CORS request.
    $$$ThrowOnError(..ProcessCorsRequest(url, requireCors))
    set shouldQuit = 1
  }
@@ -226,12 +263,22 @@ ClassMethod HandleException(exception As %Exception.AbstractException) As %Dynam
   }
     
   set exceptionJSON = ##class(Exception).ToDynamicObject(exception)
-  set exceptionJSON.error.responseCode = responseCode    
+  set exceptionJSON.responseCode = responseCode
   set sc = exception.AsStatus()
+  set stack = ""
     
   if '%frontier.ThrownByApplication && ($$$GETERRORCODE(sc) '= $$$GeneralError) {
     set %frontier.Error = sc
-    set %frontier.Stack = ##class(Exception).CaptureStack()
+    set %frontier.IncludeStack = 1
+  }
+  
+  if %frontier.IncludeStack {
+    do ##class(Exception).CaptureStack(.stack)
+  }   
+  
+  if stack '= "" {
+    set exceptionJSON.stack = stack
+    set %frontier.Stack = stack
   }
     
   set %response.OutputSessionToken = 0
@@ -290,12 +337,6 @@ ClassMethod OnSetup() As %Status
 ClassMethod OnDataSet(data As %DynamicObject) As %Status
 {
   return $$$OK
-}
-
-ClassMethod OnPostHTTP() [ Final ]
-{
-  do %frontier.ReporterManager.Report() 
-  kill %frontier
 }
 
 /// This is the Schema which defines the form of the dispatch map

@@ -20,8 +20,7 @@ Method OnBeforeAllTests() As %Status
   &sql(SELECT TOP 1 ID INTO :studentId FROM FRONTIER_UNITTEST_FIXTURES.STUDENT)
   
   set ..Class = ##class(Frontier.UnitTest.Fixtures.Class).%OpenId(classId)
-  set ..Student = ##class(Frontier.UnitTest.Fixtures.Student).%OpenId(studentId)
-  
+  set ..Student = ##class(Frontier.UnitTest.Fixtures.Student).%OpenId(studentId)  
   
   return $$$OK
 }
@@ -232,7 +231,7 @@ Method TestGETSessionUserInfo()
 Method TestGETRouteParameterNotSpecified()
 {
   set resource = $$$FormatText("%1map/A/1/route-parameter-not-specified", ..WebApplicationName)
-  set expected = {"error":{"internalCode":5001,"message":"Route parameter 'param1' was not specified as an argument on the receiving method 'TestGETRouteParameterNotSpecified'.","responseCode":500}}
+  set expected = {"error":{"internalCode":5001,"message":"Route parameter 'param1' was not specified as an argument on the receiving method 'TestGETRouteParameterNotSpecified'."},"responseCode":500}
   return $$$AssertStatusOK(..AssertRequest(resource, expected), $$$FormatText("can retrieve the expected data from the resource %1", resource))
 }
 

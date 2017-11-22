@@ -45,7 +45,7 @@ ClassMethod OnSetup() As %Status
 {
  
   // Reporters should be used to signal the developer about request errors.   
-  // $$$QuitOnError(%frontier.ReporterManager.AddReporter(##class(MyReporter.Email).%New()))
+  // $$$QuitOnError(%frontier.ReporterManager.AddReporter(##class(MyReporter.Email).%New()))  
   
   // Asks the user for a Basic + Base64(username:password) encoded Authorization header.
   set basicStrategy = ##class(Frontier.Authentication.BasicStrategy).%New({
@@ -55,14 +55,15 @@ ClassMethod OnSetup() As %Status
   })
   
   // This provides a way to check if the current user is authenticated using Basic scheme.
-  $$$QuitOnError(%frontier.AuthenticationManager.AddStrategy(basicStrategy))  
+  $$$QuitOnError(%frontier.AuthenticationManager.AddStrategy(basicStrategy)) 
+    
   
   return $$$OK
 }
 
 /// Whenever a parameter is typed of %Persistent and a valid id is provided, the parameter will be instantiated.
 /// Call example:
-/// curl -H "Content-Type: application/json" 'localhost:57772/api/frontier/test/route_params/6' 
+/// curl -H "Content-Type: application/json" 'localhost:57772/api/frontier/test/route-params/6' 
 /// {"Plate":"O5397","Students":[{"Name":"Drabek,Peter T.","__id__":"20"}],"__id__":"6"}
 ClassMethod TestGETRouteParams(class As Frontier.UnitTest.Fixtures.Class) As %Status
 {
