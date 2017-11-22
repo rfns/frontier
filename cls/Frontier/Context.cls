@@ -21,6 +21,8 @@ Property ArgumentValues As %String [ MultiDimensional ];
 
 Property Stack As %String [ Internal ];
 
+Property IncludeStack As %Boolean [ InitialExpression = 0 ];
+
 Property Error As %Status [ InitialExpression = {$$$OK}, Internal ];
 
 Property SQL As Frontier.SQL [ ReadOnly ];
@@ -40,6 +42,8 @@ Property User As %DynamicObject [ InitialExpression = 1 ];
 Property PropertyFormatter As Frontier.PropertyFormatter;
 
 Property StrictQueryParameters As %Boolean [ InitialExpression = 1 ];
+
+Property RouteParameters As %String [ InitialExpression = 0, MultiDimensional ];
 
 Method %OnNew(session As %CSP.Session, request As %CSP.Request, response As %CSP.Response) As %Status
 {

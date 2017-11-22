@@ -263,8 +263,7 @@ CreateError(message, status="401 Unauthorized", isStatus=0)
 <FormalSpec>strategy:Frontier.Authentication.Strategy</FormalSpec>
 <ReturnType>%Status</ReturnType>
 <Implementation><![CDATA[
-    
-  $$$QuitOnError(..Strategies.Insert(strategy))  
+  $$$QuitOnError(..Strategies.Insert(strategy))
   return $$$OK
 ]]></Implementation>
 </Method>
@@ -275,8 +274,8 @@ CreateError(message, status="401 Unauthorized", isStatus=0)
 <Implementation><![CDATA[
   set sc = $$$OK
   set totalStrategies = ..Strategies.Count()
-  set strategy = "" 
-  
+  set strategy = ""
+
   try {
     for i=1:1:totalStrategies {
       set strategy = ..Strategies.GetAt(i)
@@ -286,7 +285,7 @@ CreateError(message, status="401 Unauthorized", isStatus=0)
       } elseif 'strategy.Next {
         set challengeSC = strategy.GetChallenge(..Session, ..Request, ..Response, .challenge)
         if $$$ISOK(challengeSC) do ..Response.SetHeader("WWW-Authenticate", challenge)
-        quit        
+        quit
       }
     }
   } catch ex {
@@ -395,6 +394,11 @@ CreateError(message, status="401 Unauthorized", isStatus=0)
 <Internal>1</Internal>
 </Property>
 
+<Property name="IncludeStack">
+<Type>%Boolean</Type>
+<InitialExpression>0</InitialExpression>
+</Property>
+
 <Property name="Error">
 <Type>%Status</Type>
 <Internal>1</Internal>
@@ -443,6 +447,12 @@ CreateError(message, status="401 Unauthorized", isStatus=0)
 <Property name="StrictQueryParameters">
 <Type>%Boolean</Type>
 <InitialExpression>1</InitialExpression>
+</Property>
+
+<Property name="RouteParameters">
+<Type>%String</Type>
+<InitialExpression>0</InitialExpression>
+<MultiDimensional>1</MultiDimensional>
 </Property>
 
 <Method name="%OnNew">
@@ -1106,7 +1116,13 @@ WriteEscaped(v)
 <ReturnType>%DynamicObject</ReturnType>
 <Implementation><![CDATA[
   set de = ##class(%DynamicObject).%New()
-  set de.error = ..BuildObjectGraph(exception)
+  set graph = ..BuildObjectGraph(exception)
+  
+  if graph.%IsA("%DynamicObject") {
+    set de.error = graph
+  } elseif graph.%IsA("%DynamicArray") {
+    set de.errors = graph
+  }
   return de
 ]]></Implementation>
 </Method>
@@ -1132,21 +1148,25 @@ WriteEscaped(v)
 <ClassMethod>1</ClassMethod>
 <FormalSpec>exception:Frontier.Exception</FormalSpec>
 <Private>1</Private>
-<ReturnType>%DynamicObject</ReturnType>
+<ReturnType>%DynamicAbstractObject</ReturnType>
 <Implementation><![CDATA[
-  set de = ..CreateInfoObject(exception)  
+  set de = ..CreateInfoObject(exception) 
+  set supportsInnerException = ##class(%Dictionary.CompiledProperty).%ExistsId($classname()_"||InnerException") 
   
-  if $isobject(exception.InnerException) {
-    set de.from = ..ToDynamicObject(exception.InnerException)
+  if supportsInnerException && $isobject(exception.InnerException) {
+    set de.origin = ..ToDynamicObject(exception.InnerException)
   }
   
   if $isobject(exception) && ##class(%Dictionary.CompiledProperty).%ExistsId($classname(exception)_"||NextException") && $isobject(exception.NextException) {
     set nextExceptions = ##class(%ListOfObjects).%New()
-    set de.next = nextExceptions
+    set firstSibling = de
+    set de = []
+    do de.%Push(firstSibling)    
     
     set ex = exception.NextException
+    
     while ex {
-      do de.next.Insert(..CreateInfoObject(ex, 0))
+      do de.%Push(..CreateInfoObject(ex))
       set ex = ex.NextException
     }
   }
@@ -1503,8 +1523,7 @@ ParseArgument(parsedArgument)
         
         if methodArgument.Arity {
           set queryParameterName = $$$KeyGroup(queryParameterName)
-        }
-        
+        }        
         if '$lf(keysFound, queryParameterName) && '$data(routeArguments(queryParameterName)) {
           set $list(missingArguments, *+1) = queryParameterName
         }
@@ -1918,9 +1937,9 @@ the fields that aren't private, or you can instantiate it and change it's values
 <ReturnType>%Status</ReturnType>
 <Implementation><![CDATA[
   new %frontier
-  set %frontier = ##class(Frontier.Context).%New(%session, %request, %response)  
+  set %frontier = ##class(Frontier.Context).%New(%session, %request, %response)
+  set %session.Data("%frontier") = %frontier
   $$$QuitOnError(##super(skipheader))
-  do ..OnPostHTTP()
   return $$$OK
 ]]></Implementation>
 </Method>
@@ -1930,20 +1949,47 @@ the fields that aren't private, or you can instantiate it and change it's values
 <Internal>1</Internal>
 <ClassMethod>1</ClassMethod>
 <CodeMode>objectgenerator</CodeMode>
-<FormalSpec>index:%Integer,dispatchClass:%String=$classname()</FormalSpec>
+<FormalSpec>index:%Integer</FormalSpec>
 <ReturnType>%String</ReturnType>
 <Implementation><![CDATA[
   // Don't generate patterns if target class is super.
-  if %compiledclass.Name = "Frontier.Router" return $$$OK
-  
-  // Kills remaining data, so that we can prevent using obsolete patterns.
-  kill ^Frontier.Patterns(%compiledclass.Name)
+  if %compiledclass.Name = "Frontier.Router" return $$$OK  
   
   $$$ThrowOnError(##class(Frontier.Schema.Util).Parse(%compiledclass.Name, .routes))
   $$$ThrowOnError(##class(Frontier.Schema.Util).GeneratePatterns(routes, %compiledclass.Name, .patterns))  
-  merge ^Frontier.Patterns(%compiledclass.Name) = patterns
-  do %code.WriteLine("  return $get(^Frontier.Patterns(dispatchClass, index))")
+  
+  set patternIndex = ""
+  
+  for {
+    set patternIndex = $order(patterns(patternIndex), 1, pattern)
+    quit:patternIndex=""
+    
+    set patternString = ""
+    set patternType = $lg(pattern, 1)
+    
+    for i=1:1:$ll(pattern) {
+      set item = $lg(pattern, i)      
+      if patternType = "M" {
+        if i = 4 set $list(patternString, *+1) = "$lfs("_$$MakeString(item)_")"
+        else  set $list(patternString, *+1) = """"_$lg(pattern, i)_""""
+      } elseif patternType = "R" {
+        if i = 6 set $list(patternString, *+1) = "$lfs("_$$MakeString(item)_")"
+        else  set $list(patternString, *+1) = """"_$lg(pattern, i)_""""
+      }
+    }
+    
+    do %code.WriteLine("  if index = "_patternIndex_ " return $lb("_$lts(patternString)_")")
+  }
+  
   return $$$OK
+  
+MakeString(list)
+  set stringList = ""
+  for li=1:1:$ll(list) {
+    set item = $lg(list, li)
+    set $piece(stringList, ",", li) = ""_item_""
+  }
+  return """"_stringList_""""
 ]]></Implementation>
 </Method>
 
@@ -1956,13 +2002,15 @@ the fields that aren't private, or you can instantiate it and change it's values
   set isResourceMatch = 0
   set isHttpMethodMatch = 0
   
+  set %frontier.Method = "DispatchRequest"
+  
   // Makes sure the http method is following specs.
   set httpMethod = $$$ucase(httpMethod)
   
   try {    
     set resolvedUrl = $$ResolveUrl(url)    
     
-    while $$NextDispatchMap(.index, .mapEntry, $classname()) {
+    while $$NextDispatchMap(.index, .mapEntry) {
       set matchType = $list(mapEntry, 1)
       set urlExpression = $list(mapEntry, 2)      
       set matcher = ##class(%Regex.Matcher).%New(urlExpression)      
@@ -1976,7 +2024,10 @@ the fields that aren't private, or you can instantiate it and change it's values
         set %frontier.RequestURL = %request.URL
         set %frontier.ClassName = $classname()
                  
-        $$$ThrowOnError(..OnSetup())
+        set %frontier.Method = "OnSetup"
+        $$$ThrowOnError(..OnSetup())        
+        
+        set %frontier.Method = "OnDataSet"
         $$$ThrowOnError(..OnDataSet(%frontier.Data))
         
         if parentIsStrict '= "" && (parentIsStrict '= strictRouteParameters) {
@@ -1995,7 +2046,7 @@ the fields that aren't private, or you can instantiate it and change it's values
           
           if httpMethod = "OPTIONS" do HandleOptionsRequest(url, requiresCors, .shouldQuit)
           // Don't continue if we hit this point, let the agent do the rest.
-          if shouldQuit return $$$OK                   
+          if shouldQuit return $$$OK                       
                   
           if httpMethod '= $list(mapEntry, 3) continue                
           
@@ -2026,8 +2077,13 @@ the fields that aren't private, or you can instantiate it and change it's values
           }
           
           // Parse dispatchMethod retrieving its metadata.
-          set publicMethod = ##class(Method).%New(dispatchClass, dispatchMethod, .routeParameters, %request, %frontier.PropertyFormatter, %frontier.StrictQueryParameters, .matches)
+          set publicMethod = ##class(Method).%New(dispatchClass, dispatchMethod, .routeParameters, %request, %frontier.PropertyFormatter, %frontier.StrictQueryParameters, .matches)                   
           merge methodArguments = publicMethod.Arguments
+          
+          if matches = "" merge %frontier.RouteParameters = routeParameters
+          else  merge %frontier.RouteParameters = matches
+          
+          set %frontier.Method = dispatchMethod
           
           // Executes the method and retrives its value. The method MUST return a value or a 
           // <COMMAND> will be issued.
@@ -2062,7 +2118,8 @@ the fields that aren't private, or you can instantiate it and change it's values
     return $$$OK       
   } catch ex {    
     set exceptionPayload = ..HandleException(ex)
-    do ##class(Frontier.Dynamic.Serializer).Serialize(exceptionPayload, 1, %frontier.PropertyFormatter)
+    do ##class(Frontier.Dynamic.Serializer).SerializeToStream(.stream, exceptionPayload, 1, %frontier.PropertyFormatter)
+    do stream.OutputToDevice()
   }
   return $$$OK
   
@@ -2072,8 +2129,7 @@ ResolveUrl(url)
   
 NextDispatchMap(index=0, mapEntry="", dispatchClass="")  
   set index = index + 1
-  if dispatchClass = "" set dispatchClass = $classname()
-  set mapEntry = ..DispatchMap(index, dispatchClass)
+  set mapEntry = ..DispatchMap(index)
   return (mapEntry '= "")  
   
 FetchRouteParameters(routeParameters=0)  
@@ -2117,7 +2173,7 @@ HandleOptionsRequest(url, requireCors, shouldQuit)
    set isHttpMethodMatch = 1 
    $$$ThrowOnError(..OnHandleOptionsRequest(resolvedUrl))        
                       
-   // As we got options, we imply that it's CORS request.
+   // As we got options, we imply that it's a CORS request.
    $$$ThrowOnError(..ProcessCorsRequest(url, requireCors))
    set shouldQuit = 1
  }
@@ -2154,12 +2210,22 @@ CallDispatchMethod(methodArguments, dispatchClass, dispatchMethod, methodReturn)
   }
     
   set exceptionJSON = ##class(Exception).ToDynamicObject(exception)
-  set exceptionJSON.error.responseCode = responseCode    
+  set exceptionJSON.responseCode = responseCode
   set sc = exception.AsStatus()
+  set stack = ""
     
   if '%frontier.ThrownByApplication && ($$$GETERRORCODE(sc) '= $$$GeneralError) {
     set %frontier.Error = sc
-    set %frontier.Stack = ##class(Exception).CaptureStack()
+    set %frontier.IncludeStack = 1
+  }
+  
+  if %frontier.IncludeStack {
+    do ##class(Exception).CaptureStack(.stack)
+  }   
+  
+  if stack '= "" {
+    set exceptionJSON.stack = stack
+    set %frontier.Stack = stack
   }
     
   set %response.OutputSessionToken = 0
@@ -2228,15 +2294,6 @@ CallDispatchMethod(methodArguments, dispatchClass, dispatchMethod, methodReturn)
 <FormalSpec>data:%DynamicObject</FormalSpec>
 <ReturnType>%Status</ReturnType>
 <Implementation><![CDATA[  return $$$OK
-]]></Implementation>
-</Method>
-
-<Method name="OnPostHTTP">
-<Final>1</Final>
-<ClassMethod>1</ClassMethod>
-<Implementation><![CDATA[
-  do %frontier.ReporterManager.Report() 
-  kill %frontier
 ]]></Implementation>
 </Method>
 
@@ -2737,6 +2794,23 @@ WritePattern(resource, placeholders)
 </Class>
 
 
+<Class name="Frontier.SessionEvents">
+<Super>%CSP.SessionEvents</Super>
+<TimeCreated>64594,37362.115919</TimeCreated>
+
+<Method name="OnEndRequest">
+<Description>
+Called when we have finished processing this request</Description>
+<ClassMethod>1</ClassMethod>
+<ReturnType>%Status</ReturnType>
+<Implementation><![CDATA[
+  set frontier = %session.Data("%frontier")
+  return frontier.ReporterManager.Report()
+]]></Implementation>
+</Method>
+</Class>
+
+
 <Class name="Frontier.Types">
 <Abstract>1</Abstract>
 <IncludeCode>frontier</IncludeCode>
@@ -3163,7 +3237,7 @@ This method is reserved for setting up configurations.</Description>
 <Implementation><![CDATA[
  
   // Reporters should be used to signal the developer about request errors.   
-  // $$$QuitOnError(%frontier.ReporterManager.AddReporter(##class(MyReporter.Email).%New()))
+  // $$$QuitOnError(%frontier.ReporterManager.AddReporter(##class(MyReporter.Email).%New()))  
   
   // Asks the user for a Basic + Base64(username:password) encoded Authorization header.
   set basicStrategy = ##class(Frontier.Authentication.BasicStrategy).%New({
@@ -3173,7 +3247,8 @@ This method is reserved for setting up configurations.</Description>
   })
   
   // This provides a way to check if the current user is authenticated using Basic scheme.
-  $$$QuitOnError(%frontier.AuthenticationManager.AddStrategy(basicStrategy))  
+  $$$QuitOnError(%frontier.AuthenticationManager.AddStrategy(basicStrategy)) 
+    
   
   return $$$OK
 ]]></Implementation>
@@ -3183,7 +3258,7 @@ This method is reserved for setting up configurations.</Description>
 <Description>
 Whenever a parameter is typed of %Persistent and a valid id is provided, the parameter will be instantiated.
 Call example:
-curl -H "Content-Type: application/json" 'localhost:57772/api/frontier/test/route_params/6' 
+curl -H "Content-Type: application/json" 'localhost:57772/api/frontier/test/route-params/6' 
 {"Plate":"O5397","Students":[{"Name":"Drabek,Peter T.","__id__":"20"}],"__id__":"6"}</Description>
 <ClassMethod>1</ClassMethod>
 <FormalSpec>class:Frontier.UnitTest.Fixtures.Class</FormalSpec>
@@ -3683,6 +3758,7 @@ curl -H "Authorization: Basic Zm9vOmJhcg==" 'http://localhost:57772/api/frontier
   
   set properties("CookiePath") = ..#NAME
   set properties("DispatchClass") = "Frontier.UnitTest.Router"
+  set properties("EventClass") = "Frontier.SessionEvents"
   set properties("NameSpace") = targetNamespace
   set properties("UseCookies") = 2
   set properties("AutheEnabled") = 64

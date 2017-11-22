@@ -28,7 +28,13 @@ ClassMethod CreateFromStatus(pSC As %Status, errorIndex As %Integer = 1) As Fron
 ClassMethod ToDynamicObject(exception As Frontier.Exception) As %DynamicObject
 {
   set de = ##class(%DynamicObject).%New()
-  set de.error = ..BuildObjectGraph(exception)
+  set graph = ..BuildObjectGraph(exception)
+  
+  if graph.%IsA("%DynamicObject") {
+    set de.error = graph
+  } elseif graph.%IsA("%DynamicArray") {
+    set de.errors = graph
+  }
   return de
 }
 
@@ -44,21 +50,25 @@ ClassMethod CreateInfoObject(exception As Frontier.Exception) As %DynamicObject 
   return de
 }
 
-ClassMethod BuildObjectGraph(exception As Frontier.Exception) As %DynamicObject [ Private ]
+ClassMethod BuildObjectGraph(exception As Frontier.Exception) As %DynamicAbstractObject [ Private ]
 {
-  set de = ..CreateInfoObject(exception)  
+  set de = ..CreateInfoObject(exception) 
+  set supportsInnerException = ##class(%Dictionary.CompiledProperty).%ExistsId($classname()_"||InnerException") 
   
-  if $isobject(exception.InnerException) {
-    set de.from = ..ToDynamicObject(exception.InnerException)
+  if supportsInnerException && $isobject(exception.InnerException) {
+    set de.origin = ..ToDynamicObject(exception.InnerException)
   }
   
   if $isobject(exception) && ##class(%Dictionary.CompiledProperty).%ExistsId($classname(exception)_"||NextException") && $isobject(exception.NextException) {
     set nextExceptions = ##class(%ListOfObjects).%New()
-    set de.next = nextExceptions
+    set firstSibling = de
+    set de = []
+    do de.%Push(firstSibling)    
     
     set ex = exception.NextException
+    
     while ex {
-      do de.next.Insert(..CreateInfoObject(ex, 0))
+      do de.%Push(..CreateInfoObject(ex))
       set ex = ex.NextException
     }
   }

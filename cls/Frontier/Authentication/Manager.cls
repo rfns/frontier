@@ -26,8 +26,7 @@ Method ScopeSeparatorSet(value As %String) As %Status [ Final, Internal, Private
 
 Method AddStrategy(strategy As Frontier.Authentication.Strategy) As %Status
 {
-    
-  $$$QuitOnError(..Strategies.Insert(strategy))  
+  $$$QuitOnError(..Strategies.Insert(strategy))
   return $$$OK
 }
 
@@ -35,8 +34,8 @@ Method Verify(Output user As %DynamicObject = {{}}, resourceScope As %String = "
 {
   set sc = $$$OK
   set totalStrategies = ..Strategies.Count()
-  set strategy = "" 
-  
+  set strategy = ""
+
   try {
     for i=1:1:totalStrategies {
       set strategy = ..Strategies.GetAt(i)
@@ -46,7 +45,7 @@ Method Verify(Output user As %DynamicObject = {{}}, resourceScope As %String = "
       } elseif 'strategy.Next {
         set challengeSC = strategy.GetChallenge(..Session, ..Request, ..Response, .challenge)
         if $$$ISOK(challengeSC) do ..Response.SetHeader("WWW-Authenticate", challenge)
-        quit        
+        quit
       }
     }
   } catch ex {

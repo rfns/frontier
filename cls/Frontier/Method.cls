@@ -280,8 +280,7 @@ Method MergeArguments(ByRef routeArguments As %String = 0, ByRef requestArgument
         
         if methodArgument.Arity {
           set queryParameterName = $$$KeyGroup(queryParameterName)
-        }
-        
+        }        
         if '$lf(keysFound, queryParameterName) && '$data(routeArguments(queryParameterName)) {
           set $list(missingArguments, *+1) = queryParameterName
         }

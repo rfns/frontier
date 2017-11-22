@@ -18,6 +18,7 @@ ClassMethod CreateWebApplication() As %Status
   
   set properties("CookiePath") = ..#NAME
   set properties("DispatchClass") = "Frontier.UnitTest.Router"
+  set properties("EventClass") = "Frontier.SessionEvents"
   set properties("NameSpace") = targetNamespace
   set properties("UseCookies") = 2
   set properties("AutheEnabled") = 64
