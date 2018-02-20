@@ -9,7 +9,7 @@ ClassMethod CreateFromStatus(pSC As %Status, errorIndex As %Integer = 1) As Fron
   
   Set tException = $$$NULLOREF
   
-  Do $SYSTEM.Status.DecomposeStatus(pSC,.tInfo, "pt-br")
+  Do $SYSTEM.Status.DecomposeStatus(pSC,.tInfo)
   If $DATA(tInfo(1)) {
     // Build the exception object
     Set tData="" For tI=1:1:9 Set tData=tData_$LB(tInfo(errorIndex,"param",tI))
@@ -43,7 +43,7 @@ ClassMethod CreateInfoObject(exception As Frontier.Exception) As %DynamicObject 
   set de = ##class(%DynamicObject).%New()    
   set de.internalCode = exception.Code
   
-  set unfilteredErrorMessage = $System.Status.GetOneStatusText(exception.AsStatus(), 1)
+  set unfilteredErrorMessage = $zcvt($System.Status.GetOneStatusText(exception.AsStatus(), 1), "O", "UTF8")
   set errorMessage = $select(unfilteredErrorMessage [ $char(13, 10) : $extract(unfilteredErrorMessage, 1, $find(unfilteredErrorMessage, $c(13,10)) - 3), 1: unfilteredErrorMessage)
   if errorMessage?.ANPE1" > ".ANPE set errorMessage = $extract(errorMessage, 1, $find(errorMessage, " > ") - 2)
   set de.message = errorMessage

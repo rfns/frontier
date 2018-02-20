@@ -1093,7 +1093,7 @@ WriteEscaped(v)
   
   Set tException = $$$NULLOREF
   
-  Do $SYSTEM.Status.DecomposeStatus(pSC,.tInfo, "pt-br")
+  Do $SYSTEM.Status.DecomposeStatus(pSC,.tInfo)
   If $DATA(tInfo(1)) {
     // Build the exception object
     Set tData="" For tI=1:1:9 Set tData=tData_$LB(tInfo(errorIndex,"param",tI))
@@ -1136,7 +1136,7 @@ WriteEscaped(v)
   set de = ##class(%DynamicObject).%New()    
   set de.internalCode = exception.Code
   
-  set unfilteredErrorMessage = $System.Status.GetOneStatusText(exception.AsStatus(), 1)
+  set unfilteredErrorMessage = $zcvt($System.Status.GetOneStatusText(exception.AsStatus(), 1), "O", "UTF8")
   set errorMessage = $select(unfilteredErrorMessage [ $char(13, 10) : $extract(unfilteredErrorMessage, 1, $find(unfilteredErrorMessage, $c(13,10)) - 3), 1: unfilteredErrorMessage)
   if errorMessage?.ANPE1" > ".ANPE set errorMessage = $extract(errorMessage, 1, $find(errorMessage, " > ") - 2)
   set de.message = errorMessage
@@ -3242,13 +3242,12 @@ This method is reserved for setting up configurations.</Description>
   // Asks the user for a Basic + Base64(username:password) encoded Authorization header.
   set basicStrategy = ##class(Frontier.Authentication.BasicStrategy).%New({
     "realm": "tests", 
-    "validator": ($classname()_":ValidateCredentials"),
-    "required": true
-  })
+    "validator": ($classname()_":ValidateCredentials")/*,
+    "required": true*/
+  })   
   
   // This provides a way to check if the current user is authenticated using Basic scheme.
-  $$$QuitOnError(%frontier.AuthenticationManager.AddStrategy(basicStrategy)) 
-    
+  $$$QuitOnError(%frontier.AuthenticationManager.AddStrategy(basicStrategy))
   
   return $$$OK
 ]]></Implementation>
@@ -3914,19 +3913,4 @@ curl -H "Authorization: Basic Zm9vOmJhcg==" 'http://localhost:57772/api/frontier
   </tbody>
 </table>
 ]]></CSP>
-
-
-<Routine name="frontier" type="INC"><![CDATA[
-#include %ZEN.Utils
-
-#define ltrim(%str)       $zstrip(%str, "<W")
-#define rtrim(%str)       $zstrip(%str, ">W")
-#define trim(%str)        $zstrip(%str, "<>W")
-#define trimQuote(%str)   $zstrip(%str, "<>", $c(34))
-#define IsSQLQuery(%str)  ($$$ucase($extract($$$trim(%str), 6)) = "SELECT")
-#define KeyGroup(%requestKey)  $zstrip($zstrip(%requestKey, "<=N"), "=>N")
-#define KeyIndex(%requestKey)  $zstrip($zstrip(%requestKey, "<=N"), "<=A")
-#define FormatBoolean(%value) $case(%value, 1: "true", 0: "false", : "")
-#define NormalizeClassName(%cn) if $l(%cn, ".") = 1 && ($e(%cn) = "%") set %cn = "%Library."_$e(%cn, 2, *)
-]]></Routine>
 </Export>
