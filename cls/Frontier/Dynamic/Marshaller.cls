@@ -95,7 +95,7 @@ Method MakeDynamicObject(object As %RegisteredObject, Output dynamicObject As %D
   for i=1:1:affectedProperties.Count() {    
     set propertyDescriptors = affectedProperties.GetAt(i)    
     if '$isobject(propertyDescriptors) continue    
-    if propertyDescriptors.Private || propertyDescriptors.Internal || ($extract(propertyDescriptors.Name) = "%") continue    
+    if propertyDescriptors.MultiDimensional || propertyDescriptors.Private || propertyDescriptors.Internal || ($extract(propertyDescriptors.Name) = "%") continue    
     if $isobject(parentObject) && ($classname(parentObject) = propertyDescriptors.Type) && 
       (parentKey = propertyDescriptors.Name) && (propertyDescriptors.Cardinality '= "") {
       // Prevents the buffer from overflowing by skipping parent relationship serialization.
@@ -128,7 +128,11 @@ Method MakeDynamicObject(object As %RegisteredObject, Output dynamicObject As %D
     } else {
       set internalValue = $property(object, propertyDescriptors.Name)
       set d = propertyDescriptors.Type
-      do dynamicObject.%Set(propertyDescriptors.Name, internalValue, jsonDataFormat)
+      if jsonDataFormat '= "null" {
+        do dynamicObject.%Set(propertyDescriptors.Name, internalValue, jsonDataFormat)
+      } else {
+        do dynamicObject.%Set(propertyDescriptors.Name, internalValue)
+      }
       if ##class(%Dictionary.CompiledMethod).%ExistsId(propertyDescriptors.Type_"||LogicalToDisplay") {                
         set externalValue = $classmethod(propertyDescriptors.Type, "LogicalToDisplay", internalValue)
         if externalValue '= internalValue {
