@@ -91,6 +91,29 @@
   
   // Now we have the WWW-Authenticate header set.
   do $$$AssertTrue(..Response.GetHeader("WWW-Authenticate") '= "", "outputs the challenge when none of the provided strategies succeed.")
+  
+  // The last condition is when the request attempts to ignore every strategy, should we specify any strategy
+  // it'll be assumed that at least one validation must pass. This means that any Next is overruled if
+  // this condition matches. 
+  
+  set dummyStrategy5 = ##class(Frontier.UnitTest.Authentication.DummyStrategy).%New()
+  set dummyStrategy5.ShouldPass = 0
+  set dummyStrategy5.Next = 1
+  
+  // Same here.
+  set dummyStrategy6 = ##class(Frontier.UnitTest.Authentication.DummyStrategy).%New()
+  set dummyStrategy6.ShouldPass = 0
+  set dummyStrategy6.Next = 1
+  
+  // If the flag is not set, then it'll validate the input.
+  // Luckly, we're informing our dummy strategy that it should allow the access.
+  set dummyStrategy7 = ##class(Frontier.UnitTest.Authentication.DummyStrategy).%New()
+  set dummyStrategy7.ShouldPass = 0
+  set dummyStrategy6.Next = 1
+  
+  do ..AuthenticationManager.ClearStrategies()
+  set sc = ..AuthenticationManager.Verify(.user)
+  do $$$AssertTrue(..Response.GetHeader("WWW-Authenticate") '= "", "outputs the challenge when attempting to skip every strategy")
 ]]></Implementation>
 </Method>
 </Class>
