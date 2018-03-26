@@ -50,8 +50,7 @@ ClassMethod OnSetup() As %Status
   // Asks the user for a Basic + Base64(username:password) encoded Authorization header.
   set basicStrategy = ##class(Frontier.Authentication.BasicStrategy).%New({
     "realm": "tests", 
-    "validator": ($classname()_":ValidateCredentials")/*,
-    "required": true*/
+    "validator": ($classname()_":ValidateCredentials")
   })   
   
   // This provides a way to check if the current user is authenticated using Basic scheme.
@@ -71,18 +70,17 @@ ClassMethod TestGETRouteParams(class As Frontier.UnitTest.Fixtures.Class) As %St
 
 /// Query parameters are also supported and are fetched if the parameter name matches the URL query name.
 /// Call example:
-/// curl -H "Content-Type: application/json" 'localhost:57772/api/frontier/test/query_params?msg=hello'
+/// curl -H "Content-Type: application/json" 'localhost:57772/api/frontier/test/query-params?msg=hello'
 /// {result":"hello"}
 ClassMethod TestGETOneQueryParameter(msg As %String) As %String
 {
-  
   return "hello"
 }
 
 /// Rest parameters are sequential query parameters. They can have flexible arity and have the format parameterN.
 /// This request takes that number of parameters and sum them.
 /// Call example:
-/// curl -H "Content-Type: application/json" 'localhost:57772/api/frontier/test/rest_params?n1=10&n2=20&n3=30'
+/// curl -H "Content-Type: application/json" 'localhost:57772/api/frontier/test/rest-params?n1=10&n2=20&n3=30'
 ClassMethod TestGETRestParametersSum(n... As %String) As %Integer
 {
   set sum = 0
@@ -147,7 +145,7 @@ ClassMethod TestGETStream() As %Stream.Object
 
 /// If the request is a POST/PUT/PATCH method, it can receive a payload that's represented by a parameter typed of %DynamicObject instances.
 /// Call example:
-/// curl -H "Content-Type: application/json" -X POST -d '{"username":"xyz","password":"xyz"}' 'http://localhost:57772/api/frontier/test/payload/single_object'
+/// curl -H "Content-Type: application/json" -X POST -d '{"username":"xyz","password":"xyz"}' 'http://localhost:57772/api/frontier/test/payload/single-object'
 ClassMethod TestPOSTObjectPayloadSingle(payload As %DynamicObject) As %DynamicObject
 {
   return payload
@@ -155,7 +153,7 @@ ClassMethod TestPOSTObjectPayloadSingle(payload As %DynamicObject) As %DynamicOb
 
 /// Request can have a payload along with a query parameter.
 /// Call example:
-/// curl -H "Content-Type: application/json" -X POST -d '{"username":"xyz","password":"xyz"}' 'http://localhost:57772/api/frontier/test/payload/object_with_query_params?msg=hello'
+/// curl -H "Content-Type: application/json" -X POST -d '{"username":"xyz","password":"xyz"}' 'http://localhost:57772/api/frontier/test/payload/object-with-query-params?msg=hello'
 ClassMethod TestPOSTObjectPayloadQueryParams(msg As %String = "", payload As %DynamicObject) As %Status
 {
   return {
@@ -166,7 +164,7 @@ ClassMethod TestPOSTObjectPayloadQueryParams(msg As %String = "", payload As %Dy
 
 /// Payloads can also be an array.
 /// Call example:
-/// curl -H "Content-Type: application/json" -X POST -d '[{"username":"xyz","password":"xyz"}]' 'http://localhost:57772/api/frontier/test/payload/single_array'
+/// curl -H "Content-Type: application/json" -X POST -d '[{"username":"xyz","password":"xyz"}]' 'http://localhost:57772/api/frontier/test/payload/single-array'
 ClassMethod TestPOSTArrayPayloadSingle(payload As %DynamicArray) As %DynamicObject
 {
   return payload
@@ -174,7 +172,7 @@ ClassMethod TestPOSTArrayPayloadSingle(payload As %DynamicArray) As %DynamicObje
 
 /// Requests with array payloads also support query parameters.
 /// Call example:
-/// curl -H "Content-Type: application/json" -X POST -d '[{"username":"xyz","password":"xyz"}]' 'http://localhost:57772/api/frontier/test/payload/array_with_query_params?msg=hello'
+/// curl -H "Content-Type: application/json" -X POST -d '[{"username":"xyz","password":"xyz"}]' 'http://localhost:57772/api/frontier/test/payload/array-with-query-params?msg=hello'
 ClassMethod TestPOSTArrayPayloadQueryParams(payload As %DynamicObject, msg As %String = "") As %DynamicArray
 {
   return [ (msg), (payload) ]
