@@ -3,6 +3,12 @@ Include (%occErrors, %occStatus, frontier)
 Class Frontier.Router Extends %CSP.REST
 {
 
+Parameter CHARSET = "utf-8";
+
+Parameter CONTENTTYPE = "application/json";
+
+Parameter CONVERTINPUTSTREAM = 1;
+
 ClassMethod Page(skipheader As %Boolean = 1) As %Status [ ProcedureBlock = 0 ]
 {
   new %frontier
@@ -15,7 +21,7 @@ ClassMethod Page(skipheader As %Boolean = 1) As %Status [ ProcedureBlock = 0 ]
 ClassMethod DispatchMap(index As %Integer) As %String [ CodeMode = objectgenerator, Final, Internal ]
 {
   // Don't generate patterns if target class is super.
-  if %compiledclass.Name = "Frontier.Router" return $$$OK  
+  if %compiledclass.Name = "Frontier.Router" return $$$OK   
   
   $$$ThrowOnError(##class(Frontier.Schema.Util).Parse(%compiledclass.Name, .routes))
   $$$ThrowOnError(##class(Frontier.Schema.Util).GeneratePatterns(routes, %compiledclass.Name, .patterns))  
@@ -43,6 +49,9 @@ ClassMethod DispatchMap(index As %Integer) As %String [ CodeMode = objectgenerat
     do %code.WriteLine("  if index = "_patternIndex_ " return $lb("_$lts(patternString)_")")
   }
   
+  // Prevents the dispatch from throwing <OBJECT DISPATCH> if route is not defined.
+  // This will make the engine return "Resource not found" instead.
+  do %code.WriteLine("  return """"")  
   return $$$OK
   
 MakeString(list)
@@ -63,7 +72,7 @@ ClassMethod DispatchRequest(url As %String, httpMethod As %String, forwarded As 
   set %frontier.Method = "DispatchRequest"
   
   // Makes sure the http method is following specs.
-  set httpMethod = $$$ucase(httpMethod)
+  set httpMethod = $$$ucase(httpMethod)  
   
   try {    
     set resolvedUrl = $$ResolveUrl(url)    
@@ -81,12 +90,12 @@ ClassMethod DispatchRequest(url As %String, httpMethod As %String, forwarded As 
                 
         set %frontier.RequestURL = %request.URL
         set %frontier.ClassName = $classname()
-                 
-        set %frontier.Method = "OnSetup"
-        $$$ThrowOnError(..OnSetup())        
         
         set %frontier.Method = "OnDataSet"
-        $$$ThrowOnError(..OnDataSet(%frontier.Data))
+        $$$ThrowOnError(..OnDataSet(%frontier.Data))        
+                 
+        set %frontier.Method = "OnSetup"
+        $$$ThrowOnError(..OnSetup())                
         
         if parentIsStrict '= "" && (parentIsStrict '= strictRouteParameters) {
           $$$ThrowOnError($$$ERROR($$$GeneralError, "Cannot use route with mixed Strict definition."))
@@ -106,7 +115,7 @@ ClassMethod DispatchRequest(url As %String, httpMethod As %String, forwarded As 
           // Don't continue if we hit this point, let the agent do the rest.
           if shouldQuit return $$$OK                       
                   
-          if httpMethod '= $list(mapEntry, 3) continue                
+          if httpMethod '= $list(mapEntry, 3) continue              
           
           $$$ThrowOnError(..ProcessCorsRequest(url, requiresCors))
                    
@@ -145,7 +154,7 @@ ClassMethod DispatchRequest(url As %String, httpMethod As %String, forwarded As 
           
           // Executes the method and retrives its value. The method MUST return a value or a 
           // <COMMAND> will be issued.
-          $$$ThrowOnError($$CallDispatchMethod(.methodArguments, dispatchClass, dispatchMethod, .methodReturn))
+          $$$ThrowOnError($$CallDispatchMethod(.methodArguments, dispatchClass, dispatchMethod, .methodReturn))          
           
           // Now we serialize and output the result back to the agent.
           $$$ThrowOnError(..DispatchResponse(methodReturn, .tReturnParameters))
