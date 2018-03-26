@@ -9,8 +9,6 @@ Property Request As %CSP.Request [ Private ];
 
 Property Response As %CSP.Response [ Private ];
 
-Property CharSet As %String [ InitialExpression = "utf-8" ];
-
 Property RequestURL As %String;
 
 Property Method As %String;
