@@ -53,17 +53,9 @@ Method %OnNew(session As %CSP.Session, request As %CSP.Request, response As %CSP
   set i%SQL = ##class(Frontier.SQL).%New()
   set i%ReporterManager = ##class(Frontier.Reporter.Manager).%New($this)
   set i%AuthenticationManager = ##class(Frontier.Authentication.Manager).%New(..Session, ..Request, ..Response)
-  set i%ArgumentValues = 0  
-  set ..Data = {}
-  do ..Response.SetHeader("Content-Type", "application/json")
-  set ..CharSet = "utf-8"  
-  return $$$OK
-}
-
-Method CharSetSet(charset As %String) As %Status
-{
-  set ..Response.CharSet = charset
-  set ..Response.HeaderCharSet = charset  
+  set i%ArgumentValues = 0   
+  set ..Data = {} 
+  set ..Response.ContentType = "application/json"
   return $$$OK
 }
 
