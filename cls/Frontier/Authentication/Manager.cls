@@ -30,6 +30,11 @@ Method AddStrategy(strategy As Frontier.Authentication.Strategy) As %Status
   return $$$OK
 }
 
+Method ClearStrategies() As %Status
+{
+  return ..Strategies.Clear()
+}
+
 Method Verify(Output user As %DynamicObject = {{}}, resourceScope As %String = "") As %Status
 {
   set sc = $$$OK
@@ -42,7 +47,7 @@ Method Verify(Output user As %DynamicObject = {{}}, resourceScope As %String = "
       set sc = strategy.Verify(..Session, ..Request, ..Response, .user, resourceScope)
       if $$$ISOK(sc) {
         quit
-      } elseif 'strategy.Next {
+      } elseif 'strategy.Next || (strategy.Next && (i = totalStrategies)) {
         set challengeSC = strategy.GetChallenge(..Session, ..Request, ..Response, .challenge)
         if $$$ISOK(challengeSC) do ..Response.SetHeader("WWW-Authenticate", challenge)
         quit
