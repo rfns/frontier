@@ -151,10 +151,11 @@ ClassMethod DispatchRequest(url As %String, httpMethod As %String, forwarded As 
           else  merge %frontier.RouteParameters = matches
           
           set %frontier.Method = dispatchMethod
+          merge %frontier.ArgumentValues = publicMethod.Arguments
           
           // Executes the method and retrives its value. The method MUST return a value or a 
           // <COMMAND> will be issued.
-          $$$ThrowOnError($$CallDispatchMethod(.methodArguments, dispatchClass, dispatchMethod, .methodReturn))          
+          $$$ThrowOnError(publicMethod.Invoke(.methodReturn))
           
           // Now we serialize and output the result back to the agent.
           $$$ThrowOnError(..DispatchResponse(methodReturn, .tReturnParameters))
@@ -169,7 +170,7 @@ ClassMethod DispatchRequest(url As %String, httpMethod As %String, forwarded As 
           set parentIsStrict = strictRouteParameters              
                     
           // Re-invoke this method using the class that this map forwards the request to. 
-          $$$ThrowOnError($classmethod(forwardingClass,"DispatchRequest", resolvedUrl, httpMethod, 1, .routeParameters, .matches, strictRouteParameters))
+          $$$ThrowOnError($classmethod(forwardingClass, "DispatchRequest", resolvedUrl, httpMethod, 1, .routeParameters, .matches, strictRouteParameters))
           // Maps are also a match, so abort everything else and let the forwarding class handle the rest.
           return $$$OK
         }
@@ -245,20 +246,6 @@ HandleOptionsRequest(url, requireCors, shouldQuit)
    set shouldQuit = 1
  }
  quit
- 
-CallDispatchMethod(methodArguments, dispatchClass, dispatchMethod, methodReturn)
-  set methodReturn = ""
-  try {
-    if methodArguments > 0 {
-      merge %frontier.ArgumentValues = tMethodArguments
-      set methodReturn = $classmethod(dispatchClass, dispatchMethod, methodArguments...)      
-    } else {            
-      set methodReturn = $classmethod(dispatchClass, dispatchMethod)
-    }
-  } catch ex {
-    set sc = ex.AsStatus()
-  }
-  return sc
 }
 
 ClassMethod HandleException(exception As %Exception.AbstractException) As %DynamicObject [ Private ]
@@ -294,7 +281,7 @@ ClassMethod HandleException(exception As %Exception.AbstractException) As %Dynam
   return exceptionJSON
 }
 
-ClassMethod DispatchResponse(returnedData As %CacheString, method As Frontier.Router, ByRef returnTypeParams = "") As %Status [ Private ]
+ClassMethod DispatchResponse(returnedData As %CacheString, method As Frontier.Router, warnings As %DynamicObject = "", ByRef returnTypeParams = "") As %Status [ Private ]
 {
   
   set sc = $$$OK
@@ -326,7 +313,8 @@ ClassMethod DispatchResponse(returnedData As %CacheString, method As Frontier.Ro
   } else {
     write returnedData
     return $$$OK
-  }
+  }  
+  
   // We must use a custom serializer because the current %ToJSON implementation cannot serialize
   // mixed instances.
   if %frontier.DirectWrite = 1 {
