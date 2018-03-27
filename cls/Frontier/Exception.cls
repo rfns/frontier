@@ -43,37 +43,47 @@ ClassMethod CreateInfoObject(exception As Frontier.Exception) As %DynamicObject 
   set de = ##class(%DynamicObject).%New()    
   set de.internalCode = exception.Code
   
-  set unfilteredErrorMessage = $zcvt($System.Status.GetOneStatusText(exception.AsStatus(), 1), "O", "UTF8")
-  set errorMessage = $select(unfilteredErrorMessage [ $char(13, 10) : $extract(unfilteredErrorMessage, 1, $find(unfilteredErrorMessage, $c(13,10)) - 3), 1: unfilteredErrorMessage)
-  if errorMessage?.ANPE1" > ".ANPE set errorMessage = $extract(errorMessage, 1, $find(errorMessage, " > ") - 2)
-  set de.message = errorMessage
+  set fullMessage = $System.Status.GetOneStatusText(exception.AsStatus())
+  set messageWithoutLF = $piece(fullMessage, $c(13), 1, 1)
+  
+  set message = $piece(messageWithoutLF, "#:", 1 , 1)
+  set de.message = message
   return de
 }
 
-ClassMethod BuildObjectGraph(exception As Frontier.Exception) As %DynamicAbstractObject [ Private ]
+ClassMethod BuildObjectGraph(exception As Frontier.Exception) As %DynamicAbstractObject
 {
-  set de = ..CreateInfoObject(exception) 
-  set supportsInnerException = ##class(%Dictionary.CompiledProperty).%ExistsId($classname()_"||InnerException") 
+     
+  #define SupportsNextException(%ex) ($isobject(%ex) && ##class(%Dictionary.CompiledProperty).%ExistsId($classname(%ex)_"||NextException") && $isobject(%ex.NextException))  
   
-  if supportsInnerException && $isobject(exception.InnerException) {
-    set de.origin = ..ToDynamicObject(exception.InnerException)
-  }
-  
-  if $isobject(exception) && ##class(%Dictionary.CompiledProperty).%ExistsId($classname(exception)_"||NextException") && $isobject(exception.NextException) {
-    set nextExceptions = ##class(%ListOfObjects).%New()
-    set firstSibling = de
-    set de = []
-    do de.%Push(firstSibling)    
-    
+  if $$$SupportsNextException(exception) {
+    set de = ..CreateInfoObject(exception)
     set ex = exception.NextException
-    
+    set de = [ (de) ]
     while ex {
-      do de.%Push(..CreateInfoObject(ex))
-      set ex = ex.NextException
+      set sibling = {}
+      do TraverseException(.sibling, ex)
+      do de.%Push(sibling)
+      if $$$SupportsNextException(ex) {
+        set ex = ex.NextException           
+      } else {
+        quit
+      }      
     }
+    return de
   }
   
+  do TraverseException(.de, exception)
   return de
+
+TraverseException(payload, ex)
+  set payload = ..CreateInfoObject(ex)
+  set supportsInnerException = ##class(%Dictionary.CompiledProperty).%ExistsId($classname()_"||InnerException") 
+
+  if supportsInnerException && $isobject(ex.InnerException) {
+    set payload.origin = ..BuildObjectGraph(ex.InnerException)   
+  }
+  return $$$OK
 }
 
 ClassMethod CaptureStack(Output stackText As %Stream.GlobalCharacter = "") As %String
@@ -83,7 +93,7 @@ ClassMethod CaptureStack(Output stackText As %Stream.GlobalCharacter = "") As %S
   do stackText.WriteLine("Runtime exception ")
   set max = $stack(-1)
   for loop=max:-1:1 {
-    set sc  = stackText.WriteLine($char(9)_"     at "_$stack(loop, "PLACE")_$stack(loop, "MCODE")_" (LV: "_loop_")")
+    set sc  = stackText.WriteLine($char(9)_"     at "_$stack(loop, "PLACE")_$stack(loop, "MCODE"))
     if $$$ISERR(sc) return sc
   }   
   return stackText.Read()
