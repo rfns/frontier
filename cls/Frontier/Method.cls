@@ -3,11 +3,17 @@ Include frontier
 Class Frontier.Method Extends %RegisteredObject
 {
 
+Property DispatchClass As %String;
+
+Property DispatchMethod As %String;
+
 Property MethodArguments As list Of ArgumentDescription;
 
 Property MethodDescriptor As %Dictionary.CompiledMethod [ Private ];
 
 Property ReturnTypeParameters As %String [ MultiDimensional ];
+
+Property ReturnType As %String;
 
 Property Payload As %CacheString;
 
@@ -20,10 +26,16 @@ Method %OnNew(className As %String, methodName As %String, RESTMethodArguments A
   set requestQueryParams = 0
   $$$ThrowOnError(..AssertMethodExists(className, methodName))
   
+  set ..DispatchClass = className
+  set ..DispatchMethod = methodName  
   set ..MethodDescriptor = ##class(%Dictionary.CompiledMethod).%OpenId(className_"||"_methodName)  
   
   $$$ThrowOnError(..DescribeArguments())
   $$$ThrowOnError(..ParseReturnTypeParameters())
+  
+  if ..MethodDescriptor.ReturnType = "" {
+    $$$ThrowOnError($$$ERROR($$$GeneralError, $$$FormatText("Expected a return type for method %1.", methodName)))
+  }  
   
   if $isobject(request) {
     set ..Payload = request.Content
@@ -73,11 +85,11 @@ ParseArgument(parsedArgument)
     if argument [ "..." set parsedArgument.Arity = 1
     set parsedArgument.Name = $piece($replace($piece(argument, ":", 1), "...", ""), "=", 1)       
     set parsedArgument.Index = currentIndex
-    set preType = $piece(argument, ":", 2)
+    set preType = $piece(argument, ":", 2)    
     if preType [ "(" {      
       set parsedArgument.Type = $extract(preType, 1, $find(preType, "(") - 2)
       set maybeDefault = $piece(preType, "=", *)
-      if $extract(maybeDefault, *) = ")" set maybeDefault =""
+      if $extract(maybeDefault, *) = ")" set maybeDefault = ""
       set parsedArgument.DefaultValue = $$$trimQuote(maybeDefault)
       set argumentParameters = $extract(preType, $find(preType, "("), $find(preType, ")") - 2)
       if '$find(argumentParameters, ",") set argumentParameters = argumentParameters_","
@@ -91,9 +103,9 @@ ParseArgument(parsedArgument)
       }
     } else {      
       set parsedArgument.Type = $piece(preType, "=", 1)
-      set defaultQuotedValue = $piece(preType, "=", 2)
+      set defaultQuotedValue = $piece(preType, "=", 2)      
       set parsedArgument.DefaultValue = $$$trimQuote(defaultQuotedValue)
-      if defaultQuotedValue '= "" set parsedArgument.HasDefaultValue = 1
+      if $data(defaultQuotedValue) set parsedArgument.HasDefaultValue = 1
     }
     return 1
   }    
@@ -135,7 +147,7 @@ ClassMethod AssertMethodExists(className As %String, methodName As %String) As %
   
   if '##class(%Dictionary.CompiledMethod).%ExistsId(id) {
     return $$$ERROR($$$MethodDoesNotExist, methodName)
-  }
+  }  
   return $$$OK
 }
 
@@ -206,6 +218,13 @@ Method Sequentialize(ByRef mergedArguments = 0, propertyFormatter As Frontier.Pr
 
 Method MergeArguments(ByRef routeArguments As %String = 0, ByRef requestArguments As %String = 0, Output preArguments As %String = 0, strictMode As %Boolean = 1) As %Status [ Private ]
 {
+     
+  // Conformity check:
+  // 1 - No weak typing: All arguments must have a type provided.
+  // 2 - Default values must be specified if optional.
+  // 3 - Arity arguments must follow argumentnameN format, where N is an index.
+  // 4 - Payloads must not have default values.
+  // 5 - Each method must have only one payloadable type (%DynamicObject or DynamicArray).  
   
   set argumentIndex = routeArguments 
   set nextKeyIndex = 0
@@ -265,13 +284,14 @@ Method MergeArguments(ByRef routeArguments As %String = 0, ByRef requestArgument
   }
   
   set missingArguments = ""
+  set weaklyTypedArgs = ""
   
-  // Check if the current request is sending all the required query parameters.
   if methodArgumentsLength > 0 {    
     for m=1:1:methodArgumentsLength {
-      set methodArgument = ..MethodArguments.GetAt(m)
+      set methodArgument = ..MethodArguments.GetAt(m)      
       set isPayloadArgument = (methodArgument.Type [ "DynamicObject" || (methodArgument.Type [ "DynamicArray"))
-      
+      if methodArgument.Type = "" set $list(weaklyTypedArgs, *+1) = methodArgument.Name
+            
       if 'methodArgument.HasDefaultValue && 'isPayloadArgument {
         set queryParameterName = $select(
           methodArgument.Alias '= "" : methodArgument.Alias, 
@@ -280,16 +300,21 @@ Method MergeArguments(ByRef routeArguments As %String = 0, ByRef requestArgument
         
         if methodArgument.Arity {
           set queryParameterName = $$$KeyGroup(queryParameterName)
-        }        
+        }
+        
         if '$lf(keysFound, queryParameterName) && '$data(routeArguments(queryParameterName)) {
           set $list(missingArguments, *+1) = queryParameterName
-        }
+        }        
       }
     }
   }
   
   if $ll(missingArguments) > 0 {
     return $$$ERROR($$$GeneralError, "The following query parameters are missing: "_$lts(missingArguments, ", ")_".")
+  }
+  
+  if $ll(weaklyTypedArgs) > 0 {
+    return $$$ERROR($$$GeneralError, "The following arguments must be strongly typed: "_$lts(weaklyTypedArgs, ", ")_".")
   }
     
   // Now we must merge the route arguments back, remember that they always take priority over query parameters.
@@ -301,13 +326,29 @@ Method MergeArguments(ByRef routeArguments As %String = 0, ByRef requestArgument
     set methodArgument =  ..FindDescribedArgument(routeKey)
     
     if '$isobject(methodArgument) {
-      return $$$ERROR($$$GeneralError, $$$FormatText("Route parameter '%1' was not specified as an argument on the receiving method '%2'.", routeKey, ..MethodDescriptor.Name))
-    }
-    
+      return $$$ERROR($$$GeneralError, $$$FormatText("Route parameter '%1' was not specified as an argument in the method '%2'.", routeKey, ..MethodDescriptor.Name))
+    }    
     set preArguments(..FindDescribedArgument(routeKey).Index) = routeValue
   }
   set preArguments = argumentIndex
   return $$$OK
+}
+
+Method Invoke(Output methodReturn = "") As %Status [ Internal ]
+{
+  set sc = $$$OK
+  merge methodArguments = ..Arguments
+  
+  try {
+    if methodArguments > 0 {
+      set methodReturn = $classmethod(..DispatchClass, ..DispatchMethod, methodArguments...)      
+    } else {            
+      set methodReturn = $classmethod(..DispatchClass, ..DispatchMethod)
+    }
+  } catch ex {
+    set sc = ex.AsStatus()
+  }
+  return sc
 }
 
 }
