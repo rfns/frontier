@@ -63,7 +63,7 @@ Method TestReport() As %Status
   set sc = ..ReporterManager.Report()
   set errorCount = $$$GETERRORCOUNT(sc)
   
-  // 2 because Setup failures nullifies reporters so they never can be used.
+  // 2 because Setup failures nullify reporters so they never can be used.
   // We actually have only 2 reporters added.
   if errorCount '= 2 do $$$AssertTrue(errorCount '= 2, "appends reporter errors.")
   

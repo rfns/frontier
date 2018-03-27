@@ -24,6 +24,9 @@ XData UrlMap [ XMLNamespace = "http://github.com/rfns/frontier" ]
 <Route Url="/unmarshall" Method="POST" Call="TestPOSTUnmarshallToClass"/>
 <Route Url="/unmarshall/:classId" Method="PUT" Call="TestPUTUnmarshallToClass"/>
 <Route Url="/user-info" Method="GET" Call="TestGETSessionUserInfo"/>
+<Route Url="/errors/siblings" Method="GET" Call="TestGETMultipleSiblingErrors"/>
+<Route Url="/arguments/no-weakly-typed" Method="GET" Call="TestGETNoWeaklyTypedArgs"/>
+<Route Url="/methods/no-weakly-typed" Method="GET" Call="TestGETNoWeaklyTypedMethods" />
 <Map Prefix="/map/A/:param1" Forward="Frontier.UnitTest.Router.Map.A" />
 <Map Prefix="/map/B/:param1/:param2" Forward="Frontier.UnitTest.Router.Map.B" />
 <Map Prefix="/map/C" Forward="Frontier.UnitTest.Router.Map.C" />
@@ -227,7 +230,7 @@ ClassMethod TestPOSTMixedRestParametersSum(msg As %String, data As %DynamicObjec
 /// For compability with existing clients that use query parameters with symbols. For such cases
 /// ALIAS can be used to make it compatible. If the expected alias is not found then Frontier will 
 /// fall back to using the argument name instead.
-ClassMethod TestGETAliasedQueryParameter(msg As %String(ALIAS="aliased_key"))
+ClassMethod TestGETAliasedQueryParameter(msg As %String(ALIAS="aliased_key")) As %String
 {
   return msg
 }
@@ -265,6 +268,28 @@ ClassMethod TestPUTUnmarshallToClass(class As %DynamicObject(UNMARSHALLTO="Front
 ClassMethod TestGETSessionUserInfo() As %Status
 {
   return %frontier.User
+}
+
+ClassMethod TestGETMultipleSiblingErrors() As %Status
+{
+  set sc1 = $$$ERROR($$$GeneralError, "First")  
+  
+  set sc2 = $$$ERROR($$$GeneralError, "Second")
+  set sc3 = $$$ERROR($$$GeneralError, "Third") 
+  set sc3 = $$$EMBEDSC(sc3, $$$ERROR($$$QueryNameTooLong, "Child")) 
+  set sc1 = $$$ADDSC(sc1, sc2)
+  set sc1 = $$$ADDSC(sc1, sc3)
+  $$$ThrowOnError(sc1)
+}
+
+ClassMethod TestGETNoWeaklyTypedArgs(a As %String = "", b = "", c, d As %Integer) As %Status
+{
+  return $$$OK
+}
+
+ClassMethod TestGETNoWeaklyTypedMethods()
+{
+  return $$$OK
 }
 
 ClassMethod ValidateCredentials(login As %String, password As %String, found As %Boolean = 1, Output httpStatus As %String, Output user As %DynamicObject) As %Status

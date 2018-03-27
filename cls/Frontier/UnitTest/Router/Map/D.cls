@@ -8,7 +8,7 @@ XData UrlMap [ XMLNamespace = "http://github.com/rfns/frontier" ]
 </Routes>
 }
 
-ClassMethod TestGETParentSparseParams(operation As %String, paramA As %Integer, paramB As %Integer)
+ClassMethod TestGETParentSparseParams(operation As %String, paramA As %Integer, paramB As %Integer) As %Integer
 {
   if operation = "sum" return paramA + paramB
   if operation = "subtract" return paramA - paramB

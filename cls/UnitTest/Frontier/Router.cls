@@ -231,7 +231,7 @@ Method TestGETSessionUserInfo()
 Method TestGETRouteParameterNotSpecified()
 {
   set resource = $$$FormatText("%1map/A/1/route-parameter-not-specified", ..WebApplicationName)
-  set expected = {"error":{"internalCode":5001,"message":"Route parameter 'param1' was not specified as an argument on the receiving method 'TestGETRouteParameterNotSpecified'."},"responseCode":500}
+  set expected = {"error":{"internalCode":5001,"message":"Route parameter 'param1' was not specified as an argument in the method 'TestGETRouteParameterNotSpecified'."},"responseCode":500}
   return $$$AssertStatusOK(..AssertRequest(resource, expected), $$$FormatText("can retrieve the expected data from the resource %1", resource))
 }
 
@@ -283,6 +283,20 @@ Method TestGETParentRegexParameter()
   set resource = $$$FormatText("%1map/E/match/get-parent-and-this-group", ..WebApplicationName)
   set expected = ["match", "this", "group" ]
   return $$$AssertStatusOK(..AssertRequest(resource, expected), $$$FormatText("can retrieve the expected data from the resource %1", resource))
+}
+
+Method TestGETNoWeaklyTypedArgs()
+{
+  set resource = $$$FormatText("%1arguments/no-weakly-typed", ..WebApplicationName)
+  set expected = {"error":{"internalCode":5001,"message":"The following arguments must be strongly typed: b, c."},"responseCode":500}
+  return $$$AssertStatusOK(..AssertRequest(resource, expected), $$$FormatText("blocks attempts to call methods with weakly typed args", resource))
+}
+
+Method TestGETNoWeaklyTypedMethods()
+{
+  set resource = $$$FormatText("%1methods/no-weakly-typed", ..WebApplicationName)  
+  set expected = {"error":{"internalCode":5001,"message":"Expected a return type for method TestGETNoWeaklyTypedMethods."},"responseCode":500}
+  return $$$AssertStatusOK(..AssertRequest(resource, expected), $$$FormatText("blocks attempts to call methods without return types.", resource))
 }
 
 }
