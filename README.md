@@ -4,13 +4,13 @@
 
 # Frontier
 
-Frontier is an abstraction layer for rapid web application, it uses the already estabilished practices from %CSP.REST making it compatible and adds several helpers to make sure you're not wasting time implementing them.
+Frontier is an abstraction layer for rapid web application development, it uses the already estabilished practices from %CSP.REST making it compatible and adds several helpers to make sure you're not wasting time re-implementing them.
 
 # Why?
 
 Have you ever found yourself dealing with repetitive tasks like mounting objects, serializing them and eventually handling multiple kind of errors? Frontier can boost your development by making you focus on what really matters: your application.
 
-It's made to stop you from WRITE'ing by instead forcing your methods to return values, so that your code can become cleaner.
+It's made to stop you from WRITE'ing by instead forcing your methods to return values, this way you can make your code cleaner.
 
 # Features
 
