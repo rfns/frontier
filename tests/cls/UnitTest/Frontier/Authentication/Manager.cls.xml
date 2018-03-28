@@ -45,6 +45,7 @@
 
 <Method name="TestVerify">
 <Implementation><![CDATA[
+  
   // This will fail but move to the next strategy. The Next flag indicates that there
   // isn't enough info about the authentication method to decide a strategy thus making the manager ignores it.
   set dummyStrategy1 = ##class(Frontier.UnitTest.Authentication.DummyStrategy).%New()
@@ -94,26 +95,31 @@
   
   // The last condition is when the request attempts to ignore every strategy, should we specify any strategy
   // it'll be assumed that at least one validation must pass. This means that any Next is overruled if
-  // this condition matches. 
+  // this condition matches.
+  
+  do ..AuthenticationManager.Reset()
   
   set dummyStrategy5 = ##class(Frontier.UnitTest.Authentication.DummyStrategy).%New()
   set dummyStrategy5.ShouldPass = 0
   set dummyStrategy5.Next = 1
   
-  // Same here.
   set dummyStrategy6 = ##class(Frontier.UnitTest.Authentication.DummyStrategy).%New()
   set dummyStrategy6.ShouldPass = 0
   set dummyStrategy6.Next = 1
   
-  // If the flag is not set, then it'll validate the input.
-  // Luckly, we're informing our dummy strategy that it should allow the access.
   set dummyStrategy7 = ##class(Frontier.UnitTest.Authentication.DummyStrategy).%New()
   set dummyStrategy7.ShouldPass = 0
-  set dummyStrategy6.Next = 1
+  set dummyStrategy7.Next = 1
   
-  do ..AuthenticationManager.ClearStrategies()
+  do ..AuthenticationManager.AddStrategy(dummyStrategy5)
+  do ..AuthenticationManager.AddStrategy(dummyStrategy6)
+  do ..AuthenticationManager.AddStrategy(dummyStrategy7)
   set sc = ..AuthenticationManager.Verify(.user)
-  do $$$AssertTrue(..Response.GetHeader("WWW-Authenticate") '= "", "outputs the challenge when attempting to skip every strategy")
+  
+  do $$$AssertStatusOK(sc, "returns ok if all strategies were skipping")
+  // This is a false-positive since the manager depends on each strategy statuses, it must have a reliable way to detect
+  // if any strategy failed or were even execute, this is where the Verified flag is checked.
+  do $$$AssertNotTrue(..AuthenticationManager.Verified, "Verified flag must be 0")
 ]]></Implementation>
 </Method>
 </Class>

@@ -11,6 +11,8 @@ Property Response As %CSP.Response [ Private ];
 
 Property ScopeSeparator As %String [ InitialExpression = " " ];
 
+Property Verified As %Boolean [ InitialExpression = 0 ];
+
 Method %OnNew(session As %CSP.Session, request As %CSP.Request, response As %CSP.Response) As %Status
 {
   set ..Session = session
@@ -30,8 +32,9 @@ Method AddStrategy(strategy As Frontier.Authentication.Strategy) As %Status
   return $$$OK
 }
 
-Method ClearStrategies() As %Status
+Method Reset() As %Status
 {
+  set ..Verified = 0
   return ..Strategies.Clear()
 }
 
@@ -46,17 +49,26 @@ Method Verify(Output user As %DynamicObject = {{}}, resourceScope As %String = "
       set strategy = ..Strategies.GetAt(i)
       set sc = strategy.Verify(..Session, ..Request, ..Response, .user, resourceScope)
       if $$$ISOK(sc) {
-        quit
-      } elseif 'strategy.Next || (strategy.Next && (i = totalStrategies)) {
-        set challengeSC = strategy.GetChallenge(..Session, ..Request, ..Response, .challenge)
-        if $$$ISOK(challengeSC) do ..Response.SetHeader("WWW-Authenticate", challenge)
-        quit
+        if strategy.Next {
+          continue
+        } else {
+          set ..Verified = 1
+          return sc
+        }
+      } else {
+        do ReplyWithChallenge(strategy)
+        return sc
       }
     }
   } catch ex {
     set sc = ex.AsStatus()
   }
   return sc
+  
+ReplyWithChallenge(strategy)
+  do strategy.GetChallenge(..Session, ..Request, ..Response, .challenge)
+  do ..Response.SetHeader("WWW-Authenticate", challenge)
+  quit
 }
 
 Method CheckResourceScope(resourceScope As %String = "", authenticationScope As %DynamicObject = {{}}) As %Boolean

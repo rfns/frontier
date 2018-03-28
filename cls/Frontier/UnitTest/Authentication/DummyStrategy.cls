@@ -6,7 +6,7 @@ Property ShouldPass As %Boolean [ InitialExpression = 1 ];
 Method Verify(session As %CSP.Session, request As %CSP.Request, response As %CSP.Response, Output user As %DynamicObject = {{}}, resourceScope As %String = "") As %Status
 {
  
-  if ..ShouldPass return $$$OK
+  if ..ShouldPass = 1 || (..Next = 1) return $$$OK
   set response.Status = "401 Unauthorized"
   return $$$ERROR($$$GeneralError, "Requested to fail")
 }
