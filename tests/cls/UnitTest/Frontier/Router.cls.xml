@@ -30,6 +30,7 @@
 </Property>
 
 <Method name="OnBeforeAllTests">
+<PublicList>%session</PublicList>
 <ReturnType>%Status</ReturnType>
 <Implementation><![CDATA[
   
@@ -37,26 +38,40 @@
   &sql(SELECT TOP 1 ID INTO :studentId FROM FRONTIER_UNITTEST_FIXTURES.STUDENT)
   
   set ..Class = ##class(Frontier.UnitTest.Fixtures.Class).%OpenId(classId)
-  set ..Student = ##class(Frontier.UnitTest.Fixtures.Student).%OpenId(studentId)  
+  set ..Student = ##class(Frontier.UnitTest.Fixtures.Student).%OpenId(studentId)
+    
+  set %session = ##class(%CSP.Session).%New("t3st1ng")
   
   return $$$OK
 ]]></Implementation>
 </Method>
 
 <Method name="OnBeforeOneTest">
+<PublicList>%request,%response</PublicList>
 <ReturnType>%Status</ReturnType>
 <Implementation><![CDATA[
-  set ..Request = ##class(%Net.HttpRequest).%New()
-  do ..Request.SetHeader("Content-Type", "application/json; charset=utf-8")
-  set ..Request.Server = ..#TESTSERVER
-  set ..Request.Port = ..#TESTSERVERPORT
+  
+  set %request = ##class(Frontier.UnitTest.FakeRequest).%New()
+  set %response = ##class(%CSP.Response).%New() 
+  return $$$OK
+]]></Implementation>
+</Method>
+
+<Method name="OnAfterOneTest">
+<PublicList>%request,%response</PublicList>
+<ReturnType>%Status</ReturnType>
+<Implementation><![CDATA[
+  kill %request, %response
   return $$$OK
 ]]></Implementation>
 </Method>
 
 <Method name="OnAfterAllTests">
+<PublicList>%session</PublicList>
 <ReturnType>%Status</ReturnType>
-<Implementation><![CDATA[  return $$$OK
+<Implementation><![CDATA[
+  kill %session
+  return $$$OK
 ]]></Implementation>
 </Method>
 
@@ -64,18 +79,13 @@
 <FormalSpec>resource:%String,expected:%DynamicAbstractObject="",method:%String="GET",payload:%DynamicAbstractObject="",authHeader:%String="Basic Zm9vOmJhcg=="</FormalSpec>
 <ReturnType>%Status</ReturnType>
 <Implementation><![CDATA[
-   
-  if $isobject(payload) {
-    $$$QuitOnError(..Request.SetHeader("Content-Type", "application/json; charset=utf-8"))
-    $$$QuitOnError(..Request.EntityBody.Write(payload.%ToJSON()))
-  }
   
-  // Default is Basic foo:bar. Refer to the ValidateCredentials method defined in the Frontier.UnitTest.Router class.
+  // Default authHeader is Basic foo:bar. Refer to the ValidateCredentials method defined in the Frontier.UnitTest.Router class.
   // There's also an admin:admin account that is used to simulate scope usage.
-  $$$QuitOnError(..Request.SetHeader("Authorization", authHeader))
   
-  $$$QuitOnError(..Request.Send(method, resource))
-  set response = ..Request.HttpResponse.Data
+  do ##class(Frontier.UnitTest.Util).UpdateRequestObject(%request, resource, method, payload, authHeader)
+  $$$QuitOnError(##class(Frontier.UnitTest.Util).DispatchRequestAndRespondToStream("Frontier.UnitTest.Router", %request.URL, method, .response))  
+    
   set responseText = response.Read()
   set expectedText = expected
   
@@ -306,8 +316,8 @@
 <Method name="TestGETScopedResponse">
 <Implementation><![CDATA[
   set resource = $$$FormatText("%1map/C/scoped", ..WebApplicationName)
-  set expected = {"result":"Hello admin! If you're seeing this, then you have enough privilege for it!"}
-  return $$$AssertStatusNotOK(..AssertRequest(resource, expected), $$$FormatText("can NOT retrieve the expected data from the resource %1 because it's scoped", resource))
+  set expected = {"result":"Hello admin! If you're seeing this, then you have enough privilege for that!"}
+  do $$$AssertStatusNotOK(..AssertRequest(resource, expected), $$$FormatText("can NOT retrieve the expected data from the resource %1 because it's scoped", resource))
   return $$$AssertStatusOK(..AssertRequest(resource, expected,,,"Basic "_$System.Encryption.Base64Encode("admin:admin")), $$$FormatText("can retrieve the expected data from the resource %1", resource))
 ]]></Implementation>
 </Method>

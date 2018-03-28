@@ -13,46 +13,49 @@ Property Student As Frontier.UnitTest.Fixtures.Student;
 
 Property WebApplicationName As %String [ InitialExpression = {$e(##class(Frontier.UnitTest.WebApplicationInstaller).#NAME, 2, *)} ];
 
-Method OnBeforeAllTests() As %Status
+Method OnBeforeAllTests() As %Status [ PublicList = %session ]
 {
   
   &sql(SELECT TOP 1 ID INTO :classId FROM FRONTIER_UNITTEST_FIXTURES.CLASS)
   &sql(SELECT TOP 1 ID INTO :studentId FROM FRONTIER_UNITTEST_FIXTURES.STUDENT)
   
   set ..Class = ##class(Frontier.UnitTest.Fixtures.Class).%OpenId(classId)
-  set ..Student = ##class(Frontier.UnitTest.Fixtures.Student).%OpenId(studentId)  
+  set ..Student = ##class(Frontier.UnitTest.Fixtures.Student).%OpenId(studentId)
+    
+  set %session = ##class(%CSP.Session).%New("t3st1ng")
   
   return $$$OK
 }
 
-Method OnBeforeOneTest() As %Status
+Method OnBeforeOneTest() As %Status [ PublicList = (%request, %response) ]
 {
-  set ..Request = ##class(%Net.HttpRequest).%New()
-  do ..Request.SetHeader("Content-Type", "application/json; charset=utf-8")
-  set ..Request.Server = ..#TESTSERVER
-  set ..Request.Port = ..#TESTSERVERPORT
+  
+  set %request = ##class(Frontier.UnitTest.FakeRequest).%New()
+  set %response = ##class(%CSP.Response).%New() 
   return $$$OK
 }
 
-Method OnAfterAllTests() As %Status
+Method OnAfterOneTest() As %Status [ PublicList = (%request, %response) ]
 {
+  kill %request, %response
+  return $$$OK
+}
+
+Method OnAfterAllTests() As %Status [ PublicList = %session ]
+{
+  kill %session
   return $$$OK
 }
 
 Method AssertRequest(resource As %String, expected As %DynamicAbstractObject = "", method As %String = "GET", payload As %DynamicAbstractObject = "", authHeader As %String = "Basic Zm9vOmJhcg==") As %Status
 {
-   
-  if $isobject(payload) {
-    $$$QuitOnError(..Request.SetHeader("Content-Type", "application/json; charset=utf-8"))
-    $$$QuitOnError(..Request.EntityBody.Write(payload.%ToJSON()))
-  }
   
-  // Default is Basic foo:bar. Refer to the ValidateCredentials method defined in the Frontier.UnitTest.Router class.
+  // Default authHeader is Basic foo:bar. Refer to the ValidateCredentials method defined in the Frontier.UnitTest.Router class.
   // There's also an admin:admin account that is used to simulate scope usage.
-  $$$QuitOnError(..Request.SetHeader("Authorization", authHeader))
   
-  $$$QuitOnError(..Request.Send(method, resource))
-  set response = ..Request.HttpResponse.Data
+  do ##class(Frontier.UnitTest.Util).UpdateRequestObject(%request, resource, method, payload, authHeader)
+  $$$QuitOnError(##class(Frontier.UnitTest.Util).DispatchRequestAndRespondToStream("Frontier.UnitTest.Router", %request.URL, method, .response))  
+    
   set responseText = response.Read()
   set expectedText = expected
   
@@ -259,8 +262,8 @@ Method TestGETRouteWithoutParameters()
 Method TestGETScopedResponse()
 {
   set resource = $$$FormatText("%1map/C/scoped", ..WebApplicationName)
-  set expected = {"result":"Hello admin! If you're seeing this, then you have enough privilege for it!"}
-  return $$$AssertStatusNotOK(..AssertRequest(resource, expected), $$$FormatText("can NOT retrieve the expected data from the resource %1 because it's scoped", resource))
+  set expected = {"result":"Hello admin! If you're seeing this, then you have enough privilege for that!"}
+  do $$$AssertStatusNotOK(..AssertRequest(resource, expected), $$$FormatText("can NOT retrieve the expected data from the resource %1 because it's scoped", resource))
   return $$$AssertStatusOK(..AssertRequest(resource, expected,,,"Basic "_$System.Encryption.Base64Encode("admin:admin")), $$$FormatText("can retrieve the expected data from the resource %1", resource))
 }
 
