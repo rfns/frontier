@@ -21,12 +21,11 @@ ClassMethod SerializeToStream(Output str As %Stream.Object = "", arguments...) A
     do ##class(%Device).ReDirectIO(1)
     set isRedirected = 1
     set sc = ..Serialize(arguments...)
+    do str.Rewind()
   } catch ex {
     set str = ""
     set sc = ex.AsStatus()
-  }
-  
-  do str.Rewind()  
+  }   
   
   if oldMnemonic '= "" {
     use initIO::(oldMnemonic)
