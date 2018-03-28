@@ -14,7 +14,7 @@ ClassMethod TestMe(matches As %DynamicArray) As %Status
   return matches
 }
 
-ClassMethod TestGETMultipleRouteParameters(param2 As %String, param1 As %String)
+ClassMethod TestGETMultipleRouteParameters(param2 As %String, param1 As %String) As %String
 {
   return param1_" "_param2
 }

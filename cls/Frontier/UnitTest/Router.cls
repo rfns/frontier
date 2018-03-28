@@ -54,10 +54,10 @@ ClassMethod OnSetup() As %Status
   set basicStrategy = ##class(Frontier.Authentication.BasicStrategy).%New({
     "realm": "tests", 
     "validator": ($classname()_":ValidateCredentials")
-  })   
+  })  
   
   // This provides a way to check if the current user is authenticated using Basic scheme.
-  $$$QuitOnError(%frontier.AuthenticationManager.AddStrategy(basicStrategy))
+  $$$QuitOnError(%frontier.AuthenticationManager.AddStrategy(basicStrategy))  
   
   return $$$OK
 }
