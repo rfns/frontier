@@ -32,24 +32,44 @@ ClassMethod GeneratePatterns(routes As Frontier.Schema.Routes, targetClass As %S
   
   set totalRoutes = routes.Route.Count()
   set totalMaps = routes.Map.Count()
-  set i = ""
+  set k = 0
+  set p = 0
+  
+  set lowPriorityPatterns = 0
   
   if totalRoutes > 0 {
     set resourceType = "R"
     for i=1:1:totalRoutes {
       set route = routes.Route.GetAt(i)
       set pattern = $$WritePattern(route.Url, .placeholders)
-      set patterns(i) = $lb(resourceType, pattern, route.Method, route.Call, route.Cors, placeholders, route.Scope, route.UseAuth, route.Strict, route.Url)
+      set routePattern = $lb(resourceType, pattern, route.Method, route.Call, route.Cors, placeholders, route.Scope, route.UseAuth, route.Strict, route.Url)
+      if placeholders = "" && (pattern '= "/") {
+        set patterns($increment(p)) = routePattern
+      } else {
+        set lowPriorityPatterns($increment(k)) = routePattern
+        set lowPriorityPatterns = k
+      }
     }    
   } 
+  
   if totalMaps > 0 {
     set resourceType = "M"
     for j=1:1:totalMaps {
       set map = routes.Map.GetAt(j)
       set pattern = $$WritePattern(map.Prefix, .placeholders)
-      set patterns(i + j) = $lb(resourceType, pattern, map.Forward, placeholders, map.Strict, map.Prefix)
+      set routePattern = $lb(resourceType, pattern, map.Forward, placeholders, map.Strict, map.Prefix)
+      if placeholders = "" && (pattern '= "/") {
+        set patterns($increment(p)) = routePattern
+      } else {
+        set lowPriorityPatterns($increment(k)) = routePattern
+        set lowPriorityPatterns = k
+      }
     }
   }
+  
+  for i=1:1:lowPriorityPatterns {
+    set patterns(p + i) = lowPriorityPatterns(i)
+  }  
   
   return $$$OK
   
@@ -80,7 +100,7 @@ WritePattern(resource, placeholders)
       set pattern = pattern_"/"_resourcePart
     }   
   }
-  return $case(resourceType, "M" : pattern_"/?(.*)", : pattern)
+  return $case(resourceType, "M" : pattern_"(?:(?:/(?=.*))(.*)|/?$)", : pattern)
 }
 
 }
