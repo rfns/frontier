@@ -27,12 +27,11 @@
     do ##class(%Device).ReDirectIO(1)
     set isRedirected = 1
     set sc = ..Serialize(arguments...)
+    do str.Rewind()
   } catch ex {
     set str = ""
     set sc = ex.AsStatus()
-  }
-  
-  do str.Rewind()  
+  }   
   
   if oldMnemonic '= "" {
     use initIO::(oldMnemonic)
@@ -238,6 +237,11 @@ CreateError(message, status="401 Unauthorized", isStatus=0)
 <InitialExpression>" "</InitialExpression>
 </Property>
 
+<Property name="Verified">
+<Type>%Boolean</Type>
+<InitialExpression>0</InitialExpression>
+</Property>
+
 <Method name="%OnNew">
 <FormalSpec>session:%CSP.Session,request:%CSP.Request,response:%CSP.Response</FormalSpec>
 <ReturnType>%Status</ReturnType>
@@ -268,9 +272,11 @@ CreateError(message, status="401 Unauthorized", isStatus=0)
 ]]></Implementation>
 </Method>
 
-<Method name="ClearStrategies">
+<Method name="Reset">
 <ReturnType>%Status</ReturnType>
-<Implementation><![CDATA[  return ..Strategies.Clear()
+<Implementation><![CDATA[
+  set ..Verified = 0
+  return ..Strategies.Clear()
 ]]></Implementation>
 </Method>
 
@@ -287,17 +293,26 @@ CreateError(message, status="401 Unauthorized", isStatus=0)
       set strategy = ..Strategies.GetAt(i)
       set sc = strategy.Verify(..Session, ..Request, ..Response, .user, resourceScope)
       if $$$ISOK(sc) {
-        quit
-      } elseif 'strategy.Next || (strategy.Next && (i = totalStrategies)) {
-        set challengeSC = strategy.GetChallenge(..Session, ..Request, ..Response, .challenge)
-        if $$$ISOK(challengeSC) do ..Response.SetHeader("WWW-Authenticate", challenge)
-        quit
+        if strategy.Next {
+          continue
+        } else {
+          set ..Verified = 1
+          return sc
+        }
+      } else {
+        do ReplyWithChallenge(strategy)
+        return sc
       }
     }
   } catch ex {
     set sc = ex.AsStatus()
   }
   return sc
+  
+ReplyWithChallenge(strategy)
+  do strategy.GetChallenge(..Session, ..Request, ..Response, .challenge)
+  do ..Response.SetHeader("WWW-Authenticate", challenge)
+  quit
 ]]></Implementation>
 </Method>
 
@@ -1333,9 +1348,11 @@ ParseArgument(parsedArgument)
       }
     } else {      
       set parsedArgument.Type = $piece(preType, "=", 1)
-      set defaultQuotedValue = $piece(preType, "=", 2)      
-      set parsedArgument.DefaultValue = $$$trimQuote(defaultQuotedValue)
-      if $data(defaultQuotedValue) set parsedArgument.HasDefaultValue = 1
+      set defaultQuotedValue = $piece(preType, "=", 2)
+      if defaultQuotedValue '= "" {
+        set parsedArgument.DefaultValue = $$$trimQuote(defaultQuotedValue)
+        set parsedArgument.HasDefaultValue = 1
+      }
     }
     return 1
   }    
@@ -1552,7 +1569,7 @@ ParseArgument(parsedArgument)
         
         if methodArgument.Arity {
           set queryParameterName = $$$KeyGroup(queryParameterName)
-        }
+        }        
         
         if '$lf(keysFound, queryParameterName) && '$data(routeArguments(queryParameterName)) {
           set $list(missingArguments, *+1) = queryParameterName
@@ -1561,13 +1578,13 @@ ParseArgument(parsedArgument)
     }
   }
   
-  if $ll(missingArguments) > 0 {
-    return $$$ERROR($$$GeneralError, "The following query parameters are missing: "_$lts(missingArguments, ", ")_".")
-  }
-  
   if $ll(weaklyTypedArgs) > 0 {
     return $$$ERROR($$$GeneralError, "The following arguments must be strongly typed: "_$lts(weaklyTypedArgs, ", ")_".")
-  }
+  }  
+  
+  if $ll(missingArguments) > 0 {
+    return $$$ERROR($$$GeneralError, "The following query parameters are missing: "_$lts(missingArguments, ", ")_".")
+  } 
     
   // Now we must merge the route arguments back, remember that they always take priority over query parameters.
   set routeKey = ""
@@ -2018,6 +2035,7 @@ the fields that aren't private, or you can instantiate it and change it's values
 <FormalSpec>index:%Integer</FormalSpec>
 <ReturnType>%String</ReturnType>
 <Implementation><![CDATA[
+     
   // Don't generate patterns if target class is super.
   if %compiledclass.Name = "Frontier.Router" return $$$OK   
   
@@ -2067,6 +2085,7 @@ MakeString(list)
 <FormalSpec><![CDATA[url:%String,httpMethod:%String,forwarded:%Boolean="",routeParameters:%String=0,&matches:%String="",parentIsStrict:%Boolean=""]]></FormalSpec>
 <ReturnType>%Status</ReturnType>
 <Implementation><![CDATA[
+   
   set httpStatus = $case(httpMethod, "POST": ..#HTTP201CREATED, : ..#HTTP200OK)
   set isResourceMatch = 0
   set isHttpMethodMatch = 0
@@ -2077,7 +2096,7 @@ MakeString(list)
   set httpMethod = $$$ucase(httpMethod)  
   
   try {    
-    set resolvedUrl = $$ResolveUrl(url)    
+    set resolvedUrl = $$ResolveUrl(url)  
     
     while $$NextDispatchMap(.index, .mapEntry) {
       set matchType = $list(mapEntry, 1)
@@ -2125,14 +2144,20 @@ MakeString(list)
             // Run pending authentication strategies. If one passes, then the implementation
             // is responsible for filling the user object.
             $$$ThrowOnError(%frontier.AuthenticationManager.Verify(.user, resourceScope))
-            set %frontier.User = user
+            
+            if '%frontier.AuthenticationManager.Verified {
+              set %response.Status = ..#HTTP401UNAUTHORIZED
+              $$$ThrowOnError($$$ERROR($$$GeneralError, "You must be authenticated to access this resource."))
+            }
+            
+            set %frontier.User = user                       
           
             // Don't let the user access this resource if this request doesn't match it.           
             if '%frontier.AuthenticationManager.CheckResourceScope(resourceScope, user.scope) {
               if %response.Status = ..#HTTP200OK || (%response.Status = ..#HTTP201CREATED) {
                 set %response.Status = ..#HTTP403FORBIDDEN
               }
-              $$$ThrowOnError($$$ERROR($$$GeneralError, "This account has not enough privilege to execute this action."))
+              $$$ThrowOnError($$$ERROR($$$GeneralError, "This account has not enough privilege to access this resource."))
             }                                            
           }                                                
           
@@ -2167,9 +2192,14 @@ MakeString(list)
         } elseif matchType = "M" {
           // We're reading a map, Map patterns already include everything needed to forward the
           // correct URL part, as long as we always consider targeting its the last match.
-          set resolvedUrl = "/"_matcher.Group(matcher.GroupCount)          
           set forwardingClass = $listget(mapEntry, 3)
-          set parentIsStrict = strictRouteParameters              
+          
+          if forwardingClass = $classname() {
+            $$$ThrowOnError($$$ERROR($$$GeneralError, $$$FormatText("Dispatcher class %1 is attempting to forward %2 to itself.", forwardingClass, resolvedUrl)))
+          }          
+          
+          set resolvedUrl = "/"_matcher.Group(matcher.GroupCount)                    
+          set parentIsStrict = strictRouteParameters                    
                     
           // Re-invoke this method using the class that this map forwards the request to. 
           $$$ThrowOnError($classmethod(forwardingClass, "DispatchRequest", resolvedUrl, httpMethod, 1, .routeParameters, .matches, strictRouteParameters))
@@ -2797,24 +2827,44 @@ This is the Schema which defines the form of the dispatch map</Description>
   
   set totalRoutes = routes.Route.Count()
   set totalMaps = routes.Map.Count()
-  set i = ""
+  set k = 0
+  set p = 0
+  
+  set lowPriorityPatterns = 0
   
   if totalRoutes > 0 {
     set resourceType = "R"
     for i=1:1:totalRoutes {
       set route = routes.Route.GetAt(i)
       set pattern = $$WritePattern(route.Url, .placeholders)
-      set patterns(i) = $lb(resourceType, pattern, route.Method, route.Call, route.Cors, placeholders, route.Scope, route.UseAuth, route.Strict, route.Url)
+      set routePattern = $lb(resourceType, pattern, route.Method, route.Call, route.Cors, placeholders, route.Scope, route.UseAuth, route.Strict, route.Url)
+      if placeholders = "" && (pattern '= "/") {
+        set patterns($increment(p)) = routePattern
+      } else {
+        set lowPriorityPatterns($increment(k)) = routePattern
+        set lowPriorityPatterns = k
+      }
     }    
   } 
+  
   if totalMaps > 0 {
     set resourceType = "M"
     for j=1:1:totalMaps {
       set map = routes.Map.GetAt(j)
       set pattern = $$WritePattern(map.Prefix, .placeholders)
-      set patterns(i + j) = $lb(resourceType, pattern, map.Forward, placeholders, map.Strict, map.Prefix)
+      set routePattern = $lb(resourceType, pattern, map.Forward, placeholders, map.Strict, map.Prefix)
+      if placeholders = "" && (pattern '= "/") {
+        set patterns($increment(p)) = routePattern
+      } else {
+        set lowPriorityPatterns($increment(k)) = routePattern
+        set lowPriorityPatterns = k
+      }
     }
   }
+  
+  for i=1:1:lowPriorityPatterns {
+    set patterns(p + i) = lowPriorityPatterns(i)
+  }  
   
   return $$$OK
   
@@ -2845,7 +2895,7 @@ WritePattern(resource, placeholders)
       set pattern = pattern_"/"_resourcePart
     }   
   }
-  return $case(resourceType, "M" : pattern_"/?(.*)", : pattern)
+  return $case(resourceType, "M" : pattern_"(?:(?:/(?=.*))(.*)|/?$)", : pattern)
 ]]></Implementation>
 </Method>
 </Class>
@@ -3027,7 +3077,7 @@ Called when we have finished processing this request</Description>
 <ReturnType>%Status</ReturnType>
 <Implementation><![CDATA[
  
-  if ..ShouldPass return $$$OK
+  if ..ShouldPass = 1 || (..Next = 1) return $$$OK
   set response.Status = "401 Unauthorized"
   return $$$ERROR($$$GeneralError, "Requested to fail")
 ]]></Implementation>
@@ -3039,6 +3089,45 @@ Called when we have finished processing this request</Description>
 <Implementation><![CDATA[
   set challenge = "realm=""Tests"""
   return $$$OK
+]]></Implementation>
+</Method>
+</Class>
+
+
+<Class name="Frontier.UnitTest.FakeRequest">
+<Super>%RegisteredObject</Super>
+<TimeCreated>64735,49201.75979</TimeCreated>
+
+<Property name="Data">
+<Type>%String</Type>
+<MultiDimensional>1</MultiDimensional>
+</Property>
+
+<Property name="CgiEnvs">
+<Type>%String</Type>
+<MultiDimensional>1</MultiDimensional>
+</Property>
+
+<Property name="URL">
+<Type>%String</Type>
+</Property>
+
+<Property name="Method">
+<Type>%String</Type>
+</Property>
+
+<Property name="Application">
+<Type>%String</Type>
+</Property>
+
+<Property name="Content">
+<Type>%Stream.Object</Type>
+</Property>
+
+<Method name="GetCgiEnv">
+<FormalSpec>name:%String</FormalSpec>
+<ReturnType>%String</ReturnType>
+<Implementation><![CDATA[  return $get(i%CgiEnvs(name))
 ]]></Implementation>
 </Method>
 </Class>
@@ -3303,10 +3392,10 @@ This method is reserved for setting up configurations.</Description>
   set basicStrategy = ##class(Frontier.Authentication.BasicStrategy).%New({
     "realm": "tests", 
     "validator": ($classname()_":ValidateCredentials")
-  })   
+  })  
   
   // This provides a way to check if the current user is authenticated using Basic scheme.
-  $$$QuitOnError(%frontier.AuthenticationManager.AddStrategy(basicStrategy))
+  $$$QuitOnError(%frontier.AuthenticationManager.AddStrategy(basicStrategy))  
   
   return $$$OK
 ]]></Implementation>
@@ -3724,6 +3813,7 @@ curl -H "Authorization: Basic Zm9vOmJhcg==" 'http://localhost:57772/api/frontier
 <Method name="TestGETMultipleRouteParameters">
 <ClassMethod>1</ClassMethod>
 <FormalSpec>param2:%String,param1:%String</FormalSpec>
+<ReturnType>%String</ReturnType>
 <Implementation><![CDATA[  return param1_" "_param2
 ]]></Implementation>
 </Method>
@@ -3737,7 +3827,9 @@ curl -H "Authorization: Basic Zm9vOmJhcg==" 'http://localhost:57772/api/frontier
 <XData name="UrlMap">
 <Data><![CDATA[
 <Routes>
+ <Map Prefix="/no-self-forwarding" Forward="Frontier.UnitTest.Router.Map.C" />
  <Route Url="/" Method="GET" Call="TestGETRouteWithoutParameters" />
+ <Route Url="/:id" Method="GET" Call="TestGETRouteWithoutParametersA" />
  <Route Url="/scoped" Method="GET" Scope="admin" Call="TestGETScopedResponse" />
  <Route Url="/auth/bypass" Method="GET" UseAuth="false" Call="TestGETBypassAuth" />
 </Routes>
@@ -3748,6 +3840,14 @@ curl -H "Authorization: Basic Zm9vOmJhcg==" 'http://localhost:57772/api/frontier
 <ClassMethod>1</ClassMethod>
 <ReturnType>%String</ReturnType>
 <Implementation><![CDATA[  return "Hello from a simple but mapped route!"
+]]></Implementation>
+</Method>
+
+<Method name="TestGETRouteWithoutParametersA">
+<ClassMethod>1</ClassMethod>
+<FormalSpec>id:%Integer</FormalSpec>
+<ReturnType>%String</ReturnType>
+<Implementation><![CDATA[  return id
 ]]></Implementation>
 </Method>
 
@@ -3916,6 +4016,106 @@ curl -H "Authorization: Basic Zm9vOmJhcg==" 'http://localhost:57772/api/frontier
     Do dynamicArray.%Push(node)
   }
   return sc
+]]></Implementation>
+</Method>
+
+<Method name="UpdateRequestObject">
+<ClassMethod>1</ClassMethod>
+<FormalSpec>request:%CSP.Request,url:%String,method:%String,payload:%DynamicObject,auth:%String="Basic Zm9vOmJhcg=="</FormalSpec>
+<ReturnType>%Status</ReturnType>
+<Implementation><![CDATA[
+  do ##class(%Net.URLParser).Parse(url, .components)
+  do ParseQueryString(components("query"), .data)  
+  
+  set request.URL = components("path")
+  set request.CgiEnvs("CONTENT_LENGTH") = 0
+  set request.CgiEnvs("CONTENT_TYPE") = "application/json; charset=utf-8"
+  set request.CgiEnvs("HTTP_ACCEPT") = "text/html,application/xhtml+xml,application/xml;q=0.9,image/webp,image/apng,*/*;q=0.8"
+  set request.CgiEnvs("HTTP_ACCEPT_ENCODING") = "gzip, deflate, br"
+  set request.CgiEnvs("HTTP_ACCEPT_LANGUAGE") = "en-US;q=0.8,en;q=0.7"
+  set request.CgiEnvs("HTTP_AUTHORIZATION") = auth 
+  set request.CgiEnvs("HTTP_HOST") = "localhost:57772" 
+  set request.CgiEnvs("HTTP_USER_AGENT") = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/65.0.3325.181 Safari/537.36"
+  set request.CgiEnvs("QUERY_STRING") = $get(components("query"))  
+  set request.CgiEnvs("REQUEST_METHOD") = $$$ucase(method)
+  set request.CgiEnvs("REQUEST_SCHEME") = "http"
+  set request.CgiEnvs("REQUEST_URI") = components("path")  
+  set request.CgiEnvs("SERVER_NAME") = "localhost"
+  set request.CgiEnvs("SERVER_PORT") = 57772  
+  set request.CgiEnvs("SERVER_PROTOCOL") = "HTTP/1.1"  
+  set request.CgiEnvs("SERVER_SOFTWARE") = "Apache/2.4.20 (win32) Cache_Server_Pages-Apache_Module/2017.1.0.792.0-1701.1606aa"
+  set request.Application = "/api/frontier/test"
+  set request.Content = ##class(%Stream.GlobalCharacter).%New()  
+  if $isobject(payload) do request.Content.Write(payload.%ToJSON())  
+  if $order(data("")) '= "" merge request.Data = data
+  
+  quit $$$OK
+  
+ParseQueryString(qs, data)
+  if qs = "" quit
+  
+  set qp = $lfs(qs, "&")
+  
+  for i=1:1:$ll(qp) {
+    set key = $piece($lg(qp, i), "=", 1)
+    set value = $piece($lg(qp, i), "=", 2)
+    if key '= "" && (value '= "") set data(key, 1) = value
+  }  
+  quit
+]]></Implementation>
+</Method>
+
+<Method name="DispatchRequestAndRespondToStream">
+<Internal>1</Internal>
+<ClassMethod>1</ClassMethod>
+<FormalSpec>dispatcherClass:%String,url:%String,httpMethod:%String,*str:%Stream.Object</FormalSpec>
+<ProcedureBlock>0</ProcedureBlock>
+<ReturnType>%Status</ReturnType>
+<Implementation><![CDATA[
+
+  new %frontier
+  set %frontier = ##class(Frontier.Context).%New(%session, %request, %response)
+
+  new oldMnemonic, alreadyRedirected, sc
+  
+  set sc = $$$OK
+  set isRedirected = 0
+  
+  set str = ##class(%Stream.TmpBinary).%New()
+  set alreadyRedirected = ##class(%Device).ReDirectIO()
+  set oldMnemonic = "^"_##class(%Device).GetMnemonicRoutine()
+  set initIO = $io
+  
+  try {    
+    use $io::("^"_$zname)
+    
+    do ##class(%Device).ReDirectIO(1)
+    set isRedirected = 1
+    set sc = $classmethod(dispatcherClass, "DispatchRequest", url, httpMethod)
+    do str.Rewind()
+  } catch ex {
+    set str = ""
+    set sc = ex.AsStatus()
+  }
+     
+  
+  if oldMnemonic '= "" {
+    use initIO::(oldMnemonic)
+  } else {
+    use oldMnemonic
+  }
+  
+  do ##class(%Device).ReDirectIO(alreadyRedirected)  
+      
+  return sc
+  
+wstr(s) Do str.Write(s) Quit
+wchr(a) Do str.Write($char(a)) Quit
+wnl Do str.Write($char(13,10)) Quit
+wff Do str.Write($char(13,10,13,10)) Quit
+wtab(n) Do str.Write($c(9)) Quit
+rstr(len,time) Quit ""
+rchr(time) Quit ""
 ]]></Implementation>
 </Method>
 </Class>
