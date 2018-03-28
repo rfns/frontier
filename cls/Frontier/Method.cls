@@ -103,9 +103,11 @@ ParseArgument(parsedArgument)
       }
     } else {      
       set parsedArgument.Type = $piece(preType, "=", 1)
-      set defaultQuotedValue = $piece(preType, "=", 2)      
-      set parsedArgument.DefaultValue = $$$trimQuote(defaultQuotedValue)
-      if $data(defaultQuotedValue) set parsedArgument.HasDefaultValue = 1
+      set defaultQuotedValue = $piece(preType, "=", 2)
+      if defaultQuotedValue '= "" {
+        set parsedArgument.DefaultValue = $$$trimQuote(defaultQuotedValue)
+        set parsedArgument.HasDefaultValue = 1
+      }
     }
     return 1
   }    
@@ -300,7 +302,7 @@ Method MergeArguments(ByRef routeArguments As %String = 0, ByRef requestArgument
         
         if methodArgument.Arity {
           set queryParameterName = $$$KeyGroup(queryParameterName)
-        }
+        }        
         
         if '$lf(keysFound, queryParameterName) && '$data(routeArguments(queryParameterName)) {
           set $list(missingArguments, *+1) = queryParameterName
@@ -309,13 +311,13 @@ Method MergeArguments(ByRef routeArguments As %String = 0, ByRef requestArgument
     }
   }
   
-  if $ll(missingArguments) > 0 {
-    return $$$ERROR($$$GeneralError, "The following query parameters are missing: "_$lts(missingArguments, ", ")_".")
-  }
-  
   if $ll(weaklyTypedArgs) > 0 {
     return $$$ERROR($$$GeneralError, "The following arguments must be strongly typed: "_$lts(weaklyTypedArgs, ", ")_".")
-  }
+  }  
+  
+  if $ll(missingArguments) > 0 {
+    return $$$ERROR($$$GeneralError, "The following query parameters are missing: "_$lts(missingArguments, ", ")_".")
+  } 
     
   // Now we must merge the route arguments back, remember that they always take priority over query parameters.
   set routeKey = ""
