@@ -20,6 +20,7 @@ ClassMethod Page(skipheader As %Boolean = 1) As %Status [ ProcedureBlock = 0 ]
 
 ClassMethod DispatchMap(index As %Integer) As %String [ CodeMode = objectgenerator, Final, Internal ]
 {
+     
   // Don't generate patterns if target class is super.
   if %compiledclass.Name = "Frontier.Router" return $$$OK   
   
@@ -65,6 +66,7 @@ MakeString(list)
 
 ClassMethod DispatchRequest(url As %String, httpMethod As %String, forwarded As %Boolean = "", routeParameters As %String = 0, ByRef matches As %String = "", parentIsStrict As %Boolean = "") As %Status
 {
+   
   set httpStatus = $case(httpMethod, "POST": ..#HTTP201CREATED, : ..#HTTP200OK)
   set isResourceMatch = 0
   set isHttpMethodMatch = 0
@@ -75,7 +77,7 @@ ClassMethod DispatchRequest(url As %String, httpMethod As %String, forwarded As 
   set httpMethod = $$$ucase(httpMethod)  
   
   try {    
-    set resolvedUrl = $$ResolveUrl(url)    
+    set resolvedUrl = $$ResolveUrl(url)  
     
     while $$NextDispatchMap(.index, .mapEntry) {
       set matchType = $list(mapEntry, 1)
@@ -123,14 +125,20 @@ ClassMethod DispatchRequest(url As %String, httpMethod As %String, forwarded As 
             // Run pending authentication strategies. If one passes, then the implementation
             // is responsible for filling the user object.
             $$$ThrowOnError(%frontier.AuthenticationManager.Verify(.user, resourceScope))
-            set %frontier.User = user
+            
+            if '%frontier.AuthenticationManager.Verified {
+              set %response.Status = ..#HTTP401UNAUTHORIZED
+              $$$ThrowOnError($$$ERROR($$$GeneralError, "You must be authenticated to access this resource."))
+            }
+            
+            set %frontier.User = user                       
           
             // Don't let the user access this resource if this request doesn't match it.           
             if '%frontier.AuthenticationManager.CheckResourceScope(resourceScope, user.scope) {
               if %response.Status = ..#HTTP200OK || (%response.Status = ..#HTTP201CREATED) {
                 set %response.Status = ..#HTTP403FORBIDDEN
               }
-              $$$ThrowOnError($$$ERROR($$$GeneralError, "This account has not enough privilege to execute this action."))
+              $$$ThrowOnError($$$ERROR($$$GeneralError, "This account has not enough privilege to access this resource."))
             }                                            
           }                                                
           
@@ -165,9 +173,14 @@ ClassMethod DispatchRequest(url As %String, httpMethod As %String, forwarded As 
         } elseif matchType = "M" {
           // We're reading a map, Map patterns already include everything needed to forward the
           // correct URL part, as long as we always consider targeting its the last match.
-          set resolvedUrl = "/"_matcher.Group(matcher.GroupCount)          
           set forwardingClass = $listget(mapEntry, 3)
-          set parentIsStrict = strictRouteParameters              
+          
+          if forwardingClass = $classname() {
+            $$$ThrowOnError($$$ERROR($$$GeneralError, $$$FormatText("Dispatcher class %1 is attempting to forward %2 to itself.", forwardingClass, resolvedUrl)))
+          }          
+          
+          set resolvedUrl = "/"_matcher.Group(matcher.GroupCount)                    
+          set parentIsStrict = strictRouteParameters                    
                     
           // Re-invoke this method using the class that this map forwards the request to. 
           $$$ThrowOnError($classmethod(forwardingClass, "DispatchRequest", resolvedUrl, httpMethod, 1, .routeParameters, .matches, strictRouteParameters))
