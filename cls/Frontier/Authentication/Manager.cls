@@ -11,7 +11,7 @@ Property Response As %CSP.Response [ Private ];
 
 Property ScopeSeparator As %String [ InitialExpression = " " ];
 
-Property Verified As %Boolean [ InitialExpression = 0 ];
+Property Verified As %Boolean [ InitialExpression = 1 ];
 
 Method %OnNew(session As %CSP.Session, request As %CSP.Request, response As %CSP.Response) As %Status
 {
@@ -28,6 +28,7 @@ Method ScopeSeparatorSet(value As %String) As %Status [ Final, Internal, Private
 
 Method AddStrategy(strategy As Frontier.Authentication.Strategy) As %Status
 {
+  set ..Verified = 0
   $$$QuitOnError(..Strategies.Insert(strategy))
   return $$$OK
 }
