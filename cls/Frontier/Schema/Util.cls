@@ -95,7 +95,7 @@ WritePattern(resource, placeholders)
     set resourcePart = $piece(resource,"/", resourceIndex)
     if $extract(resourcePart) = ":" {
       $$$AddPlaceholderIfNotDefined(resourcePart) 
-      set pattern = pattern_"/([A-Za-z0-9-._~:]+)"
+      set pattern = pattern_"/([^\/]+?)"
     } else {      
       set pattern = pattern_"/"_resourcePart
     }   

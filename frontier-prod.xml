@@ -239,7 +239,7 @@ CreateError(message, status="401 Unauthorized", isStatus=0)
 
 <Property name="Verified">
 <Type>%Boolean</Type>
-<InitialExpression>0</InitialExpression>
+<InitialExpression>1</InitialExpression>
 </Property>
 
 <Method name="%OnNew">
@@ -267,6 +267,7 @@ CreateError(message, status="401 Unauthorized", isStatus=0)
 <FormalSpec>strategy:Frontier.Authentication.Strategy</FormalSpec>
 <ReturnType>%Status</ReturnType>
 <Implementation><![CDATA[
+  set ..Verified = 0
   $$$QuitOnError(..Strategies.Insert(strategy))
   return $$$OK
 ]]></Implementation>
@@ -2890,7 +2891,7 @@ WritePattern(resource, placeholders)
     set resourcePart = $piece(resource,"/", resourceIndex)
     if $extract(resourcePart) = ":" {
       $$$AddPlaceholderIfNotDefined(resourcePart) 
-      set pattern = pattern_"/([A-Za-z0-9-._~:]+)"
+      set pattern = pattern_"/([^\/]+?)"
     } else {      
       set pattern = pattern_"/"_resourcePart
     }   

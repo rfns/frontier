@@ -239,7 +239,7 @@ CreateError(message, status="401 Unauthorized", isStatus=0)
 
 <Property name="Verified">
 <Type>%Boolean</Type>
-<InitialExpression>0</InitialExpression>
+<InitialExpression>1</InitialExpression>
 </Property>
 
 <Method name="%OnNew">
@@ -267,6 +267,7 @@ CreateError(message, status="401 Unauthorized", isStatus=0)
 <FormalSpec>strategy:Frontier.Authentication.Strategy</FormalSpec>
 <ReturnType>%Status</ReturnType>
 <Implementation><![CDATA[
+  set ..Verified = 0
   $$$QuitOnError(..Strategies.Insert(strategy))
   return $$$OK
 ]]></Implementation>
@@ -2890,7 +2891,7 @@ WritePattern(resource, placeholders)
     set resourcePart = $piece(resource,"/", resourceIndex)
     if $extract(resourcePart) = ":" {
       $$$AddPlaceholderIfNotDefined(resourcePart) 
-      set pattern = pattern_"/([A-Za-z0-9-._~:]+)"
+      set pattern = pattern_"/([^\/]+?)"
     } else {      
       set pattern = pattern_"/"_resourcePart
     }   
@@ -4915,7 +4916,7 @@ rchr(time) Quit ""
 ]]></Routine>
 
 
-<Project name="frontier" LastModified="2018-03-28 16:47:40.85373" Target="##class(UnitTest.Frontier.Router).T()" TargetType="2" HttpServer="http://localhost:57772">
+<Project name="frontier" LastModified="2018-03-28 18:06:21.155166" Target="api/frontier/test/email/get@me" TargetType="3" HttpServer="http://localhost:57772">
   <Items>
     <ProjectItem name="Frontier.AbstractSerializer" type="CLS"></ProjectItem>
     <ProjectItem name="Frontier.ArgumentDescription" type="CLS"></ProjectItem>
@@ -4945,6 +4946,7 @@ rchr(time) Quit ""
     <ProjectItem name="Frontier.SessionEvents" type="CLS"></ProjectItem>
     <ProjectItem name="Frontier.Types" type="CLS"></ProjectItem>
     <ProjectItem name="Frontier.UnitTest.Authentication.DummyStrategy" type="CLS"></ProjectItem>
+    <ProjectItem name="Frontier.UnitTest.FakeRequest" type="CLS"></ProjectItem>
     <ProjectItem name="Frontier.UnitTest.Fixtures.Class" type="CLS"></ProjectItem>
     <ProjectItem name="Frontier.UnitTest.Fixtures.Student" type="CLS"></ProjectItem>
     <ProjectItem name="Frontier.UnitTest.Reporter.Email" type="CLS"></ProjectItem>
@@ -4963,14 +4965,12 @@ rchr(time) Quit ""
     <ProjectItem name="UnitTest.Frontier.Types" type="CLS"></ProjectItem>
     <ProjectItem name="csp/dev/email-template.html" type="CSP"></ProjectItem>
     <ProjectItem name="frontier.INC" type="MAC"></ProjectItem>
-    <ProjectItem name="Frontier.UnitTest.FakeRequest" type="CLS"></ProjectItem>
   </Items>
   <BreakPoints>
-    <BreakPoint Routine="UnitTest.Frontier.Router.CLS" Offset="AssertRequest+5"></BreakPoint>
-    <BreakPoint Routine="UnitTest.Frontier.Router.CLS" Offset="AssertRequest+25"></BreakPoint>
     <BreakPoint Routine="Frontier.Method.CLS" Offset="%OnNew+1"></BreakPoint>
     <BreakPoint Routine="UnitTest.Frontier.Authentication.Manager.CLS" Offset="TestVerify+41"></BreakPoint>
-    <BreakPoint Routine="Frontier.UnitTest.Router.CLS" Offset="ValidateCredentials+1"></BreakPoint>
+    <BreakPoint Routine="UnitTest.Frontier.Router.CLS" Offset="AssertRequest+25"></BreakPoint>
+    <BreakPoint Routine="UnitTest.Frontier.Router.CLS" Offset="AssertRequest+5"></BreakPoint>
   </BreakPoints>
 </Project>
 </Export>
