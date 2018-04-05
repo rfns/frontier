@@ -50,23 +50,28 @@ Method Verify(Output user As %DynamicObject = {{}}, resourceScope As %String = "
       set strategy = ..Strategies.GetAt(i)
       set sc = strategy.Verify(..Session, ..Request, ..Response, .user, resourceScope)
       if $$$ISOK(sc) {
-        if strategy.Next {
+        if strategy.Next = 1 {
           continue
         } else {
           set ..Verified = 1
           return sc
         }
       } else {
-        do ReplyWithChallenge(strategy)
+        do SetChallenge(strategy)
         return sc
       }
     }
   } catch ex {
     set sc = ex.AsStatus()
   }
+  
+  if totalStrategies > 0 && (..Verified '= 1) {
+    do SetChallenge(strategy)
+  }
+  
   return sc
   
-ReplyWithChallenge(strategy)
+SetChallenge(strategy)
   do strategy.GetChallenge(..Session, ..Request, ..Response, .challenge)
   do ..Response.SetHeader("WWW-Authenticate", challenge)
   quit

@@ -17,7 +17,7 @@ Property ClassName As %String;
 
 Property ArgumentValues As %String [ MultiDimensional ];
 
-Property Stack As %String [ Internal ];
+Property Stack As %Stream.GlobalCharacter [ Internal ];
 
 Property IncludeStack As %Boolean [ InitialExpression = 0 ];
 
