@@ -210,8 +210,11 @@ Method Sequentialize(ByRef mergedArguments = 0, propertyFormatter As Frontier.Pr
       } elseif ##class(Frontier.Types).IsPersistent(methodArgument.Type) {
         set value = $System.OBJ.OpenId(methodArgument.Type, value)
         if '$isobject(value) set value = ""
+      } elseif methodArgument.Type = "%Boolean" {
+        // Attempts to convert true to 1 and false to 0, resolve to itself if input is not a boolean candidate.
+        set value = $$$BooleanToBinary(value)
       }
-      set i%Arguments(argsProcessed) = value      
+      set i%Arguments(argsProcessed) = value
     }
   }
   set i%Arguments = argsProcessed
@@ -336,10 +339,12 @@ Method MergeArguments(ByRef routeArguments As %String = 0, ByRef requestArgument
   return $$$OK
 }
 
-Method Invoke(Output methodReturn = "") As %Status [ Internal ]
+Method Invoke(Output methodReturn = "", Output stack As %Stream.Object = "") As %Status [ Internal ]
 {
   set sc = $$$OK
   merge methodArguments = ..Arguments
+  
+  new $estack
   
   try {
     if methodArguments > 0 {
@@ -348,6 +353,7 @@ Method Invoke(Output methodReturn = "") As %Status [ Internal ]
       set methodReturn = $classmethod(..DispatchClass, ..DispatchMethod)
     }
   } catch ex {
+    do ##class(Frontier.Exception).CaptureStack(.stack)
     set sc = ex.AsStatus()
   }
   return sc
