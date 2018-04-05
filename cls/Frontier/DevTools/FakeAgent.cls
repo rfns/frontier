@@ -125,12 +125,11 @@ Method ForgeRequest(url As %String, method As %String = "GET", payload As %Dynam
   try {    
     set urlWithInitialSlash = $select($extract(url) '= "/" : "/"_url, 1: url)
     set appInfo = ..GetApplicationInfoFromUrl(urlWithInitialSlash)
-    do ..EnsureRequestExists(.%request, url, method, payload, auth)
-    set %request.Application = appInfo.Name
+    do ..EnsureRequestExists(.%request, urlWithInitialSlash, method, payload, auth)
+    set %request.Application = appInfo.Name_$select($extract(appInfo.Name, *) '= "/" : "/", 1: "")
     $$$ThrowOnError(..DispatchRequestAndRespondToStream(appInfo.DispatchClass, %request.URL, method, .str))
   } catch ex {    
     set sc = ex.AsStatus()
-    set ^mtempFrontier("err", $i(i)) = sc
     if '$isobject(str) set str = ##class(%Stream.GlobalBinary).%New()
   }
   kill %request, %session, %response
