@@ -78,7 +78,7 @@ ClassMethod DispatchRequest(url As %String, httpMethod As %String, forwarded As 
   set httpMethod = $$$ucase(httpMethod)  
   
   try {    
-    set resolvedUrl = $$ResolveUrl(url)  
+    set resolvedUrl = $$ResolveUrl(url)
     
     while $$NextDispatchMap(.index, .mapEntry) {
       set matchType = $list(mapEntry, 1)
@@ -90,6 +90,10 @@ ClassMethod DispatchRequest(url As %String, httpMethod As %String, forwarded As 
         set isResourceMatch = 1
         set resourceScope = $lg(mapEntry, 7)
         set strictRouteParameters = $case(matchType, "R": $lg(mapEntry, 9), : $lg(mapEntry, 5))        
+        
+        // Now check if http method is corresponding with the expected one.
+        // Bails out if not to save resources.
+        if httpMethod '= $list(mapEntry, 3) && (matchType = "R") continue
                 
         set %frontier.RequestURL = %request.URL
         set %frontier.ClassName = $classname()        
@@ -98,7 +102,7 @@ ClassMethod DispatchRequest(url As %String, httpMethod As %String, forwarded As 
         $$$ThrowOnError(..OnDataSet(%frontier.Data))        
                  
         set %frontier.Method = "OnSetup"
-        $$$ThrowOnError(..OnSetup())                
+        $$$ThrowOnError(..OnSetup())           
         
         if parentIsStrict '= "" && (parentIsStrict '= strictRouteParameters) {
           $$$ThrowOnError($$$ERROR($$$GeneralError, "Cannot use route with mixed Strict definition."))
@@ -116,9 +120,7 @@ ClassMethod DispatchRequest(url As %String, httpMethod As %String, forwarded As 
           
           if httpMethod = "OPTIONS" do HandleOptionsRequest(url, requiresCors, .shouldQuit)
           // Don't continue if we hit this point, let the agent do the rest.
-          if shouldQuit return $$$OK                       
-                  
-          if httpMethod '= $list(mapEntry, 3) continue              
+          if shouldQuit return $$$OK                  
           
           $$$ThrowOnError(..ProcessCorsRequest(url, requiresCors))
                    
