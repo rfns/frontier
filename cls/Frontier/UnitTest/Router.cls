@@ -77,7 +77,7 @@ ClassMethod TestGETRouteParams(class As Frontier.UnitTest.Fixtures.Class) As %St
 /// {result":"hello"}
 ClassMethod TestGETOneQueryParameter(msg As %String) As %String
 {
-  return "hello"
+  return msg
 }
 
 /// Rest parameters are sequential query parameters. They can have flexible arity and have the format parameterN.
