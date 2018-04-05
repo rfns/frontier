@@ -294,23 +294,28 @@ CreateError(message, status="401 Unauthorized", isStatus=0)
       set strategy = ..Strategies.GetAt(i)
       set sc = strategy.Verify(..Session, ..Request, ..Response, .user, resourceScope)
       if $$$ISOK(sc) {
-        if strategy.Next {
+        if strategy.Next = 1 {
           continue
         } else {
           set ..Verified = 1
           return sc
         }
       } else {
-        do ReplyWithChallenge(strategy)
+        do SetChallenge(strategy)
         return sc
       }
     }
   } catch ex {
     set sc = ex.AsStatus()
   }
+  
+  if totalStrategies > 0 && (..Verified '= 1) {
+    do SetChallenge(strategy)
+  }
+  
   return sc
   
-ReplyWithChallenge(strategy)
+SetChallenge(strategy)
   do strategy.GetChallenge(..Session, ..Request, ..Response, .challenge)
   do ..Response.SetHeader("WWW-Authenticate", challenge)
   quit
@@ -407,7 +412,7 @@ ReplyWithChallenge(strategy)
 </Property>
 
 <Property name="Stack">
-<Type>%String</Type>
+<Type>%Stream.GlobalCharacter</Type>
 <Internal>1</Internal>
 </Property>
 
@@ -472,13 +477,21 @@ ReplyWithChallenge(strategy)
 <MultiDimensional>1</MultiDimensional>
 </Property>
 
+<Property name="Debug">
+<Type>%Boolean</Type>
+<Internal>1</Internal>
+<InitialExpression>0</InitialExpression>
+<ReadOnly>1</ReadOnly>
+</Property>
+
 <Method name="%OnNew">
-<FormalSpec>session:%CSP.Session,request:%CSP.Request,response:%CSP.Response</FormalSpec>
+<FormalSpec>session:%CSP.Session,request:%CSP.Request,response:%CSP.Response,debug:%Boolean=0</FormalSpec>
 <ReturnType>%Status</ReturnType>
 <Implementation><![CDATA[
   set ..Session = session
   set ..Request = request
   set ..Response = response
+  set i%Debug = debug
   set i%SQL = ##class(Frontier.SQL).%New()
   set i%ReporterManager = ##class(Frontier.Reporter.Manager).%New($this)
   set i%AuthenticationManager = ##class(Frontier.Authentication.Manager).%New(..Session, ..Request, ..Response)
@@ -553,6 +566,277 @@ ReplyWithChallenge(strategy)
   for i=1:1:parameters set args(2+i) = parameters(i)
   set i%ThrownByApplication = 1
   throw ##class(%Exception.StatusException).CreateFromStatus($$$ERROR(args...))
+]]></Implementation>
+</Method>
+</Class>
+
+
+<Class name="Frontier.DevTools.FakeAgent">
+<Super>%RegisteredObject</Super>
+<TimeCreated>64742,52062.176004</TimeCreated>
+
+<Property name="Cache">
+<Type>%String</Type>
+</Property>
+
+<Property name="Namespace">
+<Type>%String</Type>
+</Property>
+
+<Method name="%OnNew">
+<ReturnType>%Status</ReturnType>
+<Implementation><![CDATA[
+  set ..Namespace = $namespace
+  set ..Cache = "^|"""_..Namespace_"""|Frontier.DevTools.FakeAgent"
+  return $$$OK
+]]></Implementation>
+</Method>
+
+<Method name="%OnClose">
+<ReturnType>%Status</ReturnType>
+<Implementation><![CDATA[
+  kill @i%Cache
+  return $$$OK
+]]></Implementation>
+</Method>
+
+<Method name="EnsureRequestExists">
+<Internal>1</Internal>
+<ClassMethod>1</ClassMethod>
+<FormalSpec>*request:Frontier.UnitTest.FakeRequest,url:%String,method:%String,payload:%DynamicObject,auth:%String="Basic Zm9vOmJhcg=="</FormalSpec>
+<Private>1</Private>
+<ReturnType>%Status</ReturnType>
+<Implementation><![CDATA[
+  do ##class(%Net.URLParser).Parse(url, .components)
+  do ParseQueryString(components("query"), .data)
+  
+  if '$data(request) || ($data(request) && '$isobject(request)) {
+    set request = ##class(Frontier.DevTools.FakeRequest).%New()
+  }
+  
+  set request.URL = components("path")
+  set request.CgiEnvs("CONTENT_LENGTH") = 0
+  set request.CgiEnvs("CONTENT_TYPE") = "application/json; charset=utf-8"
+  set request.CgiEnvs("HTTP_ACCEPT") = "text/html,application/xhtml+xml,application/xml;q=0.9,image/webp,image/apng,*/*;q=0.8"
+  set request.CgiEnvs("HTTP_ACCEPT_ENCODING") = "gzip, deflate"
+  set request.CgiEnvs("HTTP_ACCEPT_LANGUAGE") = "en-US;q=0.8,en;q=0.7"
+  set request.CgiEnvs("HTTP_AUTHORIZATION") = auth 
+  set request.CgiEnvs("HTTP_HOST") = "localhost:57772" 
+  set request.CgiEnvs("HTTP_USER_AGENT") = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/65.0.3325.181 Safari/537.36 FakeAgent/1.0"
+  set request.CgiEnvs("QUERY_STRING") = $get(components("query"))  
+  set request.CgiEnvs("REQUEST_METHOD") = $$$ucase(method)
+  set request.CgiEnvs("REQUEST_SCHEME") = "http"
+  set request.CgiEnvs("REQUEST_URI") = components("path")  
+  set request.CgiEnvs("SERVER_NAME") = "localhost"
+  set request.CgiEnvs("SERVER_PORT") = 57772  
+  set request.CgiEnvs("SERVER_PROTOCOL") = "HTTP/1.1"
+  set request.Content = ##class(%Stream.GlobalCharacter).%New()  
+  if $isobject(payload) do request.Content.Write(payload.%ToJSON())  
+  if $order(data("")) '= "" merge request.Data = data
+  
+  return $$$OK
+  
+ParseQueryString(qs, data)
+  if qs = "" quit
+  
+  set qp = $lfs(qs, "&")
+  
+  for i=1:1:$ll(qp) {
+    set key = $piece($lg(qp, i), "=", 1)
+    set value = $piece($lg(qp, i), "=", 2)
+    if key '= "" && (value '= "") set data(key, 1) = value
+  }  
+  quit
+]]></Implementation>
+</Method>
+
+<Method name="DispatchRequestAndRespondToStream">
+<Internal>1</Internal>
+<ClassMethod>1</ClassMethod>
+<FormalSpec>dispatcherClass:%String,url:%String,httpMethod:%String,*str:%Stream.Object</FormalSpec>
+<Private>1</Private>
+<ProcedureBlock>0</ProcedureBlock>
+<ReturnType>%Status</ReturnType>
+<Implementation><![CDATA[
+
+  new %frontier  
+  set %frontier = ##class(Frontier.Context).%New(%session, %request, %response, 1)
+
+  new oldMnemonic, alreadyRedirected, sc
+  
+  set sc = $$$OK
+  set isRedirected = 0
+  
+  set str = ##class(%Stream.GlobalCharacter).%New()
+  set alreadyRedirected = ##class(%Device).ReDirectIO()
+  set oldMnemonic = "^"_##class(%Device).GetMnemonicRoutine()
+  set initIO = $io
+  
+  try {    
+    use $io::("^"_$zname)
+    
+    do ##class(%Device).ReDirectIO(1)
+    set isRedirected = 1
+    set sc = $classmethod(dispatcherClass, "DispatchRequest", url, httpMethod)
+    do str.Rewind()
+  } catch ex {
+    set str = ""
+    set sc = ex.AsStatus()
+  }
+     
+  
+  if oldMnemonic '= "" {
+    use initIO::(oldMnemonic)
+  } else {
+    use oldMnemonic
+  }
+  
+  do ##class(%Device).ReDirectIO(alreadyRedirected)  
+      
+  return sc
+  
+wstr(s) Do str.Write(s) Quit
+wchr(a) Do str.Write($char(a)) Quit
+wnl Do str.Write($char(13,10)) Quit
+wff Do str.Write($char(13,10,13,10)) Quit
+wtab(n) Do str.Write($c(9)) Quit
+rstr(len,time) Quit ""
+rchr(time) Quit ""
+]]></Implementation>
+</Method>
+
+<Method name="ForgeRequest">
+<FormalSpec>url:%String,method:%String="GET",payload:%DynamicAbstractObject={{}},auth:%String="",*sc:%Status=$$$OK</FormalSpec>
+<PublicList>%session,%response</PublicList>
+<ReturnType>%Stream.GlobalBinary</ReturnType>
+<Implementation><![CDATA[
+   
+  new %request, %session, %response
+  
+  // Makes sure that any attempts to change the namespace internally ends up in the original one.
+  set fromNamespace = ..Namespace
+  set str = "" 
+  
+  set %session = ##class(%CSP.Session).%New(-1, 0)
+  set %response = ##class(%CSP.Response).%New()
+      
+  try {    
+    set urlWithInitialSlash = $select($extract(url) '= "/" : "/"_url, 1: url)
+    set appInfo = ..GetApplicationInfoFromUrl(urlWithInitialSlash)
+    do ..EnsureRequestExists(.%request, url, method, payload, auth)
+    set %request.Application = appInfo.Name
+    $$$ThrowOnError(..DispatchRequestAndRespondToStream(appInfo.DispatchClass, %request.URL, method, .str))
+  } catch ex {    
+    set sc = ex.AsStatus()
+    set ^mtempFrontier("err", $i(i)) = sc
+    if '$isobject(str) set str = ##class(%Stream.GlobalBinary).%New()
+  }
+  kill %request, %session, %response
+  
+  set $namespace = fromNamespace
+  
+  return str
+]]></Implementation>
+</Method>
+
+<Method name="GetApplicationInfoFromUrl">
+<FormalSpec>url:%String</FormalSpec>
+<ReturnType>%DynamicObject</ReturnType>
+<Implementation><![CDATA[
+   
+  #define APPCACHE @i%Cache
+  
+  // Cache matches to prevent roundtrips to %SYS.
+  if $data($$$APPCACHE) {
+    set index = $lf($$$APPCACHE, url)
+    if index > 0 return $$ListToJSON(index)
+  }
+        
+  set $namespace = "%SYS"
+    
+  set result = {}
+  
+  // Revert the ordering so that longer are considered first, note that the longer the path is higher is similarity with the url.
+  set rows = ##class(%SQL.Statement).%ExecDirect(, "SELECT TOP 1 Name, DispatchClass FROM SECURITY.APPLICATIONS WHERE ? %STARTSWITH Name ORDER BY LEN(Name) DESC", url)
+  if rows.%Next() {
+    set $list($$$APPCACHE, *+1) = url
+    set index = $ll($$$APPCACHE)
+    set $list($$$APPCACHE, *+1) = rows.%Get("Name")    
+    set $list($$$APPCACHE, *+1) = rows.%Get("DispatchClass")
+    set result = $$ListToJSON(index)
+  }
+  
+  set $namespace = ..Namespace
+  
+  return result
+  
+ListToJSON(urlIndex)
+  return {
+    "Name": ($lg($$$APPCACHE, urlIndex + 1)),
+    "DispatchClass": ($lg($$$APPCACHE, urlIndex + 2))
+  }
+]]></Implementation>
+</Method>
+
+<Method name="Request">
+<ClassMethod>1</ClassMethod>
+<FormalSpec>url:%String,method:%String="GET",payload:%DynamicAbstractObject={{}},auth:%String="",outputToDevice:%Boolean=0,*sc:%Status=$$$OK</FormalSpec>
+<ReturnType>%Stream.GlobalBinary</ReturnType>
+<Implementation><![CDATA[
+  set agent = ..%New()
+  if outputToDevice = 1 {
+    set str = agent.ForgeRequest(url, method, payload, auth, .sc)
+    do str.OutputToDevice()
+  } else {
+    return agent.ForgeRequest(url, method, payload, auth, .sc)
+  }  
+  return str
+]]></Implementation>
+</Method>
+</Class>
+
+
+<Class name="Frontier.DevTools.FakeRequest">
+<Super>%RegisteredObject</Super>
+<TimeCreated>64742,52504.324916</TimeCreated>
+
+<Property name="Data">
+<Type>%String</Type>
+<MultiDimensional>1</MultiDimensional>
+</Property>
+
+<Property name="CgiEnvs">
+<Type>%String</Type>
+<MultiDimensional>1</MultiDimensional>
+</Property>
+
+<Property name="URL">
+<Type>%String</Type>
+</Property>
+
+<Property name="Method">
+<Type>%String</Type>
+</Property>
+
+<Property name="Application">
+<Type>%String</Type>
+</Property>
+
+<Property name="Content">
+<Type>%Stream.Object</Type>
+</Property>
+
+<Method name="GetCgiEnv">
+<FormalSpec>name:%String</FormalSpec>
+<ReturnType>%String</ReturnType>
+<Implementation><![CDATA[  return $get(i%CgiEnvs(name))
+]]></Implementation>
+</Method>
+
+<Method name="Get">
+<FormalSpec>name:%String,default:%String=""</FormalSpec>
+<ReturnType>%String</ReturnType>
+<Implementation><![CDATA[  return $get(i%Data(name), default)
 ]]></Implementation>
 </Method>
 </Class>
@@ -1132,7 +1416,7 @@ WriteEscaped(v)
     set de.error = graph
   } elseif graph.%IsA("%DynamicArray") {
     set de.errors = graph
-  }
+  }  
   return de
 ]]></Implementation>
 </Method>
@@ -1196,18 +1480,18 @@ TraverseException(payload, ex)
 
 <Method name="CaptureStack">
 <ClassMethod>1</ClassMethod>
-<FormalSpec>*stackText:%Stream.GlobalCharacter=""</FormalSpec>
-<ReturnType>%String</ReturnType>
+<FormalSpec>*stackText:%Stream.GlobalCharacter="",from:%Integer=($stack  - $estack) + 1,to:%Integer=$stack +1</FormalSpec>
+<ReturnType>%Status</ReturnType>
 <Implementation><![CDATA[
   set stackText = ##class(%Stream.GlobalCharacter).%New()
     
-  do stackText.WriteLine("Runtime exception ")
-  set max = $stack(-1)
-  for loop=max:-1:1 {
-    set sc  = stackText.WriteLine($char(9)_"     at "_$stack(loop, "PLACE")_$stack(loop, "MCODE"))
-    if $$$ISERR(sc) return sc
-  }   
-  return stackText.Read()
+  do stackText.WriteLine("Runtime exception")  
+  for loop=to:-1:from {
+    do stackText.WriteLine(" at "_$stack(loop, "PLACE"))
+    do stackText.WriteLine(" "_$stack(loop, "MCODE"))
+  }
+  do stackText.Rewind()
+  return $$$OK
 ]]></Implementation>
 </Method>
 </Class>
@@ -1474,8 +1758,11 @@ ParseArgument(parsedArgument)
       } elseif ##class(Frontier.Types).IsPersistent(methodArgument.Type) {
         set value = $System.OBJ.OpenId(methodArgument.Type, value)
         if '$isobject(value) set value = ""
+      } elseif methodArgument.Type = "%Boolean" {
+        // Attempts to convert true to 1 and false to 0, resolve to itself if input is not a boolean candidate.
+        set value = $$$BooleanToBinary(value)
       }
-      set i%Arguments(argsProcessed) = value      
+      set i%Arguments(argsProcessed) = value
     }
   }
   set i%Arguments = argsProcessed
@@ -1607,11 +1894,13 @@ ParseArgument(parsedArgument)
 
 <Method name="Invoke">
 <Internal>1</Internal>
-<FormalSpec>*methodReturn=""</FormalSpec>
+<FormalSpec>*methodReturn="",*stack:%Stream.Object=""</FormalSpec>
 <ReturnType>%Status</ReturnType>
 <Implementation><![CDATA[
   set sc = $$$OK
   merge methodArguments = ..Arguments
+  
+  new $estack
   
   try {
     if methodArguments > 0 {
@@ -1620,6 +1909,7 @@ ParseArgument(parsedArgument)
       set methodReturn = $classmethod(..DispatchClass, ..DispatchMethod)
     }
   } catch ex {
+    do ##class(Frontier.Exception).CaptureStack(.stack)
     set sc = ex.AsStatus()
   }
   return sc
@@ -2020,6 +2310,7 @@ the fields that aren't private, or you can instantiate it and change it's values
 <ProcedureBlock>0</ProcedureBlock>
 <ReturnType>%Status</ReturnType>
 <Implementation><![CDATA[
+ 
   new %frontier
   set %frontier = ##class(Frontier.Context).%New(%session, %request, %response)
   set %session.Data("%frontier") = %frontier
@@ -2037,7 +2328,7 @@ the fields that aren't private, or you can instantiate it and change it's values
 <ReturnType>%String</ReturnType>
 <Implementation><![CDATA[
      
-  // Don't generate patterns if target class is super.
+  // Don't try to generate patterns if the target class is Frontier.Router.
   if %compiledclass.Name = "Frontier.Router" return $$$OK   
   
   $$$ThrowOnError(##class(Frontier.Schema.Util).Parse(%compiledclass.Name, .routes))
@@ -2111,7 +2402,7 @@ MakeString(list)
         set strictRouteParameters = $case(matchType, "R": $lg(mapEntry, 9), : $lg(mapEntry, 5))        
                 
         set %frontier.RequestURL = %request.URL
-        set %frontier.ClassName = $classname()
+        set %frontier.ClassName = $classname()        
         
         set %frontier.Method = "OnDataSet"
         $$$ThrowOnError(..OnDataSet(%frontier.Data))        
@@ -2183,7 +2474,10 @@ MakeString(list)
           
           // Executes the method and retrives its value. The method MUST return a value or a 
           // <COMMAND> will be issued.
-          $$$ThrowOnError(publicMethod.Invoke(.methodReturn))
+          set sc = publicMethod.Invoke(.methodReturn, .stack)
+          set %frontier.Stack = stack
+          
+          $$$ThrowOnError(sc)
           
           // Now we serialize and output the result back to the agent.
           $$$ThrowOnError(..DispatchResponse(methodReturn, .tReturnParameters))
@@ -2219,8 +2513,12 @@ MakeString(list)
     return $$$OK       
   } catch ex {    
     set exceptionPayload = ..HandleException(ex)
-    do ##class(Frontier.Dynamic.Serializer).SerializeToStream(.stream, exceptionPayload, 1, %frontier.PropertyFormatter)
-    do stream.OutputToDevice()
+    if %frontier.Debug = 1 {
+      do ##class(Frontier.Dynamic.Serializer).Serialize(exceptionPayload, 1, %frontier.PropertyFormatter)
+    } else {
+      do ##class(Frontier.Dynamic.Serializer).SerializeToStream(.stream, exceptionPayload, 1, %frontier.PropertyFormatter)
+      do stream.OutputToDevice()
+    }    
   }
   return $$$OK
   
@@ -2299,20 +2597,14 @@ HandleOptionsRequest(url, requireCors, shouldQuit)
   set exceptionJSON = ##class(Exception).ToDynamicObject(exception)
   set exceptionJSON.responseCode = responseCode
   set sc = exception.AsStatus()
-  set stack = ""
+  set stack = %frontier.Stack  
     
   if '%frontier.ThrownByApplication && ($$$GETERRORCODE(sc) '= $$$GeneralError) {
     set %frontier.Error = sc
-    set %frontier.IncludeStack = 1
-  }
+  }  
   
-  if %frontier.IncludeStack {
-    do ##class(Exception).CaptureStack(.stack)
-  }   
-  
-  if stack '= "" {
-    set exceptionJSON.stack = stack
-    set %frontier.Stack = stack
+  if stack '= "" && (%frontier.IncludeStack = 1) {    
+    set exceptionJSON.stack = %frontier.Stack
   }
     
   set %response.OutputSessionToken = 0
@@ -2360,7 +2652,7 @@ HandleOptionsRequest(url, requireCors, shouldQuit)
   
   // We must use a custom serializer because the current %ToJSON implementation cannot serialize
   // mixed instances.
-  if %frontier.DirectWrite = 1 {
+  if %frontier.DirectWrite = 1 || (%frontier.Debug = 1) {
     return ##class(Frontier.Dynamic.Serializer).Serialize(response, 1, %frontier.PropertyFormatter)
   } else {
     $$$QuitOnError(##class(Frontier.Dynamic.Serializer).SerializeToStream(.stream, response, 1, %frontier.PropertyFormatter))
@@ -3095,45 +3387,6 @@ Called when we have finished processing this request</Description>
 </Class>
 
 
-<Class name="Frontier.UnitTest.FakeRequest">
-<Super>%RegisteredObject</Super>
-<TimeCreated>64735,49201.75979</TimeCreated>
-
-<Property name="Data">
-<Type>%String</Type>
-<MultiDimensional>1</MultiDimensional>
-</Property>
-
-<Property name="CgiEnvs">
-<Type>%String</Type>
-<MultiDimensional>1</MultiDimensional>
-</Property>
-
-<Property name="URL">
-<Type>%String</Type>
-</Property>
-
-<Property name="Method">
-<Type>%String</Type>
-</Property>
-
-<Property name="Application">
-<Type>%String</Type>
-</Property>
-
-<Property name="Content">
-<Type>%Stream.Object</Type>
-</Property>
-
-<Method name="GetCgiEnv">
-<FormalSpec>name:%String</FormalSpec>
-<ReturnType>%String</ReturnType>
-<Implementation><![CDATA[  return $get(i%CgiEnvs(name))
-]]></Implementation>
-</Method>
-</Class>
-
-
 <Class name="Frontier.UnitTest.Fixtures.Class">
 <Super>%Persistent,%Populate</Super>
 <TimeCreated>64502,34585.6306</TimeCreated>
@@ -3175,7 +3428,7 @@ Called when we have finished processing this request</Description>
 </Property>
 <Property name="Plate">
 <Selectivity>10.0000%</Selectivity>
-<AverageFieldSize>4.7</AverageFieldSize>
+<AverageFieldSize>4.9</AverageFieldSize>
 </Property>
 <SQLMap name="IDKEY">
 <BlockCount>-4</BlockCount>
@@ -3254,12 +3507,12 @@ Called when we have finished processing this request</Description>
 <AverageFieldSize>5</AverageFieldSize>
 </Property>
 <Property name="Class">
-<Selectivity>16.6667%</Selectivity>
+<Selectivity>12.5000%</Selectivity>
 <AverageFieldSize>1.1</AverageFieldSize>
 </Property>
 <Property name="Name">
 <Selectivity>10.0000%</Selectivity>
-<AverageFieldSize>16.9</AverageFieldSize>
+<AverageFieldSize>16.6</AverageFieldSize>
 </Property>
 <Property name="SomeValue">
 <Selectivity>100.0000%</Selectivity>
@@ -4019,106 +4272,6 @@ curl -H "Authorization: Basic Zm9vOmJhcg==" 'http://localhost:57772/api/frontier
   return sc
 ]]></Implementation>
 </Method>
-
-<Method name="UpdateRequestObject">
-<ClassMethod>1</ClassMethod>
-<FormalSpec>request:%CSP.Request,url:%String,method:%String,payload:%DynamicObject,auth:%String="Basic Zm9vOmJhcg=="</FormalSpec>
-<ReturnType>%Status</ReturnType>
-<Implementation><![CDATA[
-  do ##class(%Net.URLParser).Parse(url, .components)
-  do ParseQueryString(components("query"), .data)  
-  
-  set request.URL = components("path")
-  set request.CgiEnvs("CONTENT_LENGTH") = 0
-  set request.CgiEnvs("CONTENT_TYPE") = "application/json; charset=utf-8"
-  set request.CgiEnvs("HTTP_ACCEPT") = "text/html,application/xhtml+xml,application/xml;q=0.9,image/webp,image/apng,*/*;q=0.8"
-  set request.CgiEnvs("HTTP_ACCEPT_ENCODING") = "gzip, deflate, br"
-  set request.CgiEnvs("HTTP_ACCEPT_LANGUAGE") = "en-US;q=0.8,en;q=0.7"
-  set request.CgiEnvs("HTTP_AUTHORIZATION") = auth 
-  set request.CgiEnvs("HTTP_HOST") = "localhost:57772" 
-  set request.CgiEnvs("HTTP_USER_AGENT") = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/65.0.3325.181 Safari/537.36"
-  set request.CgiEnvs("QUERY_STRING") = $get(components("query"))  
-  set request.CgiEnvs("REQUEST_METHOD") = $$$ucase(method)
-  set request.CgiEnvs("REQUEST_SCHEME") = "http"
-  set request.CgiEnvs("REQUEST_URI") = components("path")  
-  set request.CgiEnvs("SERVER_NAME") = "localhost"
-  set request.CgiEnvs("SERVER_PORT") = 57772  
-  set request.CgiEnvs("SERVER_PROTOCOL") = "HTTP/1.1"  
-  set request.CgiEnvs("SERVER_SOFTWARE") = "Apache/2.4.20 (win32) Cache_Server_Pages-Apache_Module/2017.1.0.792.0-1701.1606aa"
-  set request.Application = "/api/frontier/test"
-  set request.Content = ##class(%Stream.GlobalCharacter).%New()  
-  if $isobject(payload) do request.Content.Write(payload.%ToJSON())  
-  if $order(data("")) '= "" merge request.Data = data
-  
-  quit $$$OK
-  
-ParseQueryString(qs, data)
-  if qs = "" quit
-  
-  set qp = $lfs(qs, "&")
-  
-  for i=1:1:$ll(qp) {
-    set key = $piece($lg(qp, i), "=", 1)
-    set value = $piece($lg(qp, i), "=", 2)
-    if key '= "" && (value '= "") set data(key, 1) = value
-  }  
-  quit
-]]></Implementation>
-</Method>
-
-<Method name="DispatchRequestAndRespondToStream">
-<Internal>1</Internal>
-<ClassMethod>1</ClassMethod>
-<FormalSpec>dispatcherClass:%String,url:%String,httpMethod:%String,*str:%Stream.Object</FormalSpec>
-<ProcedureBlock>0</ProcedureBlock>
-<ReturnType>%Status</ReturnType>
-<Implementation><![CDATA[
-
-  new %frontier
-  set %frontier = ##class(Frontier.Context).%New(%session, %request, %response)
-
-  new oldMnemonic, alreadyRedirected, sc
-  
-  set sc = $$$OK
-  set isRedirected = 0
-  
-  set str = ##class(%Stream.TmpBinary).%New()
-  set alreadyRedirected = ##class(%Device).ReDirectIO()
-  set oldMnemonic = "^"_##class(%Device).GetMnemonicRoutine()
-  set initIO = $io
-  
-  try {    
-    use $io::("^"_$zname)
-    
-    do ##class(%Device).ReDirectIO(1)
-    set isRedirected = 1
-    set sc = $classmethod(dispatcherClass, "DispatchRequest", url, httpMethod)
-    do str.Rewind()
-  } catch ex {
-    set str = ""
-    set sc = ex.AsStatus()
-  }
-     
-  
-  if oldMnemonic '= "" {
-    use initIO::(oldMnemonic)
-  } else {
-    use oldMnemonic
-  }
-  
-  do ##class(%Device).ReDirectIO(alreadyRedirected)  
-      
-  return sc
-  
-wstr(s) Do str.Write(s) Quit
-wchr(a) Do str.Write($char(a)) Quit
-wnl Do str.Write($char(13,10)) Quit
-wff Do str.Write($char(13,10,13,10)) Quit
-wtab(n) Do str.Write($c(9)) Quit
-rstr(len,time) Quit ""
-rchr(time) Quit ""
-]]></Implementation>
-</Method>
 </Class>
 
 
@@ -4421,6 +4574,10 @@ rchr(time) Quit ""
 <InitialExpression>$e(##class(Frontier.UnitTest.WebApplicationInstaller).#NAME, 2, *)</InitialExpression>
 </Property>
 
+<Property name="Agent">
+<Type>Frontier.DevTools.FakeAgent</Type>
+</Property>
+
 <Method name="OnBeforeAllTests">
 <PublicList>%session</PublicList>
 <ReturnType>%Status</ReturnType>
@@ -4431,29 +4588,10 @@ rchr(time) Quit ""
   
   set ..Class = ##class(Frontier.UnitTest.Fixtures.Class).%OpenId(classId)
   set ..Student = ##class(Frontier.UnitTest.Fixtures.Student).%OpenId(studentId)
+  set ..Agent = ##class(Frontier.DevTools.FakeAgent).%New()
     
   set %session = ##class(%CSP.Session).%New("t3st1ng")
   
-  return $$$OK
-]]></Implementation>
-</Method>
-
-<Method name="OnBeforeOneTest">
-<PublicList>%request,%response</PublicList>
-<ReturnType>%Status</ReturnType>
-<Implementation><![CDATA[
-  
-  set %request = ##class(Frontier.UnitTest.FakeRequest).%New()
-  set %response = ##class(%CSP.Response).%New() 
-  return $$$OK
-]]></Implementation>
-</Method>
-
-<Method name="OnAfterOneTest">
-<PublicList>%request,%response</PublicList>
-<ReturnType>%Status</ReturnType>
-<Implementation><![CDATA[
-  kill %request, %response
   return $$$OK
 ]]></Implementation>
 </Method>
@@ -4473,10 +4611,8 @@ rchr(time) Quit ""
 <Implementation><![CDATA[
   
   // Default authHeader is Basic foo:bar. Refer to the ValidateCredentials method defined in the Frontier.UnitTest.Router class.
-  // There's also an admin:admin account that is used to simulate scope usage.
-  
-  do ##class(Frontier.UnitTest.Util).UpdateRequestObject(%request, resource, method, payload, authHeader)
-  $$$QuitOnError(##class(Frontier.UnitTest.Util).DispatchRequestAndRespondToStream("Frontier.UnitTest.Router", %request.URL, method, .response))  
+  // There's also an admin:admin account that is used to simulate scope usage.  
+  set response = ..Agent.ForgeRequest(resource, method, payload, authHeader)
     
   set responseText = response.Read()
   set expectedText = expected
@@ -4911,12 +5047,13 @@ rchr(time) Quit ""
 #define IsSQLQuery(%str)  ($$$ucase($extract($$$trim(%str), 6)) = "SELECT")
 #define KeyGroup(%requestKey)  $zstrip($zstrip(%requestKey, "<=N"), "=>N")
 #define KeyIndex(%requestKey)  $zstrip($zstrip(%requestKey, "<=N"), "<=A")
-#define FormatBoolean(%value) $case(%value, 1: "true", 0: "false", : "")
+#define FormatBoolean(%value) $case(%value, 1: "true", 0: "false", : %value)
+#define BooleanToBinary(%value) $case(%value, "true": 1, "false": 0, : %value)
 #define NormalizeClassName(%cn) if $l(%cn, ".") = 1 && ($e(%cn) = "%") set %cn = "%Library."_$e(%cn, 2, *)
 ]]></Routine>
 
 
-<Project name="frontier" LastModified="2018-03-28 18:06:21.155166" Target="api/frontier/test/email/get@me" TargetType="3" HttpServer="http://localhost:57772">
+<Project name="frontier" LastModified="2018-04-05 11:00:18.855847" Target="api/frontier/test/route-params/6" TargetType="3" HttpServer="http://localhost:57772">
   <Items>
     <ProjectItem name="Frontier.AbstractSerializer" type="CLS"></ProjectItem>
     <ProjectItem name="Frontier.ArgumentDescription" type="CLS"></ProjectItem>
@@ -4924,6 +5061,8 @@ rchr(time) Quit ""
     <ProjectItem name="Frontier.Authentication.Manager" type="CLS"></ProjectItem>
     <ProjectItem name="Frontier.Authentication.Strategy" type="CLS"></ProjectItem>
     <ProjectItem name="Frontier.Context" type="CLS"></ProjectItem>
+    <ProjectItem name="Frontier.DevTools.FakeAgent" type="CLS"></ProjectItem>
+    <ProjectItem name="Frontier.DevTools.FakeRequest" type="CLS"></ProjectItem>
     <ProjectItem name="Frontier.Dynamic.Marshaller" type="CLS"></ProjectItem>
     <ProjectItem name="Frontier.Dynamic.Serializer" type="CLS"></ProjectItem>
     <ProjectItem name="Frontier.Dynamic.Unmarshaller" type="CLS"></ProjectItem>
@@ -4946,7 +5085,6 @@ rchr(time) Quit ""
     <ProjectItem name="Frontier.SessionEvents" type="CLS"></ProjectItem>
     <ProjectItem name="Frontier.Types" type="CLS"></ProjectItem>
     <ProjectItem name="Frontier.UnitTest.Authentication.DummyStrategy" type="CLS"></ProjectItem>
-    <ProjectItem name="Frontier.UnitTest.FakeRequest" type="CLS"></ProjectItem>
     <ProjectItem name="Frontier.UnitTest.Fixtures.Class" type="CLS"></ProjectItem>
     <ProjectItem name="Frontier.UnitTest.Fixtures.Student" type="CLS"></ProjectItem>
     <ProjectItem name="Frontier.UnitTest.Reporter.Email" type="CLS"></ProjectItem>
@@ -4967,10 +5105,10 @@ rchr(time) Quit ""
     <ProjectItem name="frontier.INC" type="MAC"></ProjectItem>
   </Items>
   <BreakPoints>
-    <BreakPoint Routine="Frontier.Method.CLS" Offset="%OnNew+1"></BreakPoint>
+    <BreakPoint Routine="Frontier.Authentication.Manager.CLS" Offset="Verify+8"></BreakPoint>
+    <BreakPoint Routine="Frontier.UnitTest.Router.CLS" Offset="ValidateCredentials+1"></BreakPoint>
     <BreakPoint Routine="UnitTest.Frontier.Authentication.Manager.CLS" Offset="TestVerify+41"></BreakPoint>
-    <BreakPoint Routine="UnitTest.Frontier.Router.CLS" Offset="AssertRequest+25"></BreakPoint>
-    <BreakPoint Routine="UnitTest.Frontier.Router.CLS" Offset="AssertRequest+5"></BreakPoint>
+    <BreakPoint Routine="XPort.API.CLS" Offset="ValidateCredentials+2"></BreakPoint>
   </BreakPoints>
 </Project>
 </Export>
