@@ -13,6 +13,8 @@ Property Student As Frontier.UnitTest.Fixtures.Student;
 
 Property WebApplicationName As %String [ InitialExpression = {$e(##class(Frontier.UnitTest.WebApplicationInstaller).#NAME, 2, *)} ];
 
+Property Agent As Frontier.DevTools.FakeAgent;
+
 Method OnBeforeAllTests() As %Status [ PublicList = %session ]
 {
   
@@ -21,23 +23,10 @@ Method OnBeforeAllTests() As %Status [ PublicList = %session ]
   
   set ..Class = ##class(Frontier.UnitTest.Fixtures.Class).%OpenId(classId)
   set ..Student = ##class(Frontier.UnitTest.Fixtures.Student).%OpenId(studentId)
+  set ..Agent = ##class(Frontier.DevTools.FakeAgent).%New()
     
   set %session = ##class(%CSP.Session).%New("t3st1ng")
   
-  return $$$OK
-}
-
-Method OnBeforeOneTest() As %Status [ PublicList = (%request, %response) ]
-{
-  
-  set %request = ##class(Frontier.UnitTest.FakeRequest).%New()
-  set %response = ##class(%CSP.Response).%New() 
-  return $$$OK
-}
-
-Method OnAfterOneTest() As %Status [ PublicList = (%request, %response) ]
-{
-  kill %request, %response
   return $$$OK
 }
 
@@ -51,10 +40,8 @@ Method AssertRequest(resource As %String, expected As %DynamicAbstractObject = "
 {
   
   // Default authHeader is Basic foo:bar. Refer to the ValidateCredentials method defined in the Frontier.UnitTest.Router class.
-  // There's also an admin:admin account that is used to simulate scope usage.
-  
-  do ##class(Frontier.UnitTest.Util).UpdateRequestObject(%request, resource, method, payload, authHeader)
-  $$$QuitOnError(##class(Frontier.UnitTest.Util).DispatchRequestAndRespondToStream("Frontier.UnitTest.Router", %request.URL, method, .response))  
+  // There's also an admin:admin account that is used to simulate scope usage.  
+  set response = ..Agent.ForgeRequest(resource, method, payload, authHeader)
     
   set responseText = response.Read()
   set expectedText = expected

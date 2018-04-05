@@ -34,7 +34,7 @@ ClassMethod ToDynamicObject(exception As Frontier.Exception) As %DynamicObject
     set de.error = graph
   } elseif graph.%IsA("%DynamicArray") {
     set de.errors = graph
-  }
+  }  
   return de
 }
 
@@ -86,17 +86,17 @@ TraverseException(payload, ex)
   return $$$OK
 }
 
-ClassMethod CaptureStack(Output stackText As %Stream.GlobalCharacter = "") As %String
+ClassMethod CaptureStack(Output stackText As %Stream.GlobalCharacter = "", from As %Integer = {($stack  - $estack) + 1}, to As %Integer = {$stack +1}) As %Status
 {
   set stackText = ##class(%Stream.GlobalCharacter).%New()
     
-  do stackText.WriteLine("Runtime exception ")
-  set max = $stack(-1)
-  for loop=max:-1:1 {
-    set sc  = stackText.WriteLine($char(9)_"     at "_$stack(loop, "PLACE")_$stack(loop, "MCODE"))
-    if $$$ISERR(sc) return sc
-  }   
-  return stackText.Read()
+  do stackText.WriteLine("Runtime exception")  
+  for loop=to:-1:from {
+    do stackText.WriteLine(" at "_$stack(loop, "PLACE"))
+    do stackText.WriteLine(" "_$stack(loop, "MCODE"))
+  }
+  do stackText.Rewind()
+  return $$$OK
 }
 
 }

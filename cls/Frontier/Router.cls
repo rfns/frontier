@@ -11,6 +11,7 @@ Parameter CONVERTINPUTSTREAM = 1;
 
 ClassMethod Page(skipheader As %Boolean = 1) As %Status [ ProcedureBlock = 0 ]
 {
+ 
   new %frontier
   set %frontier = ##class(Frontier.Context).%New(%session, %request, %response)
   set %session.Data("%frontier") = %frontier
@@ -21,7 +22,7 @@ ClassMethod Page(skipheader As %Boolean = 1) As %Status [ ProcedureBlock = 0 ]
 ClassMethod DispatchMap(index As %Integer) As %String [ CodeMode = objectgenerator, Final, Internal ]
 {
      
-  // Don't generate patterns if target class is super.
+  // Don't try to generate patterns if the target class is Frontier.Router.
   if %compiledclass.Name = "Frontier.Router" return $$$OK   
   
   $$$ThrowOnError(##class(Frontier.Schema.Util).Parse(%compiledclass.Name, .routes))
@@ -91,7 +92,7 @@ ClassMethod DispatchRequest(url As %String, httpMethod As %String, forwarded As 
         set strictRouteParameters = $case(matchType, "R": $lg(mapEntry, 9), : $lg(mapEntry, 5))        
                 
         set %frontier.RequestURL = %request.URL
-        set %frontier.ClassName = $classname()
+        set %frontier.ClassName = $classname()        
         
         set %frontier.Method = "OnDataSet"
         $$$ThrowOnError(..OnDataSet(%frontier.Data))        
@@ -163,7 +164,10 @@ ClassMethod DispatchRequest(url As %String, httpMethod As %String, forwarded As 
           
           // Executes the method and retrives its value. The method MUST return a value or a 
           // <COMMAND> will be issued.
-          $$$ThrowOnError(publicMethod.Invoke(.methodReturn))
+          set sc = publicMethod.Invoke(.methodReturn, .stack)
+          set %frontier.Stack = stack
+          
+          $$$ThrowOnError(sc)
           
           // Now we serialize and output the result back to the agent.
           $$$ThrowOnError(..DispatchResponse(methodReturn, .tReturnParameters))
@@ -199,8 +203,12 @@ ClassMethod DispatchRequest(url As %String, httpMethod As %String, forwarded As 
     return $$$OK       
   } catch ex {    
     set exceptionPayload = ..HandleException(ex)
-    do ##class(Frontier.Dynamic.Serializer).SerializeToStream(.stream, exceptionPayload, 1, %frontier.PropertyFormatter)
-    do stream.OutputToDevice()
+    if %frontier.Debug = 1 {
+      do ##class(Frontier.Dynamic.Serializer).Serialize(exceptionPayload, 1, %frontier.PropertyFormatter)
+    } else {
+      do ##class(Frontier.Dynamic.Serializer).SerializeToStream(.stream, exceptionPayload, 1, %frontier.PropertyFormatter)
+      do stream.OutputToDevice()
+    }    
   }
   return $$$OK
   
@@ -274,20 +282,14 @@ ClassMethod HandleException(exception As %Exception.AbstractException) As %Dynam
   set exceptionJSON = ##class(Exception).ToDynamicObject(exception)
   set exceptionJSON.responseCode = responseCode
   set sc = exception.AsStatus()
-  set stack = ""
+  set stack = %frontier.Stack  
     
   if '%frontier.ThrownByApplication && ($$$GETERRORCODE(sc) '= $$$GeneralError) {
     set %frontier.Error = sc
-    set %frontier.IncludeStack = 1
-  }
+  }  
   
-  if %frontier.IncludeStack {
-    do ##class(Exception).CaptureStack(.stack)
-  }   
-  
-  if stack '= "" {
-    set exceptionJSON.stack = stack
-    set %frontier.Stack = stack
+  if stack '= "" && (%frontier.IncludeStack = 1) {    
+    set exceptionJSON.stack = %frontier.Stack
   }
     
   set %response.OutputSessionToken = 0
@@ -330,7 +332,7 @@ ClassMethod DispatchResponse(returnedData As %CacheString, method As Frontier.Ro
   
   // We must use a custom serializer because the current %ToJSON implementation cannot serialize
   // mixed instances.
-  if %frontier.DirectWrite = 1 {
+  if %frontier.DirectWrite = 1 || (%frontier.Debug = 1) {
     return ##class(Frontier.Dynamic.Serializer).Serialize(response, 1, %frontier.PropertyFormatter)
   } else {
     $$$QuitOnError(##class(Frontier.Dynamic.Serializer).SerializeToStream(.stream, response, 1, %frontier.PropertyFormatter))

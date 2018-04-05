@@ -43,11 +43,14 @@ Property StrictQueryParameters As %Boolean [ InitialExpression = 1 ];
 
 Property RouteParameters As %String [ InitialExpression = 0, MultiDimensional ];
 
-Method %OnNew(session As %CSP.Session, request As %CSP.Request, response As %CSP.Response) As %Status
+Property Debug As %Boolean [ InitialExpression = 0, Internal, ReadOnly ];
+
+Method %OnNew(session As %CSP.Session, request As %CSP.Request, response As %CSP.Response, debug As %Boolean = 0) As %Status
 {
   set ..Session = session
   set ..Request = request
   set ..Response = response
+  set i%Debug = debug
   set i%SQL = ##class(Frontier.SQL).%New()
   set i%ReporterManager = ##class(Frontier.Reporter.Manager).%New($this)
   set i%AuthenticationManager = ##class(Frontier.Authentication.Manager).%New(..Session, ..Request, ..Response)

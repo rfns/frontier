@@ -29,6 +29,10 @@
 <InitialExpression>$e(##class(Frontier.UnitTest.WebApplicationInstaller).#NAME, 2, *)</InitialExpression>
 </Property>
 
+<Property name="Agent">
+<Type>Frontier.DevTools.FakeAgent</Type>
+</Property>
+
 <Method name="OnBeforeAllTests">
 <PublicList>%session</PublicList>
 <ReturnType>%Status</ReturnType>
@@ -39,29 +43,10 @@
   
   set ..Class = ##class(Frontier.UnitTest.Fixtures.Class).%OpenId(classId)
   set ..Student = ##class(Frontier.UnitTest.Fixtures.Student).%OpenId(studentId)
+  set ..Agent = ##class(Frontier.DevTools.FakeAgent).%New()
     
   set %session = ##class(%CSP.Session).%New("t3st1ng")
   
-  return $$$OK
-]]></Implementation>
-</Method>
-
-<Method name="OnBeforeOneTest">
-<PublicList>%request,%response</PublicList>
-<ReturnType>%Status</ReturnType>
-<Implementation><![CDATA[
-  
-  set %request = ##class(Frontier.UnitTest.FakeRequest).%New()
-  set %response = ##class(%CSP.Response).%New() 
-  return $$$OK
-]]></Implementation>
-</Method>
-
-<Method name="OnAfterOneTest">
-<PublicList>%request,%response</PublicList>
-<ReturnType>%Status</ReturnType>
-<Implementation><![CDATA[
-  kill %request, %response
   return $$$OK
 ]]></Implementation>
 </Method>
@@ -81,10 +66,8 @@
 <Implementation><![CDATA[
   
   // Default authHeader is Basic foo:bar. Refer to the ValidateCredentials method defined in the Frontier.UnitTest.Router class.
-  // There's also an admin:admin account that is used to simulate scope usage.
-  
-  do ##class(Frontier.UnitTest.Util).UpdateRequestObject(%request, resource, method, payload, authHeader)
-  $$$QuitOnError(##class(Frontier.UnitTest.Util).DispatchRequestAndRespondToStream("Frontier.UnitTest.Router", %request.URL, method, .response))  
+  // There's also an admin:admin account that is used to simulate scope usage.  
+  set response = ..Agent.ForgeRequest(resource, method, payload, authHeader)
     
   set responseText = response.Read()
   set expectedText = expected
