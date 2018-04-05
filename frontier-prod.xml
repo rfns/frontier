@@ -603,7 +603,7 @@ SetChallenge(strategy)
 <Method name="EnsureRequestExists">
 <Internal>1</Internal>
 <ClassMethod>1</ClassMethod>
-<FormalSpec>*request:Frontier.UnitTest.FakeRequest,url:%String,method:%String,payload:%DynamicObject,auth:%String="Basic Zm9vOmJhcg=="</FormalSpec>
+<FormalSpec>*request:Frontier.DevTools.FakeRequest,url:%String,method:%String,payload:%DynamicObject,auth:%String="Basic Zm9vOmJhcg=="</FormalSpec>
 <Private>1</Private>
 <ReturnType>%Status</ReturnType>
 <Implementation><![CDATA[
@@ -4355,4 +4355,20 @@ curl -H "Authorization: Basic Zm9vOmJhcg==" 'http://localhost:57772/api/frontier
   </tbody>
 </table>
 ]]></CSP>
+
+
+<Routine name="frontier" type="INC"><![CDATA[
+#include %ZEN.Utils
+
+#define ltrim(%str)       $zstrip(%str, "<W")
+#define rtrim(%str)       $zstrip(%str, ">W")
+#define trim(%str)        $zstrip(%str, "<>W")
+#define trimQuote(%str)   $zstrip(%str, "<>", $c(34))
+#define IsSQLQuery(%str)  ($$$ucase($extract($$$trim(%str), 6)) = "SELECT")
+#define KeyGroup(%requestKey)  $zstrip($zstrip(%requestKey, "<=N"), "=>N")
+#define KeyIndex(%requestKey)  $zstrip($zstrip(%requestKey, "<=N"), "<=A")
+#define FormatBoolean(%value) $case(%value, 1: "true", 0: "false", : %value)
+#define BooleanToBinary(%value) $case(%value, "true": 1, "false": 0, : %value)
+#define NormalizeClassName(%cn) if $l(%cn, ".") = 1 && ($e(%cn) = "%") set %cn = "%Library."_$e(%cn, 2, *)
+]]></Routine>
 </Export>

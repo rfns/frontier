@@ -603,7 +603,7 @@ SetChallenge(strategy)
 <Method name="EnsureRequestExists">
 <Internal>1</Internal>
 <ClassMethod>1</ClassMethod>
-<FormalSpec>*request:Frontier.UnitTest.FakeRequest,url:%String,method:%String,payload:%DynamicObject,auth:%String="Basic Zm9vOmJhcg=="</FormalSpec>
+<FormalSpec>*request:Frontier.DevTools.FakeRequest,url:%String,method:%String,payload:%DynamicObject,auth:%String="Basic Zm9vOmJhcg=="</FormalSpec>
 <Private>1</Private>
 <ReturnType>%Status</ReturnType>
 <Implementation><![CDATA[

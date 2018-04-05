@@ -18,7 +18,7 @@ Method %OnClose() As %Status
   return $$$OK
 }
 
-ClassMethod EnsureRequestExists(Output request As Frontier.UnitTest.FakeRequest, url As %String, method As %String, payload As %DynamicObject, auth As %String = "Basic Zm9vOmJhcg==") As %Status [ Internal, Private ]
+ClassMethod EnsureRequestExists(Output request As Frontier.DevTools.FakeRequest, url As %String, method As %String, payload As %DynamicObject, auth As %String = "Basic Zm9vOmJhcg==") As %Status [ Internal, Private ]
 {
   do ##class(%Net.URLParser).Parse(url, .components)
   do ParseQueryString(components("query"), .data)
