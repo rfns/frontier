@@ -43,9 +43,10 @@ ClassMethod CreateInfoObject(exception As Frontier.Exception) As %DynamicObject 
   set de = ##class(%DynamicObject).%New()    
   set de.internalCode = exception.Code
   
-  set fullMessage = $System.Status.GetOneStatusText(exception.AsStatus())
+  set fullMessage = $System.Status.GetOneStatusText(exception.AsStatus(), 1)
   set messageWithoutLF = $piece(fullMessage, $c(13), 1, 1)
   
+  set message = ##class(%Regex.Matcher).%New("#[0-9]{1,4}\:", messageWithoutLF).ReplaceAll("")
   set message = $piece(messageWithoutLF, "#:", 1 , 1)
   set de.message = message
   return de
