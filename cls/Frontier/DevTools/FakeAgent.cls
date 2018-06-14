@@ -43,7 +43,8 @@ ClassMethod EnsureRequestExists(Output request As Frontier.DevTools.FakeRequest,
   set request.CgiEnvs("SERVER_NAME") = "localhost"
   set request.CgiEnvs("SERVER_PORT") = 57772  
   set request.CgiEnvs("SERVER_PROTOCOL") = "HTTP/1.1"
-  set request.Content = ##class(%Stream.GlobalCharacter).%New()  
+  set request.Content = ##class(%Stream.GlobalCharacter).%New()
+  set request.Method = method
   if $isobject(payload) do request.Content.Write(payload.%ToJSON())  
   if $order(data("")) '= "" merge request.Data = data
   
@@ -155,12 +156,13 @@ Method GetApplicationInfoFromUrl(url As %String) As %DynamicObject
   set result = {}
   
   // Revert the ordering so that longer are considered first, note that the longer the path is higher is similarity with the url.
-  set rows = ##class(%SQL.Statement).%ExecDirect(, "SELECT TOP 1 Name, DispatchClass FROM SECURITY.APPLICATIONS WHERE ? %STARTSWITH Name ORDER BY LEN(Name) DESC", url)
+  set rows = ##class(%SQL.Statement).%ExecDirect(, "SELECT TOP 1 Name, DispatchClass, Path FROM SECURITY.APPLICATIONS WHERE ? %STARTSWITH Name ORDER BY LEN(Name) DESC", url)
   if rows.%Next() {
     set $list($$$APPCACHE, *+1) = url
     set index = $ll($$$APPCACHE)
     set $list($$$APPCACHE, *+1) = rows.%Get("Name")    
     set $list($$$APPCACHE, *+1) = rows.%Get("DispatchClass")
+    set $list($$$APPCACHE, *+1) = rows.%Get("Path")
     set result = $$ListToJSON(index)
   }
   
@@ -171,7 +173,8 @@ Method GetApplicationInfoFromUrl(url As %String) As %DynamicObject
 ListToJSON(urlIndex)
   return {
     "Name": ($lg($$$APPCACHE, urlIndex + 1)),
-    "DispatchClass": ($lg($$$APPCACHE, urlIndex + 2))
+    "DispatchClass": ($lg($$$APPCACHE, urlIndex + 2)),
+    "Path": ($lg($$$APPCACHE, urlIndex + 3))
   }
 }
 
