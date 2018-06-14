@@ -96,35 +96,32 @@ Method MakeDynamicObject(object As %RegisteredObject, Output dynamicObject As %D
     set propertyDescriptors = affectedProperties.GetAt(i)    
     if '$isobject(propertyDescriptors) continue    
     if propertyDescriptors.MultiDimensional || propertyDescriptors.Private || propertyDescriptors.Internal || ($extract(propertyDescriptors.Name) = "%") continue    
-    if $isobject(parentObject) && ($classname(parentObject) = propertyDescriptors.Type) && 
-      (parentKey = propertyDescriptors.Name) && (propertyDescriptors.Cardinality '= "") {
+    set value = $property(object, propertyDescriptors.Name)
+    if $isobject(value) && $isobject(parentObject) && ($data(i%Cache(parentObject)) || (value.%IsA("%RelationshipObject") && $data(i%Cache(value.InverseReference)))) {
       // Prevents the buffer from overflowing by skipping parent relationship serialization.
       // DO NOT DISABLE THIS FLAG WHEN SERIALIZING TO JSON!
+      // This will prevent Parent A -> Child B -> Parent A path building.
       if '..DropCyclicReferences set $property(dynamicObject, parentKey) = i%Cache(parentObject)
       continue
     }
-    set jsonDataFormat = ##class(Frontier.Types).GetJSONDataFormat(propertyDescriptors.Type)
-    set value = $property(object, propertyDescriptors.Name)
+    set jsonDataFormat = ##class(Frontier.Types).GetJSONDataFormat(propertyDescriptors.Type)    
     if $isobject(value) {
-      if value.%IsA("%RelationshipObject") {
-        set parentObject = object               
-        set parentKey = propertyDescriptors.Inverse
-      }
       if propertyDescriptors.Collection = "" {        
         if value.%Extends("%Stream.Object") {
           set dynamicChild = $System.OBJ.New($classname(value))
           set sc = dynamicChild.CopyFrom(value)
           if $$$ISERR(sc) quit
-        } else {          
-          set sc = ..MakeDynamicObject(value, .dynamicChild)
+        } else {
+          set parentObject = value
+          set parentKey = propertyDescriptors.Name
+          set sc = ..MakeDynamicObject(value, .dynamicChild, parentKey, parentObject)
         }        
       } else {
         set sc = ..MakeDynamicCollection(value, .dynamicChild, parentKey, parentObject)          
       }
       if $$$ISERR(sc) quit      
-      //set $property(dynamicObject, propertyDescriptors.Name) = dynamicChild
-      if $isobject(dynamicChild) do dynamicObject.%Set(propertyDescriptors.Name, dynamicChild)
-      else  do dynamicObject.%Set(propertyDescriptors.Name, "", jsonDataFormat)
+      if $isobject(dynamicChild) { do dynamicObject.%Set(propertyDescriptors.Name, dynamicChild) }
+      elseif '$data(i%Cache(parentObject)) { do dynamicObject.%Set(propertyDescriptors.Name, "", jsonDataFormat) }
     } else {
       set internalValue = $property(object, propertyDescriptors.Name)
       set d = propertyDescriptors.Type
