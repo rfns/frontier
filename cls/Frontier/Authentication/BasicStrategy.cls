@@ -7,13 +7,15 @@ Property Realm As %String [ Private ];
 
 Property Validator As %String [ Private ];
 
-Property Required As %Boolean [ InitialExpression = 0, Private ];
+Property Required As %Boolean [ InitialExpression = 0 ];
+
+Property Name As %String [ InitialExpression = "Basic" ];
 
 Method %OnNew(config As %DynamicObject) As %Status
 {
   set ..Realm = config.realm
   set ..Validator = config.validator
-  set ..Required = config.required
+  if config.%IsDefined("name") set ..Name = config.name
   return $$$OK
 }
 
@@ -22,52 +24,34 @@ Method Verify(session As %CSP.Session, request As %CSP.Request, response As %CSP
   set sc = $$$OK
   set found = 0
   set httpStatus = ""
-  set authHeader = request.GetCgiEnv("HTTP_AUTHORIZATION")
+  set authHeader = request.GetCgiEnv("HTTP_AUTHORIZATION")  
   
   if authHeader = "" {
-    if '..Required set ..Next = 1 return $$$OK
-    return $$CreateError("You must be authenticated to access this resource.")
-  }
-  
-  if $extract(authHeader, 1, 5) '= "Basic" {
-    return $$CreateError("Malformed authorization header.", "400 Bad Request")
-  }
-
-  set credentials = $System.Encryption.Base64Decode($piece(authHeader, " ", 2))
-    
-  set userName = $piece(credentials, ":")
-  set password = $piece(credentials, ":", 2)  
-  
-  if ..Validator '= "" {
-    set class = $piece(..Validator, ":")
-    set method = $piece(..Validator, ":", 2)
-    try {
-      set sc = $classmethod(class, method, userName, password, .found, .httpStatus, .user)
-    } catch ex {
-      set sc = ex.AsStatus()
-    }
+    // Let the manager call the next strategy, if that's the last one than the error is
+    // fired by the router class.
+    return $$$OK
+  } elseif authHeader '= "" && ($extract(authHeader, 1, 5) '= "Basic") {
+    // Specific errors can overwrite the return with something other than $$$OK.
+    set sc = $$$ERROR($$$GeneralError, "Malformed authentication header.")
+    set response.Status = "400 Bad Request"
   } else {
-    return $$CreateError("Credentials validator was not specified", "500 Internal Server Error")
+    set credentials = $System.Encryption.Base64Decode($piece(authHeader, " ", 2))
+    set userName = $piece(credentials, ":")
+    set password = $piece(credentials, ":", 2)    
+    set sc = ##class(Frontier.Shared.Utilities).SafeClassMethodCall(..Validator, userName, password, .found, .httpStatus, .user)
+    set ..Verified = found
+    if $$$ISERR(sc) {
+      if httpStatus '= "" set response.Status = httpStatus
+      else  set response.Status = "500 Internal Server Error"
+    }
   }
   
-  if $$$ISERR(sc) {
-    return $$CreateError(sc, httpStatus, 1)
+  if $$$ISOK(sc) && (found = 0) {
+    set sc = $$$ERROR($$$InvalidUsernameOrPassword)
+    set response.Status = "403 Forbidden"
   }
-  
-  if httpStatus = "" {
-    set httpStatus = "500 Internal Server Error"
-  }
-  
-  if 'found {
-    return $$CreateError("Unknown user or password.", "403 Forbidden")  
-  }  
   
   return sc
-  
-CreateError(message, status="401 Unauthorized", isStatus=0)
-  set response.Status = status
-  if 'isStatus return $$$ERROR($$$GeneralError, message) 
-  return message
 }
 
 Method GetChallenge(session As %CSP.Session, request As %CSP.Request, response As %CSP.Response, challenge As %String = "") As %Status

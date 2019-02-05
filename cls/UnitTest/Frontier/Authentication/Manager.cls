@@ -31,21 +31,16 @@ Method OnAfterOneTest() As %Status
 Method TestVerify()
 {
   
-  // This will fail but move to the next strategy. The Next flag indicates that there
-  // isn't enough info about the authentication method to decide a strategy thus making the manager ignores it.
+  // Skips first and second strategy, assume that the validation criteria wasn't found on each of them.
   set dummyStrategy1 = ##class(Frontier.UnitTest.Authentication.DummyStrategy).%New()
-  set dummyStrategy1.ShouldPass = 0
-  set dummyStrategy1.Next = 1
+  set dummyStrategy1.Behavior = "bypass"
   
-  // Same here.
   set dummyStrategy2 = ##class(Frontier.UnitTest.Authentication.DummyStrategy).%New()
-  set dummyStrategy2.ShouldPass = 0
-  set dummyStrategy2.Next = 1
+  set dummyStrategy2.Behavior = "bypass"
   
-  // If the flag is not set, then it'll validate the input.
-  // Luckly, we're informing our dummy strategy that it should allow the access.
+  // Instead, assume that the third input fits the third strategy, thus verifying it.
   set dummyStrategy3 = ##class(Frontier.UnitTest.Authentication.DummyStrategy).%New()
-  set dummyStrategy3.ShouldPass = 1
+  set dummyStrategy3.Behavior = "pass"
   
   do ..AuthenticationManager.AddStrategy(dummyStrategy1)  
   do ..AuthenticationManager.AddStrategy(dummyStrategy2)
@@ -53,58 +48,53 @@ Method TestVerify()
   
   set sc = ..AuthenticationManager.Verify(.user)  
   
+  // Must not return an error.
   do $$$AssertStatusOK(sc, "allows access")
   
   do $$$AssertTrue(..Response.GetHeader("WWW-Authenticate") = "", "doesn't include the challenge if one strategy works.")
   
   set dummyStrategy4 = ##class(Frontier.UnitTest.Authentication.DummyStrategy).%New()
-  set dummyStrategy4.ShouldPass = 0
   
-  do ..AuthenticationManager.AddStrategy(dummyStrategy4)  
+  // This one should not be called because the manager should bail out after validating using the third strategy.
+  do ..AuthenticationManager.AddStrategy(dummyStrategy4)
   
   set sc = ..AuthenticationManager.Verify(.user)
   do $$$AssertStatusOK(sc, "skips pending strategies if one works")
   
-  // This time we're forcing our passing strategy to fail, and there's no Next flag
-  // so assume that the user sent us a valid authentication but the credentials are
-  // not what we expected.
-  set dummyStrategy3.ShouldPass = 0
+  // Now we'll test the failure condition.
+  set dummyStrategy3.Behavior = ""
   
+  // This is not a verification mismatch, but a true error.
   set sc = ..AuthenticationManager.Verify(.user)
   
-  do $$$AssertEquals(user.name, "", "always return an user object even if empty")
+  // Validation failed, user should be empty.
+  do $$$AssertEquals(user.name, "", "always return an user object even if empty")    
   do $$$AssertStatusNotOK(sc, "returns the last strategy error")
   
-  // Now we have the WWW-Authenticate header set.
-  do $$$AssertTrue(..Response.GetHeader("WWW-Authenticate") '= "", "outputs the challenge when none of the provided strategies succeed.")
-  
-  // The last condition is when the request attempts to ignore every strategy, should we specify any strategy
-  // it'll be assumed that at least one validation must pass. This means that any Next is overruled if
-  // this condition matches.
-  
+  // Header should NOT be set, remember that this is not an user error.
+  do $$$AssertTrue(..Response.GetHeader("WWW-Authenticate") = "", "don't output the strategy on error.")
+   
   do ..AuthenticationManager.Reset()
-  
+    
+  // Test the condition where every strategy is bypassed and so it should enforce the first one.
   set dummyStrategy5 = ##class(Frontier.UnitTest.Authentication.DummyStrategy).%New()
-  set dummyStrategy5.ShouldPass = 0
-  set dummyStrategy5.Next = 1
+  set dummyStrategy5.Behavior = "bypass"
   
   set dummyStrategy6 = ##class(Frontier.UnitTest.Authentication.DummyStrategy).%New()
-  set dummyStrategy6.ShouldPass = 0
-  set dummyStrategy6.Next = 1
+  set dummyStrategy6.Behavior = "bypass" 
   
   set dummyStrategy7 = ##class(Frontier.UnitTest.Authentication.DummyStrategy).%New()
-  set dummyStrategy7.ShouldPass = 0
-  set dummyStrategy7.Next = 1
+  set dummyStrategy7.Behavior = "bypass"  
   
   do ..AuthenticationManager.AddStrategy(dummyStrategy5)
   do ..AuthenticationManager.AddStrategy(dummyStrategy6)
   do ..AuthenticationManager.AddStrategy(dummyStrategy7)
+    
   set sc = ..AuthenticationManager.Verify(.user)
   
-  do $$$AssertStatusOK(sc, "returns ok if all strategies were skipping")
-  // This is a false-positive since the manager depends on each strategy statuses, it must have a reliable way to detect
-  // if any strategy failed or were even execute, this is where the Verified flag is checked.
-  do $$$AssertNotTrue(..AuthenticationManager.Verified, "Verified flag must be 0")
+  do $$$AssertStatusOK(sc, "returns ok if all strategies were skipping")  
+  do $$$AssertNotTrue(..AuthenticationManager.Verified, "Verified flag must be 0")  
+  do $$$AssertTrue(..Response.GetHeader("WWW-Authenticate") '= "", "outputs the challenge because nothing was provided.")
 }
 
 }

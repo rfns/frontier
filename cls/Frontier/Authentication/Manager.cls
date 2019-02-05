@@ -11,7 +11,7 @@ Property Response As %CSP.Response [ Private ];
 
 Property ScopeSeparator As %String [ InitialExpression = " " ];
 
-Property Verified As %Boolean [ InitialExpression = 1 ];
+Property Verified As %Boolean [ InitialExpression = 0 ];
 
 Method %OnNew(session As %CSP.Session, request As %CSP.Request, response As %CSP.Response) As %Status
 {
@@ -49,38 +49,70 @@ Method Verify(Output user As %DynamicObject = {{}}, resourceScope As %String = "
     for i=1:1:totalStrategies {
       set strategy = ..Strategies.GetAt(i)
       set sc = strategy.Verify(..Session, ..Request, ..Response, .user, resourceScope)
-      if $$$ISOK(sc) {
-        if strategy.Next = 1 {
-          continue
-        } else {
-          set ..Verified = 1
-          return sc
-        }
-      } else {
-        do SetChallenge(strategy)
-        return sc
+      if $$$ISERR(sc) return sc
+      
+      set ..Verified = strategy.Verified      
+      
+      if ..Verified = 1 {
+        return $$$OK      
+      } elseif i < totalStrategies {
+        continue        
+      } elseif $$$ISOK(sc) {
+        do ..SetChallenge(strategy)
       }
     }
   } catch ex {
     set sc = ex.AsStatus()
   }
   
-  if totalStrategies > 0 && (..Verified '= 1) {
-    do SetChallenge(strategy)
-  }
-  
   return sc
+}
+
+Method VerifyUsing(namedStrategy As %String, Output user, resourceScope As %String = "") As %Status
+{
+  set ..Verified = 0
+  set sc = $$$OK
+  set found = 0
   
-SetChallenge(strategy)
-  do strategy.GetChallenge(..Session, ..Request, ..Response, .challenge)
-  do ..Response.SetHeader("WWW-Authenticate", challenge)
-  quit
+  for i=1:1:..Strategies.Count() {
+    set strategy = ..Strategies.GetAt(i)
+    if strategy.Name = namedStrategy {
+      set found = 1
+      try {
+        set sc = strategy.Verify(..Session, ..Request, ..Response, .user, resourceScope)
+        if $$$ISERR(sc) return sc 
+        
+        set ..Verified = strategy.Verified
+        
+        if ..Verified = 1 {
+          return $$$OK
+        } elseif $$$ISOK(sc) {
+          do ..SetChallenge(strategy)
+          return sc
+        } 
+      } catch ex {
+        set sc = ex.AsStatus()
+      }                  
+    }
+  }    
+  
+  if 'found {
+    return $$$ERROR($$$GeneralError, $$$FormatText("Strategy '%1' was not defined.", namedStrategy))
+  }
+  return sc
 }
 
 Method CheckResourceScope(resourceScope As %String = "", authenticationScope As %DynamicObject = {{}}) As %Boolean
 {
   if resourceScope '= "" return $lf($lfs(authenticationScope, ..ScopeSeparator), resourceScope) > 0
   return 1
+}
+
+Method SetChallenge(strategy As Frontier.Authentication.Strategy) [ Private ]
+{
+  set sc = strategy.GetChallenge(..Session, ..Request, ..Response, .challenge)
+  if challenge '= "" do ..Response.SetHeader("WWW-Authenticate", challenge)
+  $$$ThrowOnError(sc)
 }
 
 }

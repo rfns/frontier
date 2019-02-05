@@ -1,17 +1,16 @@
 Class Frontier.Authentication.Strategy Extends %RegisteredObject
 {
 
-Property Next As %Boolean [ InitialExpression = 0 ];
+Property Realm As %String [ Private ];
+
+Property Name As %String;
+
+Property Verified As %Boolean [ InitialExpression = 0 ];
 
 Method %OnNew(config As %DynamicObject = {{}}) As %Status
 {
+  $$$ThrowStatus($$$ERROR($$$MethodNotImplemented, "%OnNew"))  
   return $$$OK
-}
-
-Method NextSet(value As %Boolean) As %Status
-{
-	set i%Next = +value
-	return $$$OK
 }
 
 Method Verify(session As %CSP.Session, request As %CSP.Request, response As %CSP.Response, Output user As %DynamicObject = {{}}, resourceScope As %String = "") As %Status
