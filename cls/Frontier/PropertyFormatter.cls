@@ -15,7 +15,7 @@ Method Format(propertyName As %String, depth As %Integer = 1) As %String
   return formattedName
 }
 
-Method FormatFromCollection(collection As %ListOfObjects, depth As %Integer = 1) [ Internal ]
+Method FormatAllProperties(collection As %ListOfObjects, depth As %Integer = 1) [ Internal ]
 {
   for i=1:1:collection.Count() {
     set propertyName = collection.GetAt(i).Name
