@@ -94,7 +94,7 @@ Method HandleMultipart(key As %String, destination As %DynamicObject, filters As
   set mimeDataCount = ..Context.Request.CountMimeData(key)
   
   // Prevents the request from bypassing the limit otherwise takes the count as limit 
-  // if the request provided less mimedatas than the expected.
+  // if the request provided is lesser MIME entries than the expected.
   set limit = $select(destination.slots > mimeDataCount : mimeDataCount, 1: destination.slots)
   
   if '$isobject(destination.filters) set destination.filters = {}   
