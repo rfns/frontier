@@ -29,7 +29,7 @@ Method ServeFrom(root As %String) As %Stream.Object
     "index": "index.html index.htm",
     "extensions": {
       "md": {
-        "disposition":  "inline",
+        "disposition": "inline",
         "mimeType": "text/markdown",
         "binary": false
       }
@@ -130,7 +130,7 @@ Method GetContentConfiguration(extension As %String, config As %DynamicObject) A
     extensionConfig, 
     { "cache": (config.cache) },
     { "cache": { "configuration": "max-age=2628000, public", "ignore": [] } },
-    { "binary": (bin), "charset": (charset), "mimeType": (contentType) },
+    { "binary": (bin), "mimeType": (contentType) },
     { "disposition": "inline" } 
   )
 }
