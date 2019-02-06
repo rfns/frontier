@@ -5,9 +5,9 @@ Class Frontier.Context Extends %RegisteredObject
 
 Property Session As %CSP.Session [ Private ];
 
-Property Request As %CSP.Request [ Private ];
+Property Request As %CSP.Request;
 
-Property Response As %CSP.Response [ Private ];
+Property Response As %CSP.Response;
 
 Property RequestURL As %String;
 
@@ -29,6 +29,8 @@ Property ReporterManager As Frontier.Reporter.Manager [ ReadOnly ];
 
 Property AuthenticationManager As Frontier.Authentication.Manager [ ReadOnly ];
 
+Property Files As Frontier.Files [ ReadOnly ];
+
 Property Data As %DynamicObject;
 
 Property ThrownByApplication As %Boolean [ Internal, ReadOnly ];
@@ -43,17 +45,24 @@ Property StrictQueryParameters As %Boolean [ InitialExpression = 1 ];
 
 Property RouteParameters As %String [ InitialExpression = 0, MultiDimensional ];
 
-Property Debug As %Boolean [ InitialExpression = 0, Internal, ReadOnly ];
+Property Matches As %String [ InitialExpression = 0, MultiDimensional ];
 
-Method %OnNew(session As %CSP.Session, request As %CSP.Request, response As %CSP.Response, debug As %Boolean = 0) As %Status
+Property RawMode As %Boolean [ InitialExpression = 0 ];
+
+Property Encoding As %String [ InitialExpression = "utf-8" ];
+
+Property CORS As Frontier.CORS [ ReadOnly ];
+
+Method %OnNew(session As %CSP.Session, request As %CSP.Request, response As %CSP.Response) As %Status
 {
   set ..Session = session
   set ..Request = request
   set ..Response = response
-  set i%Debug = debug
   set i%SQL = ##class(Frontier.SQL).%New()
   set i%ReporterManager = ##class(Frontier.Reporter.Manager).%New($this)
   set i%AuthenticationManager = ##class(Frontier.Authentication.Manager).%New(..Session, ..Request, ..Response)
+  set i%Files = ##class(Frontier.Files).%New($this)
+  set i%CORS = ##class(Frontier.CORS).%New($this)  
   set i%ArgumentValues = 0   
   set ..Data = {} 
   set ..Response.ContentType = "application/json"
@@ -62,35 +71,37 @@ Method %OnNew(session As %CSP.Session, request As %CSP.Request, response As %CSP
 
 Method Raw() As %Status
 {
-  do ..Response.SetHeader("Content-Type", "text/plain")
+  set ..RawMode = 1
   return $$$OK
 }
 
 Method IsRaw() As %Boolean
 {
-  return $$$lcase(..Response.ContentType) = "text/plain"
+  return (..RawMode = 1)
 }
 
 Method HTML() As %Status
 {
+  set ..RawMode = 1
   do ..Response.SetHeader("Content-Type", "text/html")
   return $$$OK
 }
 
 Method IsHTML() As %Boolean
 {
-  return $$$lcase(..Response.ContentType) = "text/html"
+  return (..RawMode = 0 && ($$$lcase(..Response.ContentType) = "text/html"))
 }
 
 Method JSON() As %Status
 {
+  set ..RawMode = 0
   do ..Response.SetHeader("Content-Type", "application/json")
   return $$$OK
 }
 
 Method IsJSON() As %Boolean
 {
-  return $$$lcase(..Response.ContentType) = "application/json"
+  return (..RawMode = 0 && ($$$lcase(..Response.ContentType) = "application/json"))
 }
 
 Method Status(statusCode As %String) As %Status
