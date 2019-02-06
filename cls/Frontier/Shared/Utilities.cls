@@ -59,5 +59,49 @@ ClassMethod DeepExtend(sources... As %DynamicObject) As %DynamicObject
   return result
 }
 
+ClassMethod SafeClassMethodCall(expression As %String, args... As %String) As %Status
+{
+  set sc = $$$OK
+  if expression = "" return sc
+  
+  set class = $piece(expression, ":")
+  set method = $piece(expression, ":", 2)
+  try {
+    set sc = $classmethod(class, method, args...)
+  } catch ex {
+    set sc = ex.AsStatus()
+  }
+  return sc
+}
+
+ClassMethod SafeMethodCallAndReturn(sc As %Status = {$$$OK}, instance As %RegisteredObject, method As %String, args...)
+{
+  set ret = ""
+  
+  try {
+    set ret = $method(instance, method, args...)
+    if $extract(ret, 1, 2) = "0 " && $lv($p(ret, " ", 2)) {
+      set errcode = $$$GETERRORCODE(ret)
+      if errcode?4N = 1 {
+        set sc = ret
+        set ret = ""
+      }
+    }
+  } catch ex {
+    set sc = ex.AsStatus()
+  }
+  return ret
+}
+
+ClassMethod URLBase64Encode(value As %String) As %String
+{
+  return $translate($System.Encryption.Base64Encode(value, 1), "+/=", "-_")
+}
+
+ClassMethod URLBase64Decode(value As %String) As %String
+{
+  return $System.Encryption.Base64Decode($translate(value, "-_", "+/"))
+}
+
 }
 
