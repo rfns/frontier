@@ -1,4 +1,5 @@
 #include %ZEN.Utils
+#include %occErrors
 
 #define ltrim(%str)       $zstrip(%str, "<W")
 #define rtrim(%str)       $zstrip(%str, ">W")
@@ -10,3 +11,5 @@
 #define FormatBoolean(%value) $case(%value, 1: "true", 0: "false", : %value)
 #define BooleanToBinary(%value) $case(%value, "true": 1, "false": 0, : %value)
 #define NormalizeClassName(%cn) if $l(%cn, ".") = 1 && ($e(%cn) = "%") set %cn = "%Library."_$e(%cn, 2, *)
+#define OSSlash $case($$$isWINDOWS, 1: "\", : "/")
+#define AssertClassExists(%o) return:'$isobject(%o) $$$ERROR($$$ClassDoesNotExist, %o)
