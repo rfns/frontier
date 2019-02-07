@@ -13,8 +13,6 @@ Property MethodDescriptor As %Dictionary.CompiledMethod [ Private ];
 
 Property ReturnTypeParameters As %String [ MultiDimensional ];
 
-Property ReturnType As %String;
-
 Property Payload As %CacheString;
 
 Property HttpMethod As %String [ InitialExpression = "GET" ];
@@ -40,7 +38,7 @@ Method %OnNew(context As Frontier.Context, RESTMethodArguments As %String = 0, B
   set ..HttpMethod = context.Request.Method
   set ..MethodDescriptor = ##class(%Dictionary.CompiledMethod).%OpenId(context.ClassName_"||"_context.Method)
 
-  $$$ThrowOnError(..DescribeArguments())
+  $$$ThrowOnError(..ParseArguments())
   $$$ThrowOnError(..ParseReturnTypeParameters())
 
   if ..MethodDescriptor.ReturnType = "" {
@@ -65,68 +63,57 @@ Method %OnNew(context As Frontier.Context, RESTMethodArguments As %String = 0, B
   quit $$$OK
 }
 
-Method DescribeArguments() As %Status [ Private ]
+Method ParseArguments() As %Status [ Private ]
 {
   set sc = $$$OK
   set describedArguments = ##class(%ListOfObjects).%New()
-  set formalSpec = ..MethodDescriptor.FormalSpec
-  set currentIndex = 0
-  set currentPiece = 0
-
-  while $$ParseArgument(.parsedArgument) {
-    set sc = ..MethodArguments.Insert(parsedArgument)
-    if $$$ISERR(sc) return sc
-  }
-
-  return sc
-
-ParseArgument(parsedArgument)
-  set currentIndex = currentIndex + 1
-  set currentPiece = currentPiece + 1
-  set argument = $piece(formalSpec, ",", currentPiece)
-
-  if argument [ "(" {
-    while '$find(argument, ")") {
-      set currentPiece = currentPiece + 1
-      set argument = argument_","_$piece(formalSpec, ",", currentPiece)
+  set formalSpec = ..MethodDescriptor.FormalSpecParsed
+  set unparsedFormalSpec = ..MethodDescriptor.FormalSpec
+    
+  for i=1:1:$ll(formalSpec) {
+    set argSpec = $lg(formalSpec, i)
+    set unparsedArg = $piece(unparsedFormalSpec, ",", i)
+    set argument = ##class(Frontier.ArgumentDescription).%New()    
+    set argName = $lg(argSpec, 1)
+    set defaultValue = $lg(argSpec, 4)       
+    
+    set argument.Index = i
+    
+    if argName [ "..." {
+      set argName = $replace(argName, "...", "")
+      set argument.Arity = 1
     }
-  }
-
-  if argument '= "" {
-    set parsedArgument = ##class(Frontier.ArgumentDescription).%New()
-    if argument [ "..." set parsedArgument.Arity = 1
-    set parsedArgument.Name = $piece($replace($piece(argument, ":", 1), "...", ""), "=", 1)
-    set parsedArgument.Index = currentIndex
-    set preType = $piece(argument, ":", 2)
-    if preType [ "(" {
-      set parsedArgument.Type = $extract(preType, 1, $find(preType, "(") - 2)
-      set maybeDefault = $piece(preType, "=", *)
-      if $extract(maybeDefault, *) = ")" set maybeDefault = ""
-      set parsedArgument.DefaultValue = $$$trimQuote(maybeDefault)
-      set argumentParameters = $extract(preType, $find(preType, "("), $find(preType, ")") - 2)
-      if '$find(argumentParameters, ",") set argumentParameters = argumentParameters_","
-      for i=1:1:$length(argumentParameters, ",") {
-        set argumentParameter = $piece(argumentParameters, ",", i)
-        quit:argumentParameter=""
-        set parameterName = $piece(argumentParameter, "=")
-        set parameterValue = $$$trimQuote($piece(argumentParameter, "=", 2))
-        do parsedArgument.Parameters.SetAt(parameterValue, parameterName)
-        if parameterName = "ALIAS" set parsedArgument.Alias = parameterValue
-      }
-    } else {
-      set parsedArgument.Type = $piece(preType, "=", 1)
-      set defaultQuotedValue = $piece(preType, "=", 2)
-      if defaultQuotedValue '= "" {
-        set parsedArgument.DefaultValue = $$$trimQuote(defaultQuotedValue)
-        set parsedArgument.HasDefaultValue = 1
-      }
+    
+    if defaultValue '= "" {
+      set argument.HasDefaultValue = 1
+      set argument.DefaultValue = $$$trimQuote(defaultValue)
     }
-    return 1
+    
+    set argument.Name = argName
+    
+    // This deals with unspecified argument type, we cannot use FormalSpecParsed because
+    // when undefined it defaults to %Library.String, and that is not ideal for type checking.
+    set typeDef = $piece(unparsedArg, ":", 2)
+    // -2 = Go back to the position BEFORE the char is found.
+    set typeBoundary = $find(typeDef, "(") - 2
+    if typeBoundary < 1 set typeBoundary = $find(typeDef, "=") - 2
+    if typeBoundary < 1 set typeBoundary = $length(typeDef)                
+    
+    set argument.Type = $extract(typeDef, 1, typeBoundary)
+    
+    for ii=6:2:$ll(argSpec) {
+      set paramName = $lg(argSpec, ii - 1)
+      set paramValue = $$$trimQuote($lg(argSpec, ii))
+      do argument.Parameters.SetAt(paramValue, paramName)
+      if paramName = "ALIAS" set argument.Alias = paramValue
+    }
+    do ..MethodArguments.Insert(argument)
   }
-  return 0
+  
+  return $$$OK
 }
 
-Method FindDescribedArgument(identifier As %String) As Frontier.ArgumentDescription [ Internal, Private ]
+Method FindArgumentByAliasOrName(identifier As %String) As Frontier.ArgumentDescription [ Internal, Private ]
 {
 
   for i=1:1:..MethodArguments.Count() {
@@ -199,19 +186,19 @@ Method Sequentialize(ByRef mergedArguments = 0, propertyFormatter As Frontier.Pr
         else  set value = $get(mergedArguments(methodArgument.Index))
       }
 
-      set shouldUnmarshall = (methodArgument.Parameters.GetAt("UNMARSHALL") = 1)
-      set idWhere = methodArgument.Parameters.GetAt("IDWHERE")
+      set shouldUnmarshall = (methodArgument.Parameters.GetAt("UNMARSHAL") = 1)
+      set whereId = methodArgument.Parameters.GetAt("WHEREID")
       set isDynamic = ##class(Frontier.Types).IsDynamic(methodArgument.Type)
       set isPersistable = ##class(Frontier.Types).IsPersistent(methodArgument.Type)
 
-      if idWhere {
-        set sc = ..ResolveIdWhere(idWhere, methodArgument.Name,  methodArgument.Type, .resolvedId)
+      if whereId {
+        set sc = ..ResolveWhereId(whereId, methodArgument.Name,  methodArgument.Type, .resolvedId)
       }
 
       if shouldUnmarshall || isDynamic {
-        set expectedType = $select('shouldUnmarshall : methodArgument.Type, 1: "%DynamicObject")
+        set dynamicClass = $select('shouldUnmarshall : methodArgument.Type, 1: "%DynamicObject")
         if ..Payload = "" {
-          return $$$ERROR($$$GeneralError, $$$FormatText(jsonErrorMessage, expectedType))
+          return $$$ERROR($$$GeneralError, $$$FormatText(jsonErrorMessage, dynamicClass))
         }
 
         // If there's already a payloadable argument and another one is found, then we fail the request.
@@ -226,10 +213,14 @@ Method Sequentialize(ByRef mergedArguments = 0, propertyFormatter As Frontier.Pr
         }
 
         try {
-          set jsonType = $select(isDynamic : methodArgument.Type, 1: "%DynamicObject")
-          set value = $classmethod(expectedType, "%FromJSON", ..Payload)
+          set value = $classmethod(dynamicClass, "%FromJSON", ..Payload)
+          if 'shouldUnmarshall {
+            set jsonType = "object"
+            if dynamicClass = "%DynamicArray" set jsonType = "array"
+            if $classname(value) '= ##class(%RegisteredObject).%ClassName()
+          }         
         } catch ex {
-          return $$$ERROR($$$GeneralError, "JSON parser error: The request is not sending a valid JSON format.")
+          return $$$ERROR($$$GeneralError, "Error while parsing the payload: the request did not send a valid JSON format.")
         }
 
         if isPersistable {
@@ -244,15 +235,19 @@ Method Sequentialize(ByRef mergedArguments = 0, propertyFormatter As Frontier.Pr
                 return $$$ERROR($$$GeneralError, $$$FormatText("Cannot unmarshall payload to '%1': A PUT/PATCH request requires an identifier. E.g.: /route/1 or { __id__: 1 }.", methodArgument.Type))
               }
             }
+          } else {
+            // POST should always create. So remove __id__ from the payload.
+            do value.%Remove("__id__")
           }
-          set sc = ##class(Frontier.Dynamic.Unmarshaller).Unmarshall(methodArgument.Type, value, .instance, propertyFormatter)
+          set sc = ##class(Frontier.Dynamic.Unmarshaller).Unmarshal(methodArgument.Type, value, .instance, propertyFormatter)
           if $$$ISERR(sc) return sc
           set value = instance
         }
       } elseif isPersistable {
-        // Type extends from %Persistent, but dispatcher is expecting a GET.
+        // Type extends from %Persistent, but the match is expecting a GET.
         set value = $System.OBJ.OpenId(methodArgument.Type, $select(resolvedId '= "" : resolvedId, 1: value))
       } elseif methodArgument.Type = "%Boolean" {
+        // true/false -> 1/0.
         set value = $$$BooleanToBinary(value)
       }
 
@@ -286,10 +281,10 @@ Method MergeArguments(ByRef routeArguments As %String = 0, ByRef requestArgument
 
     set keyGroup = $$$KeyGroup(key)
     set $list(keysFound, *+1) = keyGroup
-    set methodArgument = ..FindDescribedArgument(key)
+    set methodArgument = ..FindArgumentByAliasOrName(key)
 
     if '$isobject(methodArgument) {
-      set methodArgument = ..FindDescribedArgument(keyGroup)
+      set methodArgument = ..FindArgumentByAliasOrName(keyGroup)
     }
 
     if '$isobject(methodArgument) {
@@ -338,7 +333,7 @@ Method MergeArguments(ByRef routeArguments As %String = 0, ByRef requestArgument
       set methodArgument = ..MethodArguments.GetAt(m)
       set isDynamic = ##class(Frontier.Types).IsDynamic(methodArgument.Type)
       set isPersistent = ##class(Frontier.Types).IsPersistent(methodArgument.Type)
-      set shouldUnmarshall = (methodArgument.Parameters.GetAt("UNMARSHALL") = 1)
+      set shouldUnmarshall = (methodArgument.Parameters.GetAt("UNMARSHAL") = 1)
       set isPayloadArgument = isDynamic || (isPersistent && shouldUnmarshall)
       if methodArgument.Type = "" set $list(weakTypedArgs, *+1) = methodArgument.Name
 
@@ -360,7 +355,7 @@ Method MergeArguments(ByRef routeArguments As %String = 0, ByRef requestArgument
   }
 
   if $ll(weakTypedArgs) > 0 {
-    return $$$ERROR($$$GeneralError, "The following arguments must be strongly typed: "_$lts(weakTypedArgs, ", ")_".")
+    return $$$ERROR($$$GeneralError, "The following arguments are missing the type definition: "_$lts(weakTypedArgs, ", ")_".")
   }
 
   if $ll(missingArguments) > 0 {
@@ -373,18 +368,18 @@ Method MergeArguments(ByRef routeArguments As %String = 0, ByRef requestArgument
     set routeKey = $order(routeArguments(routeKey), 1, routeValue)
     quit:routeKey=""
 
-    set methodArgument =  ..FindDescribedArgument(routeKey)
+    set methodArgument =  ..FindArgumentByAliasOrName(routeKey)
 
     if '$isobject(methodArgument) {
       return $$$ERROR($$$GeneralError, $$$FormatText("Route parameter '%1' was not specified as an argument in the method '%2'.", routeKey, ..MethodDescriptor.Name))
     }
-    set preArguments(..FindDescribedArgument(routeKey).Index) = routeValue
+    set preArguments(..FindArgumentByAliasOrName(routeKey).Index) = routeValue
   }
   set preArguments = argumentIndex
   return $$$OK
 }
 
-Method ResolveIdWhere(idWhere As %String, argumentName As %String, argumentType As %String, resolvedId As %String = "") As %Status [ Internal, Private ]
+Method ResolveWhereId(whereId As %String, argumentName As %String, argumentType As %String, resolvedId As %String = "") As %Status [ Internal, Private ]
 {
   #define NameFromPlaceholder  $e(where, $f(where, ":"), $f(where, ":"_%e))
 
@@ -394,18 +389,17 @@ Method ResolveIdWhere(idWhere As %String, argumentName As %String, argumentType 
 
   set sqlParams = ""
 
-
-  while idWhere [ ":" {
+  while whereId [ ":" {
     set name = $$$NameFromPlaceholder
     if '(name?1":".AN) {
       return $$$ERROR($$$GeneralError, "Invalid where format. Expected 'field = :placeholder")
     }
 
     set parameterValue = ..RouteParameters($e(name, 2, $l(name)))
-    if parameterValue = "" set parameterValue = $property(..Context.Data, name)
     if parameterValue = "" set parameterValue = $property(..Context.User, name)
+    if parameterValue = "" set parameterValue = $property(..Context.Data, name)    
 
-    // Checks if the argument is being used by the IDWHERE.
+    // Checks if the argument is being used by the WHEREID.
     set matchesWherePlaceholder = 'matchesWherePlaceholder && (name = argumentName)
 
     if parameterValue = "" {
@@ -413,11 +407,11 @@ Method ResolveIdWhere(idWhere As %String, argumentName As %String, argumentType 
     }
 
     set sqlParams($i(i)) = parameterValue
-    set where = $replace(idWhere, ":"_name, "?", 1)
+    set where = $replace(whereId, ":"_name, "?", 1)
   }
 
   if 'matchesWherePlaceholder {
-    return $$$ERROR($$$GeneralError, $$$FormatText("WHERE did not contain a placeholder for '%1', which is required.", argumentName))
+    return $$$ERROR($$$GeneralError, $$$FormatText("WHEREID did not contain a placeholder for '%1', which is required.", argumentName))
   }
 
   set rows = ##class(%SQL.Statement).%ExecDirect(, $$$FormatText(sqlTemplate, argumentType, where), sqlParams...)
@@ -435,15 +429,16 @@ Method Invoke(Output methodReturn = "", Output stack As %Stream.Object = "") As 
 {
   set sc = $$$OK
   merge methodArguments = ..Arguments
-
-  new $estack
+  set returnType = ..MethodDescriptor.ReturnType
+  
+  new $estack   
 
   try {
     if methodArguments > 0 {
       set methodReturn = $classmethod(..DispatchClass, ..DispatchMethod, methodArguments...)
     } else {
       set methodReturn = $classmethod(..DispatchClass, ..DispatchMethod)
-    }
+    }       
   } catch ex {
     do ##class(Frontier.Exception).CaptureStack(.stack)
     set sc = ex.AsStatus()
