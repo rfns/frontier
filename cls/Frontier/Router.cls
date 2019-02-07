@@ -11,12 +11,82 @@ Parameter CONVERTINPUTSTREAM = 1;
 
 ClassMethod Page(skipheader As %Boolean = 1) As %Status [ ProcedureBlock = 0 ]
 {
+    
+  $$$QuitOnError(..InitializeContext(.%frontier))    
+  
+  #dim sc As %Status = $$$OK
+  #dim e As %Exception.AbstractException
+  
+  #dim redirected As %Boolean
+  #dim originRoutine, url As %String = ""
+  #dim %response As %CSP.Response
+  #dim %frontier As Frontier.Context
+      
+  try {        
+    set %response.CharSet = %frontier.Encoding 
+    do %response.MatchLanguage() 
+    
+    // Gets the current redirection status. ON or OFF.
+    set redirected = ##class(%Library.Device).ReDirectIO()
+            
+    // Gets the routine before attempting to redirect. Used to restore original direction.
+    set originRoutine = $System.Device.GetMnemonicRoutine()
+    
+    // Set the web server routine to handle the request.
+    use $io::("^%SYS.cspServer2")
+      
+    // Redirect write calls to the routine above.
+    do ##class(%Library.Device).ReDirectIO(1)
+      
+    // Check if the application has a dispatch class.
+    if $$$GetSecurityApplicationsDispatchClass(%request.AppData) = "" {
+      set %response.Status = ..#HTTP500INTERNALSERVERERROR
+      $$$ThrowStatus($$$ERROR($$$GeneralError, "Application has no dispatch class."))
+    }
+      
+    // Attempt to get the URL.
+    Set url = $Get(%request.CgiEnvs("CSPLIB"))      
+    if url = "" Set url = %request.URL           
+            
+    // Query parameters are dealt later. So for now it's stripped off.
+    set url = $piece(url, "?")
+      
+    // Delegate the handling to the appropriate router.
+    $$$ThrowOnError(..DispatchRequest(url, %request.Method))
+      
+  } catch (e) {
+    write ##class(Frontier.Exception).ToDynamicObject(e).%ToJSON()
+    set %response.OutputSessionToken = 0
+    set sc = e.AsStatus()
+  }
+          
+  // Must write something to trigger redirection and write the headers.
+  write ""
+  
+  // If we have a redirection.
+  If redirected {       
+    // Then restore it to the original.
+    use $io::("^"_originRoutine)
+      
+    // And switch the redirection back to what it was originally.
+    do ##class(%Library.Device).ReDirectIO(1)
+  }
+      
+  return $$$OK
+}
+
+ClassMethod InitializeContext(Output context As Frontier.Context = "") As %Status [ Private ]
+{
  
   new %frontier
-  set %frontier = ##class(Frontier.Context).%New(%session, %request, %response)
-  set %session.Data("%frontier") = %frontier
-  $$$QuitOnError(##super(skipheader))
+  set context = ##class(Frontier.Context).%New(%session, %request, %response)
+  set %session.Data("%frontier") = context
   return $$$OK
+}
+
+ClassMethod Login(skipheader As %Boolean = 1) As %Status [ ProcedureBlock = 0 ]
+{
+  return ..Page(skipheader)
 }
 
 ClassMethod DispatchMap(index As %Integer) As %String [ CodeMode = objectgenerator, Final, Internal ]
@@ -65,7 +135,7 @@ MakeString(list)
   return """"_stringList_""""
 }
 
-ClassMethod DispatchRequest(url As %String, httpMethod As %String, forwarded As %Boolean = "", routeParameters As %String = 0, ByRef matches As %String = "", parentIsStrict As %Boolean = "") As %Status
+ClassMethod DispatchRequest(url As %String, httpMethod As %String, forwarded As %Boolean = "", routeParameters As %String = 0, ByRef matches As %String = "") As %Status
 {
    
   set httpStatus = $case(httpMethod, "POST": ..#HTTP201CREATED, : ..#HTTP200OK)
@@ -74,8 +144,8 @@ ClassMethod DispatchRequest(url As %String, httpMethod As %String, forwarded As 
   
   set %frontier.Method = "DispatchRequest"
   
-  // Makes sure the http method is following specs.
-  set httpMethod = $$$ucase(httpMethod)  
+  // Normalize the HTTP method.
+  set httpMethod = $$$ucase(httpMethod)
   
   try {    
     set resolvedUrl = $$ResolveUrl(url)
@@ -88,46 +158,52 @@ ClassMethod DispatchRequest(url As %String, httpMethod As %String, forwarded As 
       // If there's no match, skip to the next candidate.
       if matcher.Match(resolvedUrl) {      
         set isResourceMatch = 1
-        set resourceScope = $lg(mapEntry, 7)
-        set strictRouteParameters = $case(matchType, "R": $lg(mapEntry, 9), : $lg(mapEntry, 5))        
+        set resourceScope = $lg(mapEntry, 7)        
+        set strictRouteParameters = $lg(mapEntry, 9, 1)
         
         // Now check if http method is corresponding with the expected one.
-        // Bails out if not to save resources.
-        if httpMethod '= $list(mapEntry, 3) && (matchType = "R") continue
+        // Bails out if not to save resources, unless it's a OPTIONS request.
+        if httpMethod '= "OPTIONS" && (httpMethod '= $list(mapEntry, 3)) && (matchType = "R") continue
                 
         set %frontier.RequestURL = %request.URL
-        set %frontier.ClassName = $classname()        
+        set %frontier.ClassName = $classname() 
         
-        set %frontier.Method = "OnDataSet"
-        $$$ThrowOnError(..OnDataSet(%frontier.Data))        
-                 
+        do %frontier.CORS.Unset()
+        
+        // OPTIONS and matching methods must run the Setup.
         set %frontier.Method = "OnSetup"
-        $$$ThrowOnError(..OnSetup())           
+        $$$ThrowOnError(..OnSetup())
         
-        if parentIsStrict '= "" && (parentIsStrict '= strictRouteParameters) {
-          $$$ThrowOnError($$$ERROR($$$GeneralError, "Cannot use route with mixed Strict definition."))
-        }           
-        
-        if matcher.GroupCount {
-          do FetchRouteParameters(.routeParameters)
+        // When OPTIONS, then assume the request is a preflight.        
+        if httpMethod = "OPTIONS" {
+          do %frontier.CORS.CheckPreflight()
+          return $$$OK                    
         }        
         
-        // This is our final router. Search for the dispatch method and prepare it to be called.
-        if matchType = "R" {
-          set shouldQuit = 0
-          set requiresCors = $list(mapEntry, 5)
-          set useAuth = $lg(mapEntry, 8)                                           
+        if matcher.GroupCount && strictRouteParameters {
+          do FetchRouteParameters(.routeParameters)
+          merge %frontier.RouteParameters = routeParameters
+        } elseif 'strictRouteParameters {
+          // Cannot merge FROM ReadOnly property. Are you serious?!
+          do ManualGroupMerge(matcher)
+        }       
+        
+        // Found the router that should handle the request.
+        if matchType = "R" {         
+          set useAuth = $lg(mapEntry, 8)
+          set authStrategy = $lg(mapEntry, 11)
           
-          if httpMethod = "OPTIONS" do HandleOptionsRequest(url, requiresCors, .shouldQuit)
-          // Don't continue if we hit this point, let the agent do the rest.
-          if shouldQuit return $$$OK                  
-          
-          $$$ThrowOnError(..ProcessCorsRequest(url, requiresCors))
+          do %frontier.CORS.Set()
                    
           if useAuth {
             // Run pending authentication strategies. If one passes, then the implementation
             // is responsible for filling the user object.
-            $$$ThrowOnError(%frontier.AuthenticationManager.Verify(.user, resourceScope))
+            if authStrategy = "" {
+              $$$ThrowOnError(%frontier.AuthenticationManager.Verify(.user, resourceScope))
+            } else {
+              // Auth is enabled AND the route requests for a specific strategy to be used.              
+              $$$ThrowOnError(%frontier.AuthenticationManager.VerifyUsing(authStrategy, .user, resourceScope))
+            }
             
             if '%frontier.AuthenticationManager.Verified {
               set %response.Status = ..#HTTP401UNAUTHORIZED
@@ -143,25 +219,30 @@ ClassMethod DispatchRequest(url As %String, httpMethod As %String, forwarded As 
               }
               $$$ThrowOnError($$$ERROR($$$GeneralError, "This account has not enough privilege to access this resource."))
             }                                            
-          }                                                
+          }                   
+          
+          set %frontier.Method = "OnDataSet"
+          $$$ThrowOnError(..OnDataSet(%frontier.Data))
           
           set dispatchMethod = $listget(mapEntry, 4)
           set dispatchClass = $classname()
           
           // If the Call has : then it's calling a method outside this router.
           if dispatchMethod [ ":" {
-            set dispatchClass = $piece(dispatchMethod, ":", 1) 
-            set dispatchMethod = $piece(dispatchMethod, ":", 2)         
+            set dispatchClass = $piece(dispatchMethod, ":", 1)    
+            set dispatchMethod = $piece(dispatchMethod, ":", 2)
           }
           
+          set %frontier.ClassName = dispatchClass
+          set %frontier.Method = dispatchMethod
+          
           // Parse dispatchMethod retrieving its metadata.
-          set publicMethod = ##class(Method).%New(dispatchClass, dispatchMethod, .routeParameters, %request, %frontier.PropertyFormatter, %frontier.StrictQueryParameters, .matches)                   
+          set publicMethod = ##class(Method).%New(%frontier, .routeParameters, .matches)
           merge methodArguments = publicMethod.Arguments
           
           if matches = "" merge %frontier.RouteParameters = routeParameters
           else  merge %frontier.RouteParameters = matches
           
-          set %frontier.Method = dispatchMethod
           merge %frontier.ArgumentValues = publicMethod.Arguments
           
           // Executes the method and retrives its value. The method MUST return a value or a 
@@ -183,13 +264,12 @@ ClassMethod DispatchRequest(url As %String, httpMethod As %String, forwarded As 
           
           if forwardingClass = $classname() {
             $$$ThrowOnError($$$ERROR($$$GeneralError, $$$FormatText("Dispatcher class %1 is attempting to forward %2 to itself.", forwardingClass, resolvedUrl)))
-          }          
+          }                    
           
-          set resolvedUrl = "/"_matcher.Group(matcher.GroupCount)                    
-          set parentIsStrict = strictRouteParameters                    
+          set resolvedUrl = "/"_matcher.Group(matcher.GroupCount)             
                     
           // Re-invoke this method using the class that this map forwards the request to. 
-          $$$ThrowOnError($classmethod(forwardingClass, "DispatchRequest", resolvedUrl, httpMethod, 1, .routeParameters, .matches, strictRouteParameters))
+          $$$ThrowOnError($classmethod(forwardingClass, "DispatchRequest", resolvedUrl, httpMethod, 1, .routeParameters, .matches))
           // Maps are also a match, so abort everything else and let the forwarding class handle the rest.
           return $$$OK
         }
@@ -205,12 +285,7 @@ ClassMethod DispatchRequest(url As %String, httpMethod As %String, forwarded As 
     return $$$OK       
   } catch ex {    
     set exceptionPayload = ..HandleException(ex)
-    if %frontier.Debug = 1 {
-      do ##class(Frontier.Dynamic.Serializer).Serialize(exceptionPayload, 1, %frontier.PropertyFormatter)
-    } else {
-      do ##class(Frontier.Dynamic.Serializer).SerializeToStream(.stream, exceptionPayload, 1, %frontier.PropertyFormatter)
-      do stream.OutputToDevice()
-    }    
+    do ##class(Frontier.Dynamic.Serializer).Serialize(exceptionPayload, 1, %frontier.PropertyFormatter)
   }
   return $$$OK
   
@@ -259,15 +334,11 @@ FetchRouteParameters(routeParameters=0)
   }
   quit
  
-HandleOptionsRequest(url, requireCors, shouldQuit)
- if httpMethod = "OPTIONS" {
-   set isHttpMethodMatch = 1 
-   $$$ThrowOnError(..OnHandleOptionsRequest(resolvedUrl))        
-                      
-   // As we got options, we imply that it's a CORS request.
-   $$$ThrowOnError(..ProcessCorsRequest(url, requireCors))
-   set shouldQuit = 1
- }
+ManualGroupMerge(matcher)
+  set %frontier.Matches = matcher.GroupCount
+  for i=1:1:matcher.GroupCount {
+    set %frontier.Matches(i) = matcher.Group(i)
+  }
  quit
 }
 
@@ -305,7 +376,13 @@ ClassMethod DispatchResponse(returnedData As %CacheString, method As Frontier.Ro
   set response = {}  
   
   if $isobject(returnedData) {
-    set type = $classname(returnedData)
+    set type = $classname(returnedData)    
+    $$$QuitOnError($$AssertClassNamespaceAvailability(type))    
+    
+    if ##class(Frontier.Types).IsStream(type) && %frontier.IsRaw() {
+      return returnedData.OutputToDevice()
+    }
+    
     set isCollection = ##class(Types).IsCollection(type)
     set isSQLProvider = ##class(Types).IsSQLProvider(type)
     set isStream = ##class(Types).IsStream(type)
@@ -320,13 +397,13 @@ ClassMethod DispatchResponse(returnedData As %CacheString, method As Frontier.Ro
         set provider = returnedData
         set response.results = provider
       } else {      
-        $$$QuitOnError(##class(Frontier.Dynamic.Marshaller).Marshall(returnedData, .response))
+        $$$QuitOnError(##class(Frontier.Dynamic.Marshaller).Marshal(returnedData, .response))
       }
     } else {
       return $$$ERROR($$$GeneralError, "Cannot serialize system class instances.")
     }
   } elseif %frontier.IsJSON() {
-    set response.result = returnedData
+    set response.result = returnedData  
   } else {
     write returnedData
     return $$$OK
@@ -334,11 +411,17 @@ ClassMethod DispatchResponse(returnedData As %CacheString, method As Frontier.Ro
   
   // We must use a custom serializer because the current %ToJSON implementation cannot serialize
   // mixed instances.
-  if %frontier.DirectWrite = 1 || (%frontier.Debug = 1) {
+  if %frontier.DirectWrite = 1 {
     return ##class(Frontier.Dynamic.Serializer).Serialize(response, 1, %frontier.PropertyFormatter)
   } else {
     $$$QuitOnError(##class(Frontier.Dynamic.Serializer).SerializeToStream(.stream, response, 1, %frontier.PropertyFormatter))
     do stream.OutputToDevice()
+  }
+  return $$$OK
+
+AssertClassNamespaceAvailability(className)
+  if '##class(%Dictionary.CompiledClass).%OpenId(className) {
+    return $$$ERROR($$$GeneralError, $$$FormatText("The object is an instance of %1 that is not available in the namespace %2.", className, $namespace))
   }
   return $$$OK
 }
@@ -370,6 +453,7 @@ XData Schema [ Internal ]
 <xs:attribute name="Cors" type="xs:boolean" use="optional" default="false"/>
 <xs:attribute name="Scope" type="string" use="optional" default="false"/>
 <xs:attribute name="UseAuth" type="xs:boolean" use="optional" default="true"/>
+<xs:attribute name="AuthStrategy" type="xs:string" use="optional"/>
 <xs:attribute name="Strict" type="xs:boolean" use="optional" default="true"/>
 </xs:complexType>
 </xs:element>

@@ -4,7 +4,12 @@ Class Frontier.UnitTest.Router Extends Frontier.Router
 XData UrlMap [ XMLNamespace = "http://github.com/rfns/frontier" ]
 {
 <Routes>
+<Route Url="/public/?(.*)?" Strict="false" Method="GET" Call="TestGETStaticFile"/>
+<Route Url="/public/custom/?(.*)?" Strict="false" Method="GET" Call="TestGETStaticFileWithCustomConfig"/>
+<Route Url="/upload/multi" Method="POST" Call="TestPOSTMultipartFileUpload"/>
+<Route Url="/upload" Method="POST" Call="TestPOSTSingleFileUpload"/>
 <Route Url="/route-params/:class" Method="GET" Call="TestGETRouteParams"/>
+<Route Url="/route-params/:class/students/:student" Method="GET" Call="TestGETRouteParamsIdWhere"/>
 <Route Url="/query-params" Method="GET" Call="TestGETOneQueryParameter"/>
 <Route Url="/rest-params" Method="GET" Call="TestGETRestParametersSum"/>
 <Route Url="/sql/dynamic" Method="GET" Call="TestGETDynamicSQLResult"/>
@@ -14,24 +19,26 @@ XData UrlMap [ XMLNamespace = "http://github.com/rfns/frontier" ]
 <Route Url="/stream" Method="GET" Call="TestGETStream"/>
 <Route Url="/alias" Method="GET" Call="TestGETAliasedQueryParameter"/>
 <Route Url="/payload/single-object" Method="POST" Call="TestPOSTObjectPayloadSingle"/>
-<Route Url="/payload/object-with-query-params" Method="POST" Call="TestPOSTObjectPayloadQueryParams"/>  
+<Route Url="/payload/object-with-query-params" Method="POST" Call="TestPOSTObjectPayloadQueryParams"/>
 <Route Url="/payload/single-array" Method="POST" Call="TestPOSTArrayPayloadSingle"/>
 <Route Url="/payload/array-with-query-params" Method="POST" Call="TestPOSTArrayPayloadQueryParams"/>
 <Route Url="/payload/invalid" Method="POST" Call="TestPOSTInvalidPayload"/>
 <Route Url="/mixed/object" Method="GET" Call="TestGETMixedDynamicObject"/>
 <Route Url="/mixed/array" Method="GET" Call="TestGETMixedDynamicArray"/>
 <Route Url="/mixed/rest" Method="POST" Call="TestPOSTMixedRestParametersSum"/>
-<Route Url="/unmarshall" Method="POST" Call="TestPOSTUnmarshallToClass"/>
-<Route Url="/unmarshall/:classId" Method="PUT" Call="TestPUTUnmarshallToClass"/>
+<Route Url="/unmarshal" Method="POST" Call="TestPOSTUnmarshalToClass"/>
+<Route Url="/unmarshal/:class" Method="PUT" Call="TestPUTUnmarshalToClass"/>
 <Route Url="/user-info" Method="GET" Call="TestGETSessionUserInfo"/>
 <Route Url="/errors/siblings" Method="GET" Call="TestGETMultipleSiblingErrors"/>
-<Route Url="/arguments/no-weakly-typed" Method="GET" Call="TestGETNoWeaklyTypedArgs"/>
-<Route Url="/methods/no-weakly-typed" Method="GET" Call="TestGETNoWeaklyTypedMethods" />
+<Route Url="/arguments/no-weak-typed" Method="GET" Call="TestGETNoWeakTypedArgs"/>
+<Route Url="/methods/no-weak-typed" Method="GET" Call="TestGETNoWeakTypedMethods" />
+<Route Url="/custom-auth" Method="GET" AuthStrategy="BasicSystemLogin" Call="TestGETCustomAuthData" />
+<Route Url="/query" Method="GET" Call="InlineQuery" /> 
 <Map Prefix="/map/A/:param1" Forward="Frontier.UnitTest.Router.Map.A" />
 <Map Prefix="/map/B/:param1/:param2" Forward="Frontier.UnitTest.Router.Map.B" />
 <Map Prefix="/map/C" Forward="Frontier.UnitTest.Router.Map.C" />
-<Map Prefix="/map/D/:paramA/fixed/:paramB" Forward="Frontier.UnitTest.Router.Map.D"/> 
-<Map Prefix="/map/E/(match)" Strict="false" Forward="Frontier.UnitTest.Router.Map.E"/>
+<Map Prefix="/map/D/:paramA/fixed/:paramB" Forward="Frontier.UnitTest.Router.Map.D"/>
+<Map Prefix="/map/E/:namedParam" Forward="Frontier.UnitTest.Router.Map.E"/>
 </Routes>
 }
 
@@ -40,38 +47,74 @@ ClassMethod OnDataSet(data As %DynamicObject) As %Status
 {
   /// This 'data' object is shared between all methods. Accessible using %frontier.Data.
   set data.Message = "This 'Message' is shared between all methods."
+  set data.Workspace = ##class(%File).NormalizeFilename(##class(Port.Configuration).GetWorkspace("frontier"))
   return $$$OK
+}
+
+ClassMethod InlineQuery(filter As %String, limit As %Integer = 50) As Frontier.SQL.Provider
+{
+  set builder = %frontier.SQL.InlineQueryBuilder()
+  do builder.Filter(filter).For("Frontier.UnitTest.Fixtures.Student").OrderBy("id asc")
+  return builder.Build().Provide()
 }
 
 /// This method is reserved for setting up configurations.
 ClassMethod OnSetup() As %Status
 {
- 
-  // Reporters should be used to signal the developer about request errors.   
-  // $$$QuitOnError(%frontier.ReporterManager.AddReporter(##class(MyReporter.Email).%New()))  
-  
+
+  // Reporters should be used to signal the developer about request errors.
+  // $$$QuitOnError(%frontier.ReporterManager.AddReporter(##class(MyReporter.Email).%New()))
+
   // Asks the user for a Basic + Base64(username:password) encoded Authorization header.
   set basicStrategy = ##class(Frontier.Authentication.BasicStrategy).%New({
-    "realm": "tests", 
+    "realm": "tests",
     "validator": ($classname()_":ValidateCredentials")
-  })  
+  })
   
+  set systemBasicStrategy = ##class(Frontier.Authentication.BasicStrategy).%New({
+    "realm": "system",
+    "name": "BasicSystemLogin",
+    "validator": ($classname()_":ValidateSystemCredentials")
+  }) 
+
+  set %frontier.StrictQueryParameters = 0
+
   // This provides a way to check if the current user is authenticated using Basic scheme.
-  $$$QuitOnError(%frontier.AuthenticationManager.AddStrategy(basicStrategy))  
+  $$$QuitOnError(%frontier.AuthenticationManager.AddStrategy(basicStrategy))
+  $$$QuitOnError(%frontier.AuthenticationManager.AddStrategy(systemBasicStrategy))  
   
+  set %frontier.Response.GzipOutput = 1  
+
   return $$$OK
 }
 
 /// Whenever a parameter is typed of %Persistent and a valid id is provided, the parameter will be instantiated.
 /// Call example:
-/// curl -H "Content-Type: application/json" 'localhost:57772/api/frontier/test/route-params/6' 
+/// curl -H "Content-Type: application/json" 'localhost:57772/api/frontier/test/route-params/6'
 /// {"Plate":"O5397","Students":[{"Name":"Drabek,Peter T.","__id__":"20"}],"__id__":"6"}
 ClassMethod TestGETRouteParams(class As Frontier.UnitTest.Fixtures.Class) As %Status
 {
   return class
 }
 
+/// This follows the same principle as the TestGETRouteParams example, however IDWHERE allows the developer to search
+/// for the id using alternative sources other than relying straight to route parameters.
+/// ID WHERE is useful for avoiding the object id from being exposed to the world by masking it with contextual data.
+/// The format is close to a SQL where, however supporting :placeholders.
+/// Placeholders are checked using the following order:
+/// :name -> %frontier.RouteParameters("name") (obligatory)
+/// :name -> %frontier.User.name (optional)
+/// :name -> %frontier.Data.name (optional)
+/// This example brings the route parameter class's value along with the route parameter value from student.
+/// The result is /route-params/1/students/2 instead of /route/params/1/students/1||2.
 /// Query parameters are also supported and are fetched if the parameter name matches the URL query name.
+/// Although <Route /> doesn't define the parameter itself. It's defined by putting it into the method's signature.
+ClassMethod TestGETRouteParamsIdWhere(class As Frontier.UnitTest.Fixtures.Class, student As Frontier.UnitTest.Fixtures.Student(IDWHERE="class = :class AND id = :student")) As %Status
+{
+  return student
+}
+
+/// Query parameters with default value are considered optional, otherwise they become obligatory.
 /// Call example:
 /// curl -H "Content-Type: application/json" 'localhost:57772/api/frontier/test/query-params?msg=hello'
 /// {result":"hello"}
@@ -80,8 +123,9 @@ ClassMethod TestGETOneQueryParameter(msg As %String) As %String
   return msg
 }
 
-/// Rest parameters are sequential query parameters. They can have flexible arity and have the format parameterN.
+/// Rest parameters are sequential query parameters. They can have flexible size and have the format parameterN.
 /// This request takes that number of parameters and sum them.
+/// Rest parameters are always optional.
 /// Call example:
 /// curl -H "Content-Type: application/json" 'localhost:57772/api/frontier/test/rest-params?n1=10&n2=20&n3=30'
 ClassMethod TestGETRestParametersSum(n... As %String) As %Integer
@@ -99,7 +143,7 @@ ClassMethod TestGETDynamicSQLResult(page As %Integer = 1, rows As %Integer = 5) 
 {
   set offset = (page * rows) - (rows - 1)
   set limit = page * rows
-  
+
   return %frontier.SQL.Prepare(
     "SELECT *, %VID as Index FROM (SELECT * FROM FRONTIER_UNITTEST_FIXTURES.STUDENT) WHERE %VID BETWEEN ? AND ?"
   ).Parameters(offset, limit).Mode(2)
@@ -111,8 +155,8 @@ ClassMethod TestGETDynamicSQLResult(page As %Integer = 1, rows As %Integer = 5) 
 ClassMethod TestGETQuerySQLResult(page As %Integer = 1, rows As %Integer = 5) As Frontier.SQL.Provider
 {
   set offset = (page * rows) - (rows - 1)
-  set limit = page * rows     
-    
+  set limit = page * rows
+
   return %frontier.SQL.Prepare("Frontier.UnitTest.Fixtures.Student:PaginatedStudents").Parameters(offset, limit).Mode(2)
 }
 
@@ -128,21 +172,21 @@ ClassMethod TestGETRawMode() As %String
 
 /// This method uses the data object provided on Setup method.
 /// The idea is to demonstrate how to access shared data.
-/// Call example: 
-/// /// curl -H "Content-Type: application/json" 'localhost:57772/api/frontier/test/shared_data' 
+/// Call example:
+/// /// curl -H "Content-Type: application/json" 'localhost:57772/api/frontier/test/shared_data'
 ClassMethod TestGETData() As %DynamicObject
 {
   return %frontier.Data
 }
 
 /// This method demonstrates how %Stream.Object based instances are treated.
-/// Call example: 
+/// Call example:
 /// curl -H "Content-Type: application/json" 'http://localhost:57772/api/frontier/test/stream'
 ClassMethod TestGETStream() As %Stream.Object
 {
   set stream = ##class(%Stream.GlobalCharacter).%New()
   do stream.Write("This line is from a stream.")
-  
+
   return stream
 }
 
@@ -214,8 +258,7 @@ ClassMethod TestGETMixedDynamicArray(class As Frontier.UnitTest.Fixtures.Class) 
 /// curl -H "Content-Type: application/json" -X POST -d '{"username":"xyz","password":"xyz"}' 'http://localhost:57772/api/frontier/test/mixed/rest?n1=10&n2=20&msg=hello'
 ClassMethod TestPOSTMixedRestParametersSum(msg As %String, data As %DynamicObject, n... As %Integer) As %DynamicObject
 {
- 
-  set parameters = []  
+  set parameters = []
   set sum = 0
   for i=1:1:n  set sum = sum + n(i) do parameters.%Push(n(i))
   return {
@@ -228,7 +271,7 @@ ClassMethod TestPOSTMixedRestParametersSum(msg As %String, data As %DynamicObjec
 }
 
 /// For compability with existing clients that use query parameters with symbols. For such cases
-/// ALIAS can be used to make it compatible. If the expected alias is not found then Frontier will 
+/// ALIAS can be used to make it compatible. If the expected alias is not found then Frontier will
 /// fall back to using the argument name instead.
 ClassMethod TestGETAliasedQueryParameter(msg As %String(ALIAS="aliased_key")) As %String
 {
@@ -236,9 +279,9 @@ ClassMethod TestGETAliasedQueryParameter(msg As %String(ALIAS="aliased_key")) As
 }
 
 /// It's also possible to save from a payload directly to a %Persistent instance as long as the payload
-/// has the same format as the %Persistent class. Just define the the parameter UNMARSHALLTO with the class you want
-/// curl -H "Content-Type: application/json" -X POST -d '{"Plate": "R-2948","Students": [{"Name": "Rubens","BirthDate": "04/21/1970","SomeValue": 0}]}' 'http://localhost:57772/api/frontier/unmarshall'
-ClassMethod TestPOSTUnmarshallToClass(class As %DynamicObject(UNMARSHALLTO="Frontier.UnitTest.Fixtures.Class")) As Frontier.UnitTest.Fixtures.Student
+/// has the same format as the %Persistent class. Just define the the parameter INSTANTIATE with the class you want
+/// curl -H "Content-Type: application/json" -X POST -d '{"Plate": "R-2948","Students": [{"Name": "Rubens","BirthDate": "04/21/1970","SomeValue": 0}]}' 'http://localhost:57772/api/frontier/unmarshal'
+ClassMethod TestPOSTUnmarshalToClass(class As Frontier.UnitTest.Fixtures.Class(UNMARSHAL=1)) As Frontier.UnitTest.Fixtures.Student
 {
   $$$ThrowOnError(class.%Save())
   return {
@@ -252,7 +295,7 @@ ClassMethod TestPOSTUnmarshallToClass(class As %DynamicObject(UNMARSHALLTO="Fron
 /// found, the id will be searched inside the payload. Note that when the id is not found, an exception will be thrown regarding  the
 /// incorrect PUT usage.
 /// curl -H "Content-Type: application/json" -X POST -d '{"Plate": "R-2948","Students": [{"Name": "Rubens","BirthDate": "04/21/1970","SomeValue": 0}]}' 'http://localhost:57772/api/frontier/unmarshall/15'
-ClassMethod TestPUTUnmarshallToClass(class As %DynamicObject(UNMARSHALLTO="Frontier.UnitTest.Fixtures.Class",IDFROM="classId"), classId As %Integer) As Frontier.UnitTest.Fixtures.Student
+ClassMethod TestPUTUnmarshalToClass(class As Frontier.UnitTest.Fixtures.Class) As Frontier.UnitTest.Fixtures.Student
 {
   $$$ThrowOnError(class.%Save())
   return {
@@ -270,43 +313,228 @@ ClassMethod TestGETSessionUserInfo() As %Status
   return %frontier.User
 }
 
+/// Serves all files from the path defined on Data.Workspace (this project's folder). 
+/// This is the fastest to implement a file server.
+/// In order to use it, you must provide A non-Strict route that allows custom regular expressions like this one:
+/// <Route Url="/public/?(.*)?" Strict="false" Method="GET" Call="TestFileServer"/>
+/// That regular expression means 'put everything after public or public/ into %frontier.Matches'.
+/// E.g.: /public/my/path/has/this/file.txt resolves into /<root>/my/path/has/this/file.txt
+/// Keep in mind that this won't create a virtual host. So if you're serving files like HTML that link to other files, 
+/// you must provide the path relative to the server's virtual host instead of relating it to the Route path.
+ClassMethod TestGETStaticFile() As %Stream.Object
+{
+  
+  return %frontier.Files.ServeFrom(%frontier.Data.Workspace)
+}
+
+/// This actually does the same than TestGETStaticFile.
+/// Using Serve allows to provide advanced cache configuration and extension recognition.
+/// The settings are:
+/// 
+/// root - Provides the path where files are located.
+/// 
+/// index - Indicates which files to search for and serve as default if no specific file path was provided.
+/// 
+/// cache - How the cache should behave.
+/// 
+/// cache.configuration - A string containing the Cache-Control header configuration. Eg: "max-age=120, public".
+/// cacheignore - A array indicating which extensions should not be cached.
+/// 
+/// extensions - An Object containing how to the server should handle files matching the extension.
+/// 
+/// The file server attempts to discover how to handle the extension. 
+/// But defaults to 'application/octet-stream' if the extension is unknown. The 'extension' object provides a way to handle them.
+/// Each extension object should be keyed by its own extension identifier along with a child object.
+/// 
+/// <extension> - This is the keyed object, all configurations inside it will affect the <extension> exclusively.
+/// <extension>.disposition - This will set the Content-Disposition header.
+/// <extension>.disposition = "attachment" will force the browser to download the file instead of opening it.
+/// <extension>.disposition = "inline" will force the browser to open the file.
+/// <extension>.mimeType - Sets the Content-Type to the specified string.
+/// <extension>.binary - Informs the file server to handle the file as binary. This disables charset conversion.
+ClassMethod TestGETStaticFileWithCustomConfig() As %Stream.Object
+{
+  return %frontier.Files.Serve({
+    "root": (%frontier.Data.Workspace),
+    "index": "index.html index.htm",
+    "extensions": {
+      "md": {
+        "disposition":  "inline",
+        "mimeType": "text/markdown",
+        "binary": false
+      }
+    }
+  })
+}
+
+/// Provides a way to handle multipart uploads. Can only be used with POST routes.
+/// Configuration is made by using %DynamicObject instances to provide better readability.
+/// Usually returning the call like the example below is sufficient for the most of cases.
+/// The uploader always returns empty responses if not OK, throws an exception when a error happens.
+/// However uploads can be still be realized partiall, so the implementation must use the hooks to 
+/// undo any uploads that have succeeded (OnError) or do something based on its success (OnCompleteOne).
+/// 
+/// The path is built based on a list of the following placeholders:
+/// 
+/// :KEY - Represents the destination name.
+/// :FILE_NAME - Self-described.
+/// :NAMESPACE - Self-described.
+/// :USERNAME - Self-described.
+/// :EXTENSION - The extension in the file name, could be empty.
+/// :RANDOM - Represents a list of random characters to provide lower conflict chances.
+/// 
+/// The path can be provided as string to each destination key or using object format.
+/// Using object format allows certain uploads to be optional.
+/// 
+/// Its also possible to define a set of filters that purge irregular entries.
+/// 
+/// Those filters can be:
+/// 
+/// fileMaxSize - Specify a KB size limit, files bigger than that are purged from the queue.
+/// extensions - When providing a list of extensions, files whose extension is outside the array are purged from queue.
+/// minNameLength - Requires the filename to have at least N chars length.
+/// maxNameLength - Requires the filename to have a maxium of N chars length.
+/// 
+/// There are also 3 optional hooks that can be used to handle specific situations:
+/// 
+/// OnComplete - Called whenever a upload is finished without errors.
+/// OnCompleteAll - Called when all uploads are finished without error
+/// OnError - Called whenever an upload fails.
+ClassMethod TestPOSTMultipartFileUpload() As %Status
+{
+  set location = %frontier.Data.Workspace_"/tests/fixtures/uploads/multiple"
+  set destination = (location_"/:KEY/:FILE_NAME:EXTENSION")
+  
+  // 512 KB
+  set maxFileSize = (1024**2/0.5)
+  
+  return %frontier.Files.Upload({
+    "hooks": {
+      "onItemUploadSuccess": "Frontier.UnitTest.Router:WriteResultToProcessGlobal",
+      "onItemUploadError": "Frontier.UnitTest.Router:WriteErrorToProcessGlobal",
+      "onComplete": "Frontier.UnitTest.Router:WriteResultSummaryToProcessGlobal"
+    },
+    "filters": {
+      "verbose": true,
+      "maxFileSize": { "value": (maxFileSize), "errorTemplate": "O arquivo excedeu o limite de :VALUE bytes." },
+      "extensions": ["cls", "md", "txt", "pdf"]
+    },
+    "destinations": {
+      "file_a": { "path": (destination) },
+      "file_b": { "path": (destination) },
+      "file_c": { "path": (destination), "optional": true },
+      "file_d": { "path": (destination), "optional": true },
+      "files": { 
+        "path": (location_"/files/:INDEX/:FILE_NAME:EXTENSION"), 
+        "slots": 3,
+        "filters": { "maxFileSize": 500000000 }
+      }
+    }
+  })
+}
+
+/// This is an alternative format for handling uploads that aren't form-data/multipart.
+/// This format should be used to handle simple file uploads.
+/// The uploader changes to this mode if "destination" is passed instead of "destinations".
+/// With a few placeholder exceptions (FILE_NAME, EXTENSION), all other features can also be applied here.
+/// Since only the file is sent straight to %request.Content, there's no way to know the 
+/// file name, which means that its name should defined by the implementation.
+ClassMethod TestPOSTSingleFileUpload() As %Status
+{
+  return %frontier.Files.Upload({
+    "filters": {
+      "verbose": true,
+      "extensions": ["txt"]
+    },
+    "hooks": {
+      "onItemUploadError": "Frontier.UnitTest.Router:WriteErrorToProcessGlobal",
+      "onComplete": "Frontier.UnitTest.Router:WriteResultSummaryToProcessGlobal"
+    },
+    "destination": (%frontier.Data.Workspace_"/tests/fixtures/uploads/single/file.txt")
+  })
+}
+
+ClassMethod WriteResultToProcessGlobal(key As %String, index As %String, destination As %String, filePath As %String) As %Status
+{
+  set ^||Frontier("success", key) = $lb(destination, filePath)
+  return $$$OK
+}
+
+ClassMethod WriteResultSummaryToProcessGlobal(summary As %DynamicArray) As %Status
+{
+  set ^||Frontier("summary") = summary.%ToJSON()
+  return $$$OK
+}
+
+ClassMethod WriteErrorToProcessGlobal(key As %String, index As %String, destination As %String, filePath As %String, sc As %Status) As %Status
+{
+  set ^||Frontier("error", key, index) = $lb(sc, key, destination, filePath)
+  return $$$OK
+}
+
+/// Errors can be put together. Either by simblings or childrens.
 ClassMethod TestGETMultipleSiblingErrors() As %Status
 {
-  set sc1 = $$$ERROR($$$GeneralError, "First")  
-  
+  set sc1 = $$$ERROR($$$GeneralError, "First")
+
   set sc2 = $$$ERROR($$$GeneralError, "Second")
-  set sc3 = $$$ERROR($$$GeneralError, "Third") 
-  set sc3 = $$$EMBEDSC(sc3, $$$ERROR($$$QueryNameTooLong, "Child")) 
+  set sc3 = $$$ERROR($$$GeneralError, "Third")
+  set sc3 = $$$EMBEDSC(sc3, $$$ERROR($$$QueryNameTooLong, "Child"))
   set sc1 = $$$ADDSC(sc1, sc2)
   set sc1 = $$$ADDSC(sc1, sc3)
   $$$ThrowOnError(sc1)
 }
 
-ClassMethod TestGETNoWeaklyTypedArgs(a As %String = "", b = "", c, d As %Integer) As %Status
+/// This will thrown an error. Because Frontier doesn't allow arguments without type.
+ClassMethod TestGETNoWeakTypedArgs(a As %String = "", b = "", c) As %Status
 {
   return $$$OK
 }
 
-ClassMethod TestGETNoWeaklyTypedMethods()
+/// Neither it allows methods without return type.
+ClassMethod TestGETNoWeakTypedMethods()
 {
   return $$$OK
+}
+
+/// This method can be retrieved only if the user logs with the Caché credentials.
+/// The purpose is to show that custom authentication strategies can be used exclusively.
+ClassMethod TestGETCustomAuthData() As %String
+{
+  return "works"
 }
 
 ClassMethod ValidateCredentials(login As %String, password As %String, found As %Boolean = 1, Output httpStatus As %String, Output user As %DynamicObject) As %Status
 {
   set useScope = 0
-  if login = "foo" && (password = "bar") set found = 1  
+  if login = "foo" && (password = "bar") set found = 1
   if login = "admin" && (password = "admin") set found = 1 set useScope = 1
   if found set httpStatus = ..#HTTP200OK
-  else  set httpStatus = ..#HTTP403FORBIDDEN
-  
-  set user = { 
+  else  set httpStatus = ..#HTTP403FORBIDDEN 
+
+  set user = {
     "login": (login)
   }
-  
+
   if useScope {
     set user.scope = "admin"
   }
+  return $$$OK
+}
+
+/// This is only to demonstrate, DO NOT USE this in production environments.
+ClassMethod ValidateSystemCredentials(login As %String, password As %String, Output found As %Boolean = 1, Output httpStatus As %String, Output user As %DynamicObject) As %Status
+{
+  set found = $System.Security.Login(login, password)
+  if 'found {
+    set httpStatus = ..#HTTP403FORBIDDEN
+    return $$$ERROR($$$InvalidUsernameOrPassword)
+  }
+    
+  if '$System.Security.CheckUserPermission(login, "%Development", "USE") {
+    set httpStatus = ..#HTTP403FORBIDDEN
+    return $$$ERROR($$$RequiresRoleForConnection, "%Development")
+  }  
   return $$$OK
 }
 

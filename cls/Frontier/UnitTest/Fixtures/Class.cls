@@ -5,6 +5,8 @@ Property Plate As %String;
 
 Relationship Students As Student [ Cardinality = many, Inverse = Class ];
 
+Property Note As %Stream.GlobalCharacter;
+
 Storage Default
 {
 <Data name="ClassDefaultData">
@@ -13,6 +15,9 @@ Storage Default
 </Value>
 <Value name="2">
 <Value>Plate</Value>
+</Value>
+<Value name="3">
+<Value>Note</Value>
 </Value>
 </Data>
 <DataLocation>^Frontier.UnitTest.Fix50C.ClassD</DataLocation>
@@ -27,6 +32,9 @@ Storage Default
 <Property name="%%ID">
 <AverageFieldSize>1.1</AverageFieldSize>
 <Selectivity>1</Selectivity>
+</Property>
+<Property name="Note">
+<Selectivity>100.0000%</Selectivity>
 </Property>
 <Property name="Plate">
 <AverageFieldSize>4.9</AverageFieldSize>

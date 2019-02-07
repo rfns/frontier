@@ -55,30 +55,5 @@ ClassMethod MergeErrors(errors As %DynamicArray) As %Status
   return sc
 }
 
-ClassMethod MarshallSQLResult(SQLResult As %IResultSet, Output dynamicArray As %DynamicArray) As %Status
-{
-  set sc = $$$OK
-  set dynamicArray = []
-  set columnInfo = ""
-  
-  set columnsCount = SQLResult.%ResultColumnCount
-  for c = 1:1:columnsCount {
-    set columnInfo(c,"name") = SQLResult.%GetMetadata().columns.GetAt(c).label
-  }  
-  
-  while (SQLResult.%Next(.sc)) {
-    quit:$$$ISERR(sc)
-    set node = {}
-    for c = 1:1:SQLResult.%ResultColumnCount {
-      set value = SQLResult.%GetData(c)
-        
-      if ($isvalidnum(value) && ($e(value) '= 0)) do node.%Set($get(columnInfo(c,"name")),$num(value),"number")
-      else  do node.%Set($get(columnInfo(c,"name")),value)
-    }
-    Do dynamicArray.%Push(node)
-  }
-  return sc
-}
-
 }
 

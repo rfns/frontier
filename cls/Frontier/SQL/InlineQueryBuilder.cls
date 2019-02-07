@@ -1,5 +1,18 @@
 Include frontier
 
+/// This class is used to build dynamic SQL queries using URL inline parameters.
+/// You are required to put all the inline query into a single URL query parameter.
+/// Values are passed by using the placeholders mechanism provided by the Caché SQL API layer.
+/// Like this: ?filter=age_lt:10
+/// Regarding the format simple conditions are:
+/// fieldName_operator:value (the shorthand for equals is fieldName:value)
+/// While composite conditions are:
+/// $or:[fieldNameA_operator:value;fieldNameN_operator:value]
+/// In addition to the filter parameter, you can also provide two optional parameters
+/// to handle the ORDER BY and the SELECT <FIELDS>. Their syntax is exactly like they
+/// would be applied when using the SQL itself. E.g. age desc, name asc.
+/// Fields and OrderBy are sanitized and will blacklist any dubious characters to their syntax.
+/// Check the Frontier.UnitTest.Router:InlineQuery for insight on how to use the API.
 Class Frontier.SQL.InlineQueryBuilder Extends %RegisteredObject
 {
 
@@ -49,14 +62,19 @@ Method Pagination(page As %Integer, limit As %String) As Frontier.SQL.InlineQuer
 Method Fields(fields As %String) As Frontier.SQL.InlineQueryBuilder
 {
   if fields = "" set ..SelectedFields = "*" 
-  else  set ..SelectedFields = fields
+  else  set ..SelectedFields = ..SanitizeInput(fields)
   return $this
 }
 
 Method OrderBy(orderBy As %String) As Frontier.SQL.InlineQueryBuilder
 {
-  set ..OrderBy = " ORDER BY "_orderBy
+  set ..OrderBy = " ORDER BY "_..SanitizeInput(orderBy)
   return $this
+}
+
+Method SanitizeInput(input As %String) As %String [ Private ]
+{
+  return $zstrip(input, "*E'N'A", "", "_. ")
 }
 
 Method WrapWithPaginationIfProvided(fields As %String = "*", where As %String = "", orderBy As %String = "", tableName As %String) As %String [ Private ]
@@ -68,7 +86,7 @@ Method WrapWithPaginationIfProvided(fields As %String = "*", where As %String = 
   set offset = (page * limit) - (limit - 1)
   set limit = page * limit
   
-  return "SELECT *, %VID AS row FROM (SELECT "_fields_" FROM "_tableName_where_orderBy_") WHERE %VID BETWEEN "_offset_" AND "_limit
+  return "SELECT *, %VID AS row FROM (SELECT TOP "_limit_" "_fields_" FROM "_tableName_where_orderBy_") WHERE %VID BETWEEN "_offset_" AND "_limit
 }
 
 Method CheckPaginationParameters(page, limit) [ Private ]
@@ -203,6 +221,7 @@ AddParameter(newparam)
 
 Method Provide() As Frontier.SQL.Provider
 {
+  
   set params = ""
   merge params = i%Parameters
   set provider = ##class(Frontier.SQL.Provider).%New(..Result)
