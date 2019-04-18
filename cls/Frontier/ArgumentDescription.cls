@@ -1,3 +1,4 @@
+/// This holds the metadata used to resolve each argument from the classmethod to be called which generates an response.
 Class Frontier.ArgumentDescription Extends %RegisteredObject
 {
 
@@ -18,4 +19,3 @@ Property Parameters As array Of %String;
 Property Index As %Integer [ Required ];
 
 }
-

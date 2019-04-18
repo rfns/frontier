@@ -1,6 +1,9 @@
-<?xml version="1.0" encoding="UTF8"?>
+<?xml version="1.0" encoding="UTF-8"?>
 <Export generator="Cache" version="25">
 <Class name="Frontier.AbstractSerializer">
+<Description>
+This class holds the default implementation used to handle device redirection.
+You should not use this class but instead its specializations.</Description>
 <Abstract>1</Abstract>
 <IncludeCode>frontier,%ZEN.Utils</IncludeCode>
 <TimeCreated>64553,37866.500056</TimeCreated>
@@ -12,18 +15,18 @@
 <ReturnType>%Status</ReturnType>
 <Implementation><![CDATA[
   new oldMnemonic, alreadyRedirected, sc
-  
+
   set sc = $$$OK
   set isRedirected = 0
-  
+
   set str = ##class(%Stream.TmpBinary).%New()
   set alreadyRedirected = ##class(%Device).ReDirectIO()
   set oldMnemonic = "^"_##class(%Device).GetMnemonicRoutine()
   set initIO = $io
-  
-  try {    
+
+  try {
     use $io::("^"_$zname)
-    
+
     do ##class(%Device).ReDirectIO(1)
     set isRedirected = 1
     set sc = ..Serialize(arguments...)
@@ -31,18 +34,18 @@
   } catch ex {
     set str = ""
     set sc = ex.AsStatus()
-  }   
-  
+  }
+
   if oldMnemonic '= "" {
     use initIO::(oldMnemonic)
   } else {
     use oldMnemonic
   }
-  
-  do ##class(%Device).ReDirectIO(alreadyRedirected)  
-      
+
+  do ##class(%Device).ReDirectIO(alreadyRedirected)
+
   return sc
-  
+
 wstr(s) Do str.Write(s) Quit
 wchr(a) Do str.Write($char(a)) Quit
 wnl Do str.Write($char(13,10)) Quit
@@ -56,6 +59,8 @@ rchr(time) Quit ""
 
 
 <Class name="Frontier.ArgumentDescription">
+<Description>
+This holds the metadata used to resolve each argument from the classmethod to be called which generates an response.</Description>
 <Super>%RegisteredObject</Super>
 <TimeCreated>64492,37806.502663</TimeCreated>
 
@@ -98,6 +103,8 @@ rchr(time) Quit ""
 
 
 <Class name="Frontier.Authentication.BasicStrategy">
+<Description>
+Testando.</Description>
 <IncludeCode>%occErrors,%occStatus</IncludeCode>
 <Super>Frontier.Authentication.Strategy</Super>
 <TimeCreated>64553,59181.195484</TimeCreated>
@@ -140,8 +147,8 @@ rchr(time) Quit ""
   set sc = $$$OK
   set found = 0
   set httpStatus = ""
-  set authHeader = request.GetCgiEnv("HTTP_AUTHORIZATION")  
-  
+  set authHeader = request.GetCgiEnv("HTTP_AUTHORIZATION")
+
   if authHeader = "" {
     // Let the manager call the next strategy, if that's the last one than the error is
     // fired by the router class.
@@ -153,7 +160,7 @@ rchr(time) Quit ""
   } else {
     set credentials = $System.Encryption.Base64Decode($piece(authHeader, " ", 2))
     set userName = $piece(credentials, ":")
-    set password = $piece(credentials, ":", 2)    
+    set password = $piece(credentials, ":", 2)
     set sc = ##class(Frontier.Shared.Utilities).SafeClassMethodCall(..Validator, userName, password, .found, .httpStatus, .user)
     set ..Verified = found
     if $$$ISERR(sc) {
@@ -161,12 +168,12 @@ rchr(time) Quit ""
       else  set response.Status = "500 Internal Server Error"
     }
   }
-  
+
   if $$$ISOK(sc) && (found = 0) {
     set sc = $$$ERROR($$$InvalidUsernameOrPassword)
     set response.Status = "403 Forbidden"
   }
-  
+
   return sc
 ]]></Implementation>
 </Method>
@@ -208,7 +215,6 @@ rchr(time) Quit ""
 
 <Property name="Validator">
 <Type>%String</Type>
-<InitialExpression>"Frontier.Authentication.CookieStrategy:UnsignUsingCSPSession"</InitialExpression>
 </Property>
 
 <Method name="%OnNew">
@@ -227,75 +233,27 @@ rchr(time) Quit ""
 <FormalSpec>session:%CSP.Session,request:%CSP.Request,response:%CSP.Response,*user:%DynamicObject={{}},resourceScope:%String=""</FormalSpec>
 <ReturnType>%Status</ReturnType>
 <Implementation><![CDATA[
-  
-  if 'request.IsDefinedCookie(..Key) return $$$OK  
-  set token = request.GetCookie(..Key)     
-  
-  $$$QuitOnError(##class(Frontier.Shared.Utilities).SafeClassMethodCall(..Validator, session, request, response, token, ..Secret, .found, .httpStatus, .user))
-  if found = 1 set ..Verified = 1
-  return $$$OK
-]]></Implementation>
-</Method>
+  set failed = 0
+  #define ExpireCookie  do response.SetCookie(..Key,"",$zdt("0,0", 2)_" GMT")
+  #define AssertPropertyDefined(%jp,%ip) if $p($this, %ip) = "" $$$ExpireCookie return $$$ERROR($$$GeneralError, $$$FormatText("Strategy '%1' requires '%1' property to be specified.", ..Name, %jp))
 
-<Method name="ValidateUsingCSPSession">
-<ClassMethod>1</ClassMethod>
-<FormalSpec>session:%CSP.Session,request:%CSP.Request,response:%CSP.Response,token:%String,secret:%String,*found:%Boolean=0,*httpStatus:%String="",*user:%DynamicObject={{}}</FormalSpec>
-<ReturnType>%Status</ReturnType>
-<Implementation><![CDATA[
-  set sessionId = ..Unsign(token, session.SessionId, secret)
-  set found = session.SessionId = sessionId
-  
-  if 'found {
-    set httpStatus = "401 Forbidden"  
+  $$$AssertPropertyDefined("validator", "Validator")
+  $$$AssertPropertyDefined("key", "Key")
+  $$$AssertPropertyDefined("secret", "Secret")
+
+  if 'request.IsDefinedCookie(..Key) return $$$OK
+  set token = request.GetCookie(..Key)
+  set payload = ##class(Frontier.Security.CookieSignature).Unsign(token, ..Secret)
+
+  if payload = "" {
+    $$$ExpireCookie
+    do %frontier.Status("401 Forbidden")
     return $$$ERROR($$$InvalidUsernameOrPassword)
   }
+
+  $$$QuitOnError(##class(Frontier.Shared.Utilities).SafeClassMethodCall(..Validator, payload, .found, .httpStatus, .user))
+  if found = 1 set ..Verified = 1
   return $$$OK
-]]></Implementation>
-</Method>
-
-<Method name="Sign">
-<ClassMethod>1</ClassMethod>
-<FormalSpec>value:%String,secret:%String</FormalSpec>
-<ReturnType>%String</ReturnType>
-<Implementation><![CDATA[  return value_"."_$translate($System.Encryption.Base64Encode($System.Encryption.HMACSHA(512, value, secret), 1), "=/+$", "")
-]]></Implementation>
-</Method>
-
-<Method name="Unsign">
-<ClassMethod>1</ClassMethod>
-<FormalSpec>token:%String,secret:%String</FormalSpec>
-<ReturnType>%Status</ReturnType>
-<Implementation><![CDATA[
-  set value = $piece(token, ".", 1)  
-  set mac = ..Sign(value, secret)
-  
-  if $$ConstantTimeCompare(mac, token) {
-    return value
-  }
-  
-  return "" 
-  
-ConstantTimeCompare(a, b)
-  set equivalent = ""  
-  if $length(a) '= $length(b) return 0
-  for i=1:1:$length(a) {
-    // Convert char to ASCII code and then to bitstring.
-    set aChar = $factor($ascii($extract(a, i)))
-    set bChar = $factor($ascii($extract(b, i)))
-    set match = $bitlogic(aChar ^ bChar)
-    set all = $bitlogic(all | match)
-  }
-  // 00000000 = 1
-  return $bitfind(equivalent, 1) = 0
-]]></Implementation>
-</Method>
-
-<Method name="T">
-<ClassMethod>1</ClassMethod>
-<ReturnType>%Status</ReturnType>
-<Implementation><![CDATA[
-  set t = ..Sign("try to break me", "my super secret")
-  set d = ..Unsign("try to break me.ldDKIg1jdLeuZnSccbEljlDEkeYoVZQ7179johXhpOLLoxHiL6dahFIwbr9sx77CavtPHLIzKKydk0XRplg", "my super secret")
 ]]></Implementation>
 </Method>
 </Class>
@@ -462,6 +420,12 @@ ConstantTimeCompare(a, b)
   $$$ThrowOnError(sc)
 ]]></Implementation>
 </Method>
+
+<Method name="HasStrategies">
+<ReturnType>%Boolean</ReturnType>
+<Implementation><![CDATA[  return ..Strategies.Count() > 0
+]]></Implementation>
+</Method>
 </Class>
 
 
@@ -509,56 +473,81 @@ ConstantTimeCompare(a, b)
 
 
 <Class name="Frontier.CORS">
+<Description>
+The Frontier CORS API
+Use this API to define a set of CORS rules that allow or deny access to the
+protected resource if the origin is extraneous.</Description>
 <IncludeCode>frontier</IncludeCode>
 <Super>%RegisteredObject</Super>
 <TimeCreated>64862,59420.301475</TimeCreated>
 
 <Property name="Context">
+<Description>
+The %frontier context.</Description>
 <Type>Frontier.Context</Type>
 <Private>1</Private>
 </Property>
 
 <Property name="VaryHeaders">
+<Description>
+The header names to be added in the Vary header.</Description>
 <Private>1</Private>
 </Property>
 
 <Property name="AllowedOrigin">
+<Description>
+A single origin resolved from the incoming request and list of allowed origins.
+If this is empty, then the request will fail.</Description>
 <Type>%String</Type>
 <Private>1</Private>
 </Property>
 
 <Property name="AllowedMethods">
+<Description>
+If the request is made using a HTTP method that is not in this list, the request will fail.</Description>
 <Type>%String</Type>
 <Private>1</Private>
 </Property>
 
 <Property name="AllowedCredentials">
+<Description>
+If this value is not set to true and the request contains Authorization, the request will fail.</Description>
 <Type>%String</Type>
 <Private>1</Private>
 </Property>
 
 <Property name="AllowedHeaders">
+<Description>
+Any headers that aren't in this list will make the request fail.</Description>
 <Type>%String</Type>
 <Private>1</Private>
 </Property>
 
 <Property name="AllowedAge">
+<Description>
+How long the preflight request can be cached.</Description>
 <Type>%String</Type>
 <Private>1</Private>
 </Property>
 
 <Property name="ExposedHeaders">
+<Description>
+What the response can expose.</Description>
 <Type>%String</Type>
 <Private>1</Private>
 </Property>
 
 <Property name="PreflightReceived">
+<Description>
+An internal flag indicated that the preflight request is received and should abort any other operation.</Description>
 <Type>%Boolean</Type>
 <InitialExpression>0</InitialExpression>
 <Private>1</Private>
 </Property>
 
 <Property name="OriginVerifier">
+<Description>
+A string containing the class:method which is used to filter which origins should be allowed.</Description>
 <Type>%String</Type>
 <InitialExpression>"Frontier.CORS:IsOriginAllowed"</InitialExpression>
 </Property>
@@ -573,10 +562,15 @@ ConstantTimeCompare(a, b)
 </Method>
 
 <Method name="AllowOrigin">
+<Description>
+Defines a set of origins allowed to access this protected resource.
+If more than one is provided, then it will use the classmethod from OriginVerifier to validated each entry against the request origin.
+If no origin is provided, then it will match against the request origin making it unrestricted.
+If only one origin is provided, than the request origin will be matched against it and fail the request if it differs.</Description>
 <FormalSpec>origins...:%String</FormalSpec>
 <Implementation><![CDATA[
-  if '$data(origins) set origins = 0  
-  
+  if '$data(origins) set origins = 0
+
   if origins = 0 {
     set ..AllowedOrigin = ..Context.Request.GetCgiEnv("HTTP_ORIGIN")
   } elseif origins = 1 {
@@ -592,6 +586,9 @@ ConstantTimeCompare(a, b)
 </Method>
 
 <Method name="AllowMethods">
+<Description>
+Specify which HTTP methods the request can use when accessing this protected resource.
+Each method will be used against the request's method. If none match, the request will fail.</Description>
 <FormalSpec>methods...:%String</FormalSpec>
 <Implementation><![CDATA[
   if '$data(methods) set methods = 0
@@ -600,6 +597,9 @@ ConstantTimeCompare(a, b)
 </Method>
 
 <Method name="AllowHeaders">
+<Description>
+Specify a list of headers that the request can be sent with, any header sent that is not present in this list
+will cause the request to fail.</Description>
 <FormalSpec>headers...:%String</FormalSpec>
 <Implementation><![CDATA[
   if '$data(headers) set headers = 0
@@ -608,12 +608,16 @@ ConstantTimeCompare(a, b)
 </Method>
 
 <Method name="AllowCredentials">
+<Description>
+Specify if the request include credential related headers. Otherwise the request will fail.</Description>
 <FormalSpec>enabled:%Boolean=0</FormalSpec>
 <Implementation><![CDATA[  set ..AllowedCredentials = $$$FormatBoolean(enabled)
 ]]></Implementation>
 </Method>
 
 <Method name="ExposeHeaders">
+<Description>
+Specify a list of response headers that the client can read.</Description>
 <FormalSpec>headers...:%String</FormalSpec>
 <Implementation><![CDATA[
   if '$data(headers) set headers = 0
@@ -626,27 +630,31 @@ ConstantTimeCompare(a, b)
 <ReturnType>%List</ReturnType>
 <Implementation><![CDATA[
   set list = ""
-  
+
   for i=1:1:args {
     set $list(list, *+1) = args(i)
   }
-  
+
   return $lts(list, ", ")
 ]]></Implementation>
 </Method>
 
 <Method name="Default">
+<Description>
+Provides full resouce access to the specified origins otherwise assume any origin can access it.</Description>
 <FormalSpec>origins...:%String</FormalSpec>
 <Implementation><![CDATA[
   do ..AllowOrigin(origins...)
   do ..AllowCredentials(1)
   do ..AllowMethods("GET", "POST", "PUT", "DELETE", "HEAD")
-  do ..AllowHeaders("Authorization", "Content-Type")  
+  do ..AllowHeaders("Authorization", "Content-Type")
   do ..AllowCredentials(1)
 ]]></Implementation>
 </Method>
 
 <Method name="Vary">
+<Description>
+Sets the list of Vary headers.</Description>
 <FormalSpec>varyHeaders...:%String</FormalSpec>
 <Implementation><![CDATA[
   if '$data(varyHeaders) set varyHeaders = 0
@@ -665,7 +673,7 @@ ConstantTimeCompare(a, b)
   do ..SetHeaderIfProvided("Access-Control-Allow-Credentials", ..AllowedCredentials)
   do ..SetHeaderIfProvided("Access-Control-Expose-Headers", ..ExposedHeaders)
   do ..SetHeaderIfProvided("Access-Control-Max-Age", ..AllowedAge)
-  do ..Context.Response.DeleteHeader("Content-Type")  
+  do ..Context.Response.DeleteHeader("Content-Type")
   set ..Context.Response.ContentType = ""
 ]]></Implementation>
 </Method>
@@ -673,13 +681,16 @@ ConstantTimeCompare(a, b)
 <Method name="Set">
 <Internal>1</Internal>
 <Implementation><![CDATA[
-  do ..SetHeaderIfProvided("Vary", "Origin") 
+  do ..SetHeaderIfProvided("Vary", "Origin")
   do ..SetHeaderIfProvided("Access-Control-Allow-Origin", ..AllowedOrigin)
   do ..SetHeaderIfProvided("Access-Control-Allow-Credentials", ..AllowedCredentials)
 ]]></Implementation>
 </Method>
 
 <Method name="Unset">
+<Description>
+Use this method to undo CORS configuration. Can be used if you need to ovewrite
+the parent router with a children configuration.</Description>
 <Implementation><![CDATA[
   do ..Context.Response.DeleteHeader("Vary")
   do ..Context.Response.DeleteHeader("Access-Control-Allow-Origin")
@@ -712,11 +723,11 @@ ConstantTimeCompare(a, b)
   set isAllowed = 0
   set className = $piece(..OriginVerifier, ":")
   set methodName = $piece(..OriginVerifier, ":", 2)
-    
+
   try {
     set isAllowed = $classmethod(className, methodName, origin, ..Context.Request.URL)
   } catch ex { }
-  
+
   return isAllowed
 ]]></Implementation>
 </Method>
@@ -724,128 +735,187 @@ ConstantTimeCompare(a, b)
 
 
 <Class name="Frontier.Context">
+<Description>
+When instantiated, this class provides a set of features that can be used
+to configure how Frontier behaves when handling the requests. Usually represented
+by the public %frontier variable, which is always available inside a router class.</Description>
 <IncludeCode>%occErrors,%occStatus</IncludeCode>
 <Super>%RegisteredObject</Super>
 <TimeCreated>64502,31617.993909</TimeCreated>
 
 <Property name="Session">
+<Description>
+This holds the reference for the %session object.</Description>
 <Type>%CSP.Session</Type>
 <Private>1</Private>
 </Property>
 
 <Property name="Request">
+<Description>
+This holds the reference for the %request object.</Description>
 <Type>%CSP.Request</Type>
 </Property>
 
 <Property name="Response">
+<Description>
+This holds the reference for the %response object.</Description>
 <Type>%CSP.Response</Type>
 </Property>
 
 <Property name="RequestURL">
+<Description>
+The URL that matched the route.</Description>
 <Type>%String</Type>
 </Property>
 
 <Property name="Method">
+<Description>
+The last method called in the current request.</Description>
 <Type>%String</Type>
 </Property>
 
 <Property name="ClassName">
+<Description>
+The dispatcher class that will reply the request.</Description>
 <Type>%String</Type>
 </Property>
 
 <Property name="ArgumentValues">
+<Description>
+A list of resolved arguments built by the Frontier.Method class.</Description>
 <Type>%String</Type>
 <MultiDimensional>1</MultiDimensional>
 </Property>
 
 <Property name="Stack">
+<Description>
+The current stack that is used by reporters to display the error.</Description>
 <Type>%Stream.GlobalCharacter</Type>
 <Internal>1</Internal>
 </Property>
 
 <Property name="IncludeStack">
+<Description>
+An internal flag that signals when to include stack info with the error.</Description>
 <Type>%Boolean</Type>
 <InitialExpression>0</InitialExpression>
 </Property>
 
 <Property name="Error">
+<Description>
+The Status code representing the captured error.</Description>
 <Type>%Status</Type>
 <Internal>1</Internal>
 <InitialExpression>$$$OK</InitialExpression>
 </Property>
 
 <Property name="SQL">
+<Description>
+This Frontier SQL API, a minimalist API used to quickly retrieve SQL results.</Description>
 <Type>Frontier.SQL</Type>
 <ReadOnly>1</ReadOnly>
 </Property>
 
 <Property name="ReporterManager">
+<Description>
+The Reporter API, which is used to handle and report errors.</Description>
 <Type>Frontier.Reporter.Manager</Type>
 <ReadOnly>1</ReadOnly>
 </Property>
 
 <Property name="AuthenticationManager">
+<Description>
+The Authentication API, which is used to define a set of strategies and configure them.</Description>
 <Type>Frontier.Authentication.Manager</Type>
 <ReadOnly>1</ReadOnly>
 </Property>
 
 <Property name="Files">
+<Description>
+The Files API, which allows the handling of file uploads and serving files/directories as well.</Description>
 <Type>Frontier.Files</Type>
 <ReadOnly>1</ReadOnly>
 </Property>
 
 <Property name="Data">
+<Description>
+The object populated by the method OnDataSet which is called before each request.</Description>
 <Type>%DynamicObject</Type>
 </Property>
 
 <Property name="ThrownByApplication">
+<Description>
+An internal flag used to bypass the Reporter API, this way custom errors are not logged.</Description>
 <Type>%Boolean</Type>
 <Internal>1</Internal>
 <ReadOnly>1</ReadOnly>
 </Property>
 
 <Property name="DirectWrite">
+<Description>
+This flag indicates if the response should be rewritten to the response stream buffer or write directly.
+Keep this flag set to 0 to prevent errors from corrupting the output, set it to 1 if you need performance
+and your code is secure enough to not error while writing to the device.</Description>
 <Type>%Boolean</Type>
 <InitialExpression>0</InitialExpression>
 </Property>
 
 <Property name="User">
+<Description>
+This holds all the properties defined by the elected strategy.</Description>
 <Type>%DynamicObject</Type>
 <InitialExpression>1</InitialExpression>
 </Property>
 
 <Property name="PropertyFormatter">
+<Description>
+This allows to provide a custom property formatter for JSON.</Description>
 <Type>Frontier.PropertyFormatter</Type>
 </Property>
 
 <Property name="StrictQueryParameters">
+<Description>
+By default Frontier won't allow the usage of query paramters that aren't arguments from the classmethod that will be called.
+Setting this flag to 0 will disable this check.</Description>
 <Type>%Boolean</Type>
 <InitialExpression>1</InitialExpression>
 </Property>
 
 <Property name="RouteParameters">
+<Description>
+This is plain text version from the route parameters. It's useful when its equivalent argument resolved to an object due to its type.
+Each route parameters is keyed by its name.</Description>
 <Type>%String</Type>
 <InitialExpression>0</InitialExpression>
 <MultiDimensional>1</MultiDimensional>
 </Property>
 
 <Property name="Matches">
+<Description>
+When the Route element has Strict=false, this property will be populated with the set of regular expression matching groups.</Description>
 <Type>%String</Type>
 <InitialExpression>0</InitialExpression>
 <MultiDimensional>1</MultiDimensional>
 </Property>
 
 <Property name="RawMode">
+<Description>
+By default, everything Frontier outputs is formatted to JSON. This internal flag informs the routing engine to display the result as plain text.</Description>
 <Type>%Boolean</Type>
 <InitialExpression>0</InitialExpression>
+<Private>1</Private>
 </Property>
 
 <Property name="Encoding">
+<Description>
+Represents the response charset.</Description>
 <Type>%String</Type>
 <InitialExpression>"utf-8"</InitialExpression>
 </Property>
 
 <Property name="CORS">
+<Description>
+The CORS API, which handles the access from extraneous servers.</Description>
 <Type>Frontier.CORS</Type>
 <ReadOnly>1</ReadOnly>
 </Property>
@@ -861,15 +931,18 @@ ConstantTimeCompare(a, b)
   set i%ReporterManager = ##class(Frontier.Reporter.Manager).%New($this)
   set i%AuthenticationManager = ##class(Frontier.Authentication.Manager).%New(..Session, ..Request, ..Response)
   set i%Files = ##class(Frontier.Files).%New($this)
-  set i%CORS = ##class(Frontier.CORS).%New($this)  
-  set i%ArgumentValues = 0   
-  set ..Data = {} 
+  set i%CORS = ##class(Frontier.CORS).%New($this)
+  set i%ArgumentValues = 0
+  set ..Data = {}
   set ..Response.ContentType = "application/json"
   return $$$OK
 ]]></Implementation>
 </Method>
 
 <Method name="Raw">
+<Description>
+Disables the JSON output, making the response to be sent in plain text.
+The Content-Type header is overwritten to 'text/plain'.</Description>
 <ReturnType>%Status</ReturnType>
 <Implementation><![CDATA[
   set ..RawMode = 1
@@ -878,12 +951,17 @@ ConstantTimeCompare(a, b)
 </Method>
 
 <Method name="IsRaw">
+<Description>
+Returns if the Raw mode is enabled.</Description>
 <ReturnType>%Boolean</ReturnType>
 <Implementation><![CDATA[  return (..RawMode = 1)
 ]]></Implementation>
 </Method>
 
 <Method name="HTML">
+<Description>
+This is almost the same than the Raw method.
+But instead the Content-Type will be overwritten to 'text/html'.</Description>
 <ReturnType>%Status</ReturnType>
 <Implementation><![CDATA[
   set ..RawMode = 1
@@ -893,12 +971,16 @@ ConstantTimeCompare(a, b)
 </Method>
 
 <Method name="IsHTML">
+<Description>
+Returns if the HTML method has been called.</Description>
 <ReturnType>%Boolean</ReturnType>
-<Implementation><![CDATA[  return (..RawMode = 0 && ($$$lcase(..Response.ContentType) = "text/html"))
+<Implementation><![CDATA[  return (..RawMode = 1 && ($$$lcase(..Response.ContentType) = "text/html"))
 ]]></Implementation>
 </Method>
 
 <Method name="JSON">
+<Description>
+Restores Frontier making it use JSON.</Description>
 <ReturnType>%Status</ReturnType>
 <Implementation><![CDATA[
   set ..RawMode = 0
@@ -908,12 +990,16 @@ ConstantTimeCompare(a, b)
 </Method>
 
 <Method name="IsJSON">
+<Description>
+Returns if Frontier will be sending JSON.</Description>
 <ReturnType>%Boolean</ReturnType>
 <Implementation><![CDATA[  return (..RawMode = 0 && ($$$lcase(..Response.ContentType) = "application/json"))
 ]]></Implementation>
 </Method>
 
 <Method name="Status">
+<Description>
+Sets the status that will be sent with the response.</Description>
 <FormalSpec>statusCode:%String</FormalSpec>
 <ReturnType>%Status</ReturnType>
 <Implementation><![CDATA[
@@ -923,15 +1009,17 @@ ConstantTimeCompare(a, b)
 </Method>
 
 <Method name="ThrowException">
+<Description>
+Throws an application controlled error, such errors won't cause the Reporter API to be fired.</Description>
 <FormalSpec>message:%String,httpStatus:%String="500 Internal Server Error",parameters...:%String</FormalSpec>
 <Implementation><![CDATA[
   if '$data(parameters) set parameters = 0
   set args = 2 + parameters
   set args(1) = $$$GeneralError
   set args(2) = message
-  
+
   set ..Response.Status = httpStatus
-  
+
   for i=1:1:parameters set args(2+i) = parameters(i)
   set i%ThrownByApplication = 1
   throw ##class(%Exception.StatusException).CreateFromStatus($$$ERROR(args...))
@@ -1030,14 +1118,17 @@ ConstantTimeCompare(a, b)
     if $isobject(value) {
       set valueType = $classname(value)
       set isDynamic = ##class(Frontier.Types).IsDynamic(valueType)
+      set isCollection = ##class(Frontier.Types).IsCollection(valueType)
       set isStream = ##class(Frontier.Types).IsStream(valueType)
       set isSQLProvider = ##class(Frontier.Types).IsSQLProvider(valueType)      
       if isDynamic {        
         set sc = ..MarshalPartial(value, .dynamicValueResult)       
+      } elseif isCollection {
+        set sc = ..MarshalCollection(value, .dynamicValueResult)
       } elseif 'isStream && 'isSQLProvider {
-        set sc = ..MakeDynamicObject(value, .dynamicValueResult)
-        do marshalledObject.%Set(key, .dynamicValueResult)
+        set sc = ..MakeDynamicObject(value, .dynamicValueResult)        
       }
+      do marshalledObject.%Set(key, .dynamicValueResult)
       if $$$ISERR(sc) return sc
     }
   }
@@ -1089,12 +1180,13 @@ ConstantTimeCompare(a, b)
     set property = properties.GetAt(index)
     if property = "" return 0
     
-    set index = index + 1
-    if property.MultiDimensional || property.Private || property.Internal || ($extract(property.Name) = "%") {
-      continue
-    } else {
-      return 1
-    }     
+    set index = index + 1    
+    
+    if property.MultiDimensional || property.Private || property.Internal continue
+    if ($extract(property.Name) = "%") continue
+    if property.Cardinality = "parent" || property.Cardinality = "one" continue
+      
+    return 1    
   }
 ]]></Implementation>
 </Method>
@@ -1199,7 +1291,9 @@ ConstantTimeCompare(a, b)
   if ..IsCached(collection) return $$$OK
   
   set startOffset = 0
-  set expectingObject = ##class(Frontier.Types).IsInstantiable(collection.ElementType)
+  set elementType = collection.ElementType
+  if elementType [ ":" set collection.ElementType = $piece(elementType, ":")
+  set expectingObject = ##class(Frontier.Types).IsInstantiable(collection.ElementType)  
       
   if collection.%IsA("%Collection.AbstractList") || collection.%IsA("%RelationshipObject") {
     set startOffset = 1
@@ -1386,7 +1480,7 @@ WriteEscaped(v)
   do v.Rewind()
   
   // Instead of using AtEnd, we compare the stream size with the buffer read size.
-  // This is because apparently AtEnd doesn't track the position correctly when the device is redirected.
+  // We use it this way, because apparently AtEnd doesn't track the position correctly when the device is redirected.
   // This can also be related to how we are dealing with this redirection along with %CSP.REST.
   while readCount < v.Size {
     set buffer = v.Read()
@@ -1425,22 +1519,28 @@ WriteEscaped(v)
 <Private>1</Private>
 </Property>
 
+<Property name="Strict">
+<Type>%Boolean</Type>
+<InitialExpression>0</InitialExpression>
+</Property>
+
 <Method name="%OnNew">
-<FormalSpec>formatter:Frontier.PropertyFormatter=""</FormalSpec>
+<FormalSpec>formatter:Frontier.PropertyFormatter="",strict:%Boolean=0</FormalSpec>
 <Private>1</Private>
 <ReturnType>%Status</ReturnType>
 <Implementation><![CDATA[
   set ..Formatter = formatter
+  set ..Strict = strict
   return $$$OK
 ]]></Implementation>
 </Method>
 
 <Method name="Unmarshal">
 <ClassMethod>1</ClassMethod>
-<FormalSpec>className:%String,source:%DynamicAbstractObject,*result:%RegisteredObject="",formatter:Frontier.PropertyFormatter=""</FormalSpec>
+<FormalSpec>className:%String,source:%DynamicAbstractObject,*result:%RegisteredObject="",formatter:Frontier.PropertyFormatter="",strict:%Boolean=0</FormalSpec>
 <ReturnType>%Status</ReturnType>
 <Implementation><![CDATA[
-  set unmarshaller = ..%New(formatter)  
+  set unmarshaller = ..%New(formatter, strict)
   return unmarshaller.DetermineTypeAndUnmarshal(className, source, .result)
 ]]></Implementation>
 </Method>
@@ -1584,13 +1684,15 @@ WriteEscaped(v)
 </Method>
 
 <Method name="NextQualifiedProperty">
-<FormalSpec>className:%String,iterator:%Iterator.AbstractIterator,*key:%String="",*value="",*property:%Dictionary.CompiledProperty</FormalSpec>
+<FormalSpec>className:%String,iterator:%Iterator.AbstractIterator,*key:%String="",*value="",*property:%Dictionary.CompiledProperty,iterationError:%Status=$$$OK</FormalSpec>
 <Private>1</Private>
 <ReturnType>%Boolean</ReturnType>
 <Implementation><![CDATA[
+   
   #define IsQualifiedProperty(%p) '(%p.Private || %p.Calculated || ($extract(%p.Name) = "%"))  
      
   while 1 {
+    set iterationError = $$$OK
     set hasNext = iterator.%GetNext(.candidateKey, .candidateValue)
     if 'hasNext return 0
     
@@ -1598,7 +1700,13 @@ WriteEscaped(v)
     
     set propertyId = ..GetPropertyId(className, candidateKey)
     set property = ..GetAndCacheDefinition(propertyId)
-    if '$isobject(property) continue
+    
+    if '$isobject(property) {
+      if '..Strict continue
+      do ..UpdatePath(candidateKey)
+      set iterationError = $$$ERROR($$$GeneralError, $$$FormatText("Candidate field '%1' is not a property from '%2'", candidateKey, className))
+      return 0
+    }
     
     if $$$IsQualifiedProperty(property) {
       set key = candidateKey
@@ -1655,13 +1763,12 @@ WriteEscaped(v)
 
 <Method name="GetSerialObject">
 <ClassMethod>1</ClassMethod>
-<FormalSpec>type:%String,value,serial:%SerialObject=""</FormalSpec>
+<FormalSpec>type:%String,value,*serial:%SerialObject=""</FormalSpec>
 <Private>1</Private>
 <ReturnType>%Status</ReturnType>
 <Implementation><![CDATA[
   
   set serial = $classmethod(type, "%Open", $lb(value, type))
-  if serial = "" set serial = "null"
   return $$$OK
 ]]></Implementation>
 </Method>
@@ -1739,7 +1846,7 @@ WriteEscaped(v)
   
   set iterator = dynamicObject.%GetIterator()  
   
-  while ..NextQualifiedProperty(className, iterator, .key, .value, .property) {
+  while ..NextQualifiedProperty(className, iterator, .key, .value, .property, .sc) {    
     set type = ..GetInputType(value, property)
     set result = ""
     
@@ -2047,6 +2154,26 @@ TraverseException(payload, ex)
       "md": {
         "disposition": "inline",
         "mimeType": "text/markdown",
+        "charset": "utf-8",
+        "binary": false
+      }
+    }
+  })
+]]></Implementation>
+</Method>
+
+<Method name="ServeFile">
+<FormalSpec>absoluteFilePath:%String,charset:%String="utf-8"</FormalSpec>
+<ReturnType>%Stream.Object</ReturnType>
+<Implementation><![CDATA[
+  return ..Serve({
+    "file": (absoluteFilePath),
+    "etag": "weak",
+    "charset": (charset),
+    "extensions": {
+      "md": {
+        "disposition": "inline",
+        "mimeType": "text/markdown",
         "binary": false
       }
     }
@@ -2058,32 +2185,40 @@ TraverseException(payload, ex)
 <FormalSpec>config:%DynamicObject</FormalSpec>
 <ReturnType>%Status</ReturnType>
 <Implementation><![CDATA[
-      
-  set directory = config.root
-  set indexAs = config.index  
-  
-  // Makes sure request is not returned using JSON format.
+       
+  // Make sure to stream the file in plain text.
   do ..Context.Raw()
   
-  // Checks if a path to a file has been provided. 
-  set virtualPath = $get(..Context.Matches(1))
-  set requestDirectory = ""  
-  
-  // Otherwise fallback to possible indexAs files.
-  if virtualPath = "" set virtualPath = indexAs
-  set fileExists = 0
-  
-  // Attempted to access a path outside the root.
-  if virtualPath [ ".." {
-    return ..Context.ThrowException("File does not exist.", "404 Not Found")
-  }
-  
-  for i=1:1:$length(virtualPath, " ") {
-    set virtualFileName = $piece(virtualPath, " ", i)
-    set requestDirectory = ##class(%File).NormalizeFilename(virtualFileName, directory)
-    if ##class(%File).Exists(requestDirectory) set fileExists = 1 quit
-  }
+  if config.%IsDefined("file") {
+    // We are only serving a file that we define which is it.
+    set normalizedAbsoluteFilePath = ##class(%File).NormalizeFilename(config.file)
+    set fileExists = ##class(%File).Exists(normalizedAbsoluteFilePath)
+    set requestDirectory = normalizedAbsoluteFilePath
+  } else {
+    // We are serving a directory.
+    set directory = config.root
+    set indexAs = config.index  
     
+    // Checks if a path to a file has been provided. 
+    set virtualPath = $get(..Context.Matches(1))
+    set requestDirectory = ""  
+    
+    // Otherwise fallback to possible indexAs files.
+    if virtualPath = "" set virtualPath = indexAs
+    set fileExists = 0
+    
+    // Attempted to access a path outside the root.
+    if virtualPath [ ".." {
+      return ..Context.ThrowException("File does not exist.", "404 Not Found")
+    }
+    
+    for i=1:1:$length(virtualPath, " ") {
+      set virtualFileName = $piece(virtualPath, " ", i)
+      set requestDirectory = ##class(%File).NormalizeFilename(virtualFileName, directory)
+      if ##class(%File).Exists(requestDirectory) set fileExists = 1 quit
+    }       
+  }
+  
   if 'fileExists {
     return ..Context.ThrowException("File does not exist.", "404 Not Found")
   } 
@@ -2094,19 +2229,25 @@ TraverseException(payload, ex)
   set extension = $piece(fileName, ".", *)
   
   set contentConfig = ..GetContentConfiguration(extension, config)
+  set charset = contentConfig.charset
   
   if contentConfig.binary = 1 {
     // Prevents content corruption.
     set ..Context.Response.NoCharSetConvert = 1
+    set ..Context.Response.CharSet = ""
     set stream = ##class(%Stream.FileBinary).%New()      
   } else {
-    set stream = ##class(%Stream.FileCharacter).%New() 
+    set stream = ##class(%Stream.FileCharacter).%New()
+    if charset '= "" {
+      set stream.TranslateTable = $$MapCharset^%SYS.NLS(charset)
+      set ..Context.Response.CharSet = contentConfig.charset
+    }
   } 
     
   $$$ThrowOnError(stream.LinkToFile(requestDirectory))  
   
   set ..Context.Response.ContentType = contentConfig.mimeType
-  set ..Context.Response.ContentLength = stream.Size
+  set ..Context.Response.ContentLength = stream.Size  
   
   set extensionMatch = 0
   
@@ -2122,7 +2263,7 @@ TraverseException(payload, ex)
     do ..Context.Response.SetHeader("Cache-Control", contentConfig.cache.configuration)
   }
       
-  if ..IsCacheHit(stream) {        
+  if ..IsCacheHit(stream, config.etag) {
     do ..Context.Status("304 Not Modified")  
     return ""
   } 
@@ -2142,9 +2283,13 @@ TraverseException(payload, ex)
 <Private>1</Private>
 <ReturnType>%DynamicObject</ReturnType>
 <Implementation><![CDATA[
+  
+  set defaultCharset = config.charset
   set extensionConfig = $property(config.extensions, extension)
   
-  do ##class(%CSP.StreamServer).FileClassify(extension, .contentType, .bin, .charset)
+  do ##class(%CSP.StreamServer).FileClassify(extension, .contentType, .bin, .charset)  
+  if charset = "" set charset = defaultCharset
+  if charset = "" set charset = "utf-8"
   
   if '$isobject(extensionConfig) set extensionConfig = {}
   if '$isobject(config.cache) set config.cache = {}
@@ -2153,18 +2298,18 @@ TraverseException(payload, ex)
     extensionConfig, 
     { "cache": (config.cache) },
     { "cache": { "configuration": "max-age=2628000, public", "ignore": [] } },
-    { "binary": (bin), "mimeType": (contentType) },
+    { "binary": (bin), "mimeType": (contentType), "charset": (charset) },
     { "disposition": "inline" } 
   )
 ]]></Implementation>
 </Method>
 
 <Method name="MakeETag">
-<FormalSpec>stream:%Stream.Object,type:%String</FormalSpec>
+<FormalSpec>stream:%Stream.Object,validator:%String</FormalSpec>
 <Private>1</Private>
 <ReturnType>%String</ReturnType>
 <Implementation><![CDATA[
-  if type = "strong" {
+  if validator = "strong" {
     set hash = ##class(%File).SHA1Hash(stream.Filename)
     return $c(34)_$zcvt(##class(%xsd.hexBinary).LogicalToXSD(hash), "l")_$c(34)
   }
@@ -2175,12 +2320,12 @@ TraverseException(payload, ex)
 </Method>
 
 <Method name="IsCacheHit">
-<FormalSpec>stream:%Stream.Object</FormalSpec>
+<FormalSpec>stream:%Stream.Object,validator:%String</FormalSpec>
 <Private>1</Private>
 <ReturnType>%Boolean</ReturnType>
 <Implementation><![CDATA[
   set ifNoneMatch = ..Context.Request.GetCgiEnv("HTTP_IF_NONE_MATCH")  
-  if ifNoneMatch '= "" && (ifNoneMatch = ..MakeETag(stream)) return 1
+  if ifNoneMatch '= "" && (ifNoneMatch = ..MakeETag(stream, validator)) return 1
   return 0
 ]]></Implementation>
 </Method>
@@ -2207,6 +2352,9 @@ TraverseException(payload, ex)
 
 
 <Class name="Frontier.Files.Uploader">
+<Description>
+Provides the capability of handling file payloads. form-data/multipart and single file are supported.
+This class cannot be used without the %frontier context variable.</Description>
 <IncludeCode>frontier</IncludeCode>
 <Super>%RegisteredObject</Super>
 <TimeCreated>64817,60989.521649</TimeCreated>
@@ -2261,61 +2409,64 @@ TraverseException(payload, ex)
 <FormalSpec>settings:%DynamicObject</FormalSpec>
 <ReturnType>%Status</ReturnType>
 <Implementation><![CDATA[
- 
+
   #define DestinationAsObject(%d) if '$isobject(%d) set %d = { "path": (%d) }
-  set sc = $$$OK 
-  
-  if ..Context.Request.Method '= "POST" {
-    return $$$ERROR($$$GeneralError, "Must use POST to handle form data.")
+  set sc = $$$OK
+  set validMethods = $lb("POST", "PUT")
+
+  if $lf(validMethods, ..Context.Request.Method) < 1 {
+    return $$$ERROR($$$GeneralError, "Must use POST or PUT to handle uploads.")
   }
-  
+
   if '$isobject(settings.filters) set settings.filters = {}
   if '$isobject(settings.hooks) set settings.hooks = {}
-  
+
   set ..OnItemUploadSuccess = settings.hooks.onItemUploadSuccess
-  
-  set result = []  
-  
-  $$$QuitOnError($$AssertContentTypeMatch(settings.%IsDefined("destinations")))  
-  
+
+  set result = []
+
+  $$$QuitOnError($$AssertContentTypeMatch(settings.%IsDefined("destinations")))
+
   if $isobject(settings.destinations) {
     set it = settings.destinations.%GetIterator()
     set isSingle = 1
-    
-    while it.%GetNext(.key, .destination) {    
+
+    while it.%GetNext(.key, .destination) {
       $$$DestinationAsObject(destination)
-      if destination.slots = "" set destination.slots = 1                 
-        
-        set ssc = ..HandleMultipart(key, destination, settings.filters, .filePath)
-        if $$$ISOK(ssc) set ssc = $$$EMBEDSC(ssc, ..CallHook(settings.hooks.onItemUploadSuccess, key, destination, filePath))
-        else  set ssc = $$$EMBEDSC(ssc, ..CallHook(settings.hooks.onItemUploadError, key, destination, filePath, ssc))
-        set sc = $$$ADDSC(sc, ssc)
-        do result.%Push({ "sc": (ssc), "key": (key), "destination": (destination), "filePath": (filePath) })
-    }           
+      if destination.slots = "" || (destination.slots < 0) set destination.slots = 1
+
+      set ssc = ..HandleMultipart(key, destination, settings.filters, .filePath)
+
+      if $$$ISOK(ssc) set ssc = $$$EMBEDSC(ssc, ..CallHook(settings.hooks.onItemUploadSuccess, key, destination, filePath))
+      else  set ssc = $$$EMBEDSC(ssc, ..CallHook(settings.hooks.onItemUploadError, key, destination, filePath, ssc))
+
+      set sc = $$$ADDSC(sc, ssc)
+      do result.%Push({ "sc": (ssc), "key": (key), "destination": (destination), "filePath": (filePath) })
+    }
   } elseif settings.destination '= "" {
     set sc = $$$ADDSC(sc, ..HandleSingleFile(settings.destination, settings.filters, .filePath))
     do result.%Push({ "sc": (sc), "destination": (settings.destination), "filePath": (filePath) })
-    
+
     if $$$ISERR(sc) {
       set sc = $$$ADDSC(sc, ..CallHook(settings.hooks.onItemUploadError, "", settings.destination, filePath, sc))
     }
   } else {
     return $$$ERROR($$$GeneralError, "No valid uploader configuration was found.")
-  }  
-  
+  }
+
   set sc = $$$ADDSC(sc, ..CallHook(settings.hooks.onComplete, result))
   return sc
-  
+
 AssertContentTypeMatch(multi)
-  set error = $$$ERROR($$$GeneralError, "Wrong request headers.")  
-  
+  set error = $$$ERROR($$$GeneralError, "Wrong request headers.")
+
   set receivedMulti = (..Context.Request.ContentType [ "multipart/form-data")
-  set receivedSingle = (..Context.Request.ContentType '[ "multipart/form-data")    
-  
+  set receivedSingle = (..Context.Request.ContentType '[ "multipart/form-data")
+
   if (multi && (receivedMulti = 1)) || ('multi && receivedSingle = 1) {
-    return $$$OK    
+    return $$$OK
   }
-  
+
   do ..Context.Status("400 Bad Request")
   return error
 ]]></Implementation>
@@ -2327,31 +2478,31 @@ AssertContentTypeMatch(multi)
 <ReturnType>%Status</ReturnType>
 <Implementation><![CDATA[
   #define AddErrorAndContinue(%error) set sc = $$$ADDSC(sc, %error)  continue
-  
+
   set sc = $$$OK
   set mimeDataCount = ..Context.Request.CountMimeData(key)
-  
-  // Prevents the request from bypassing the limit otherwise takes the count as limit 
+
+  // Prevents the request from bypassing the limit otherwise takes the count as limit
   // if the request provided is lesser MIME entries than the expected.
   set limit = $select(destination.slots > mimeDataCount : mimeDataCount, 1: destination.slots)
-  
-  if '$isobject(destination.filters) set destination.filters = {}   
-  set filters = ##class(Frontier.Shared.Utilities).DeepExtend(destination.filters, filters)       
-  
+
+  if '$isobject(destination.filters) set destination.filters = {}
+  set filters = ##class(Frontier.Shared.Utilities).DeepExtend(destination.filters, filters)
+
   for i=1:1:limit {
-    set mimeData = ..Context.Request.GetMimeData(key, "", i)    
-  
+    set mimeData = ..Context.Request.GetMimeData(key, "", i)
+
     if '$isobject(mimeData) {
       if destination.optional = 1 return $$$OK
       if limit > 1 $$$AddErrorAndContinue($$$ERROR($$$GeneralError, $$$FormatText("No data for '%1' at index %2.", key, i)))
       $$$AddErrorAndContinue($$$ERROR($$$GeneralError, $$$FormatText("No data for '%1'.", key)))
-    } 
-      
+    }
+
     set fileName = ##class(Frontier.Shared.Utilities).SanitizeFilename(mimeData.FileName)
     set extension = $piece(fileName, ".", *)
-  
-    set filePath = ..MakeFilePath(key, i, fileName, destination.path, extension)    
-        
+
+    set filePath = ..MakeFilePath(key, i, fileName, destination.path, extension)
+
     if '..MatchFilters(filters, fileName, extension, mimeData, .fsc) $$$AddErrorAndContinue(fsc)
     $$$AddErrorAndContinue(..StoreToFS(key, i, destination.path, filePath, mimeData))
  }
@@ -2364,19 +2515,19 @@ AssertContentTypeMatch(multi)
 <Private>1</Private>
 <ReturnType>%Status</ReturnType>
 <Implementation><![CDATA[
-  set stream = ..Context.Request.Content 
- 
+  set stream = ..Context.Request.Content
+
  if '$isobject(stream) {
    return $$$ERROR($$$GeneralError, "No file was sent.")
  }
- 
+
  set fileName = ##class(%File).GetFilename(destination)
- set extension = $piece(fileName, ".", *) 
- 
- set filePath = ..MakeFilePath("", fileName, "", destination, extension) 
- 
+ set extension = $piece(fileName, ".", *)
+
+ set filePath = ..MakeFilePath("", fileName, "", destination, extension)
+
  if '..MatchFilters(filters, fileName, extension, stream, .sc) return sc
- 
+
  return ..StoreToFS("", "", destination, filePath, stream)
 ]]></Implementation>
 </Method>
@@ -2386,7 +2537,7 @@ AssertContentTypeMatch(multi)
 <Private>1</Private>
 <ReturnType>%Status</ReturnType>
 <Implementation><![CDATA[
-    
+
   set filePath = ##class(Frontier.Shared.Utilities).ReplacePlaceholders({
     "text": (destination),
     "placeholders": {
@@ -2396,9 +2547,9 @@ AssertContentTypeMatch(multi)
       ":INDEX": (index),
       ":EXTENSION": ($case(extension, "": "", : "."_extension)),
       ":NAMESPACE": ($namespace),
-      ":USER": ($username) 
+      ":USER": ($username)
     }
-  })    
+  })
   return ##class(%File).NormalizeFilename(filePath)
 ]]></Implementation>
 </Method>
@@ -2408,29 +2559,28 @@ AssertContentTypeMatch(multi)
 <Private>1</Private>
 <ReturnType>%Status</ReturnType>
 <Implementation><![CDATA[
-  set sc = $$$OK 
-  
+  set sc = $$$OK
+
   try {
     // Sometimes GetDirectory cannot find the directory.
-    // E.g.: C:\CacheProjects\DEV\frontier\tests\fixtures\uploads\single\file.txt
     // So we use $piece instead.
     // set path = ##class(%File).GetDirectory(filePath)
     set path = $piece(filePath, $$$OSSlash, 1, *-1)
-    set created = ##class(%File).CreateDirectoryChain(path, .oserr)     
-      
+    set created = ##class(%File).CreateDirectoryChain(path, .oserr)
+
     if 'created {
       return $$$ERROR($$$GeneralError, "Cannot prepare file destination: System reported code "_oserr_".")
-    }    
-    
+    }
+
     if mimeData.IsCharacter() {
-      set file = ##class(%Stream.FileCharacter).%New()    
+      set file = ##class(%Stream.FileCharacter).%New()
     } else {
       set file = ##class(%Stream.FileBinary).%New()
-    }       
-    
+    }
+
     $$$ThrowOnError(file.LinkToFile(filePath))
     $$$ThrowOnError(file.CopyFromAndSave(mimeData))
-    $$$ThrowOnError(..CallHook(..OnItemUploadSuccess, key, index, destination, filePath))    
+    $$$ThrowOnError(..CallHook(..OnItemUploadSuccess, key, index, destination, filePath))
   } catch ex {
     set sc = ex.AsStatus()
   }
@@ -2445,7 +2595,7 @@ AssertContentTypeMatch(multi)
 <ReturnType>%Status</ReturnType>
 <Implementation><![CDATA[
   if hook = "" return $$$OK
-  
+
   set classname = $piece(hook, ":", 1)
   set method = $piece(hook, ":", 2)
   try {
@@ -2463,10 +2613,10 @@ AssertContentTypeMatch(multi)
 <Private>1</Private>
 <ReturnType>%Boolean</ReturnType>
 <Implementation><![CDATA[
-          
+
   set sc = $$$OK
-  set nameLength = $length(fileName)   
- 
+  set nameLength = $length(fileName)
+
   if filters.%IsDefined("minNameLength") {
     do BuildFilter(filters.minNameLength, ..#MINFILENAMELENGTHMSG, .minNameLength)
     if nameLength < minNameLength.value {
@@ -2474,24 +2624,24 @@ AssertContentTypeMatch(multi)
       return 0
     }
   }
-  
+
   if filters.%IsDefined("maxNameLength") {
     do BuildFilter(filters.maxNameLength, ..#MAXFILENAMELENGTHMSG, .maxNameLength)
-    if nameLength > maxNameLength.value {      
+    if nameLength > maxNameLength.value {
       if filters.verbose = 1 set sc = $$$ERROR($$$GeneralError, maxNameLength.message)
       return 0
     }
   }
-  
-  if filters.%IsDefined("maxFileSize") {    
+
+  if filters.%IsDefined("maxFileSize") {
     do BuildFilter(filters.maxFileSize, ..#MAXFILESIZEMSG, .maxFileSize)
     if mimeData.Size > maxFileSize.value {
       if filters.verbose = 1 set sc = $$$ERROR($$$GeneralError, maxFileSize.message)
       return 0
     }
-  }  
-  
-  if filters.%IsDefined("extensions") {    
+  }
+
+  if filters.%IsDefined("extensions") {
     do BuildFilter(filters.extensions, ..#EXTENSIONNOTALLOWEDMSG, .extensions)
     set match = 0
     for i=0:1:extensions.value.%Size() - 1 {
@@ -2505,34 +2655,34 @@ AssertContentTypeMatch(multi)
       return 0
     }
   }
-  
+
   return 1
-  
+
 BuildFilter(filter, templateMsg, normalizedFilter)
   if '$isobject(filter) || 'filter.%IsA("%DynamicObject") {
-    set filter = { 
-      "value": (filter), 
-      "errorTemplate": (templateMsg) 
-    }   
-  }  
-    
+    set filter = {
+      "value": (filter),
+      "errorTemplate": (templateMsg)
+    }
+  }
+
   set placeholders = {
     ":FILE_NAME": (fileName),
     ":VALUE": (filter.value),
     ":SIZE": (mimeData.Size),
     ":EXTENSION": (extension)
-  }   
-      
+  }
+
   set normalizedFilter = {
     "value": (filter.value),
     "message": (
       ##class(Frontier.Shared.Utilities).ReplacePlaceholders({
-        "text": (filter.errorTemplate), 
+        "text": (filter.errorTemplate),
         "placeholders": (placeholders)
       })
     )
   }
-  
+
   quit
 ]]></Implementation>
 </Method>
@@ -2752,6 +2902,7 @@ BuildFilter(filter, templateMsg, normalizedFilter)
   #dim methodArgument As Frontier.ArgumentDescription
   #define TriggerPayloadFlag if ..HttpMethod = "POST" || (..HttpMethod = "PUT") || (..HttpMethod = "PATCH") set payloadFound = 1
   #define AssertSinglePayloadParameter throw:payloadFound=1 ##class(%Exception.StatusException).CreateFromStatus($$$ERROR($$$GeneralError, "Cannot have more than one payload for POST/PUT/PATCH requests."))
+  #define GetPayloadType(%classname) $case(%classname, "%Library.DynamicArray" : "array", : "object")
 
   set sc = $$$OK
 
@@ -2791,10 +2942,10 @@ BuildFilter(filter, templateMsg, normalizedFilter)
       }
 
       if shouldUnmarshall || isDynamic {
-        set dynamicClass = $select('shouldUnmarshall : methodArgument.Type, 1: "%DynamicObject")
+        set dynamicClass = $select('shouldUnmarshall : methodArgument.Type, 1: "%Library.DynamicObject")
         if ..Payload = "" {
           return $$$ERROR($$$GeneralError, $$$FormatText(jsonErrorMessage, dynamicClass))
-        }
+        }        
 
         // If there's already a payloadable argument and another one is found, then we fail the request.
         $$$AssertSinglePayloadParameter
@@ -2810,9 +2961,13 @@ BuildFilter(filter, templateMsg, normalizedFilter)
         try {
           set value = $classmethod(dynamicClass, "%FromJSON", ..Payload)
           if 'shouldUnmarshall {
-            set jsonType = "object"
-            if dynamicClass = "%DynamicArray" set jsonType = "array"
-            if $classname(value) '= ##class(%RegisteredObject).%ClassName()
+            set type = methodArgument.Type
+            $$$NormalizeClassName(type)
+            set expected = $$$GetPayloadType(type)
+            set received = $$$GetPayloadType($classname(value))
+            if expected '= received {
+              return $$$ERROR($$$GeneralError, $$$FormatText("Payload type mismatch: expected %1 but received %2", expected, received))
+            }
           }         
         } catch ex {
           return $$$ERROR($$$GeneralError, "Error while parsing the payload: the request did not send a valid JSON format.")
@@ -2873,10 +3028,15 @@ BuildFilter(filter, templateMsg, normalizedFilter)
   set preArguments = 0
   set methodArgumentsLength = ..MethodArguments.Count()
   set keysFound = ""
+  
+  if $data(requestArguments("Error:ErrorCode", 1)) {
+    return $$$EMBEDSC($$$ERROR($$$GeneralError, "A fatal error happened while trying to dispatch the result. Check this web application's configuration."), requestArguments("Error:ErrorCode", 1))
+  } 
 
   for {
     set key = $order(requestArguments(key))
     quit:key=""
+    
 
     set keyGroup = $$$KeyGroup(key)
     set $list(keysFound, *+1) = keyGroup
@@ -3035,9 +3195,13 @@ BuildFilter(filter, templateMsg, normalizedFilter)
 <FormalSpec>*methodReturn="",*stack:%Stream.Object=""</FormalSpec>
 <ReturnType>%Status</ReturnType>
 <Implementation><![CDATA[
+ 
   set sc = $$$OK
+  set io = $io
   merge methodArguments = ..Arguments
   set returnType = ..MethodDescriptor.ReturnType
+  
+  use $$$NULL
   
   new $estack   
 
@@ -3051,6 +3215,8 @@ BuildFilter(filter, templateMsg, normalizedFilter)
     do ##class(Frontier.Exception).CaptureStack(.stack)
     set sc = ex.AsStatus()
   }
+  
+  use io 
   return sc
 ]]></Implementation>
 </Method>
@@ -3605,7 +3771,10 @@ MakeString(list)
   // Normalize the HTTP method.
   set httpMethod = $$$ucase(httpMethod)
   
-  try {    
+  // Prevents attempts to dispatch from this class itself.
+  $$$QuitOnError($$ValidateRouteOrigin)
+  
+  try {       
     set resolvedUrl = $$ResolveUrl(url)
     
     while $$NextDispatchMap(.index, .mapEntry) {
@@ -3649,11 +3818,11 @@ MakeString(list)
         // Found the router that should handle the request.
         if matchType = "R" {         
           set useAuth = $lg(mapEntry, 8)
-          set authStrategy = $lg(mapEntry, 11)
+          set authStrategy = $lg(mapEntry, 11)      
           
-          do %frontier.CORS.Set()
+          do %frontier.CORS.Set()         
                    
-          if useAuth {
+          if useAuth && %frontier.AuthenticationManager.HasStrategies() {
             // Run pending authentication strategies. If one passes, then the implementation
             // is responsible for filling the user object.
             if authStrategy = "" {
@@ -3706,7 +3875,7 @@ MakeString(list)
           // Executes the method and retrives its value. The method MUST return a value or a 
           // <COMMAND> will be issued.
           set sc = publicMethod.Invoke(.methodReturn, .stack)
-          set %frontier.Stack = stack
+          set %frontier.Stack = stack          
           
           $$$ThrowOnError(sc)
           
@@ -3798,6 +3967,12 @@ ManualGroupMerge(matcher)
     set %frontier.Matches(i) = matcher.Group(i)
   }
  quit
+ 
+ValidateRouteOrigin()
+  if $classname() = "Frontier.Router" {
+    return $$$ERROR($$$GeneralError, "Invalid route origin: did you configure Frontier.Router as 'Dispatch Class' instead?")
+  }
+  return $$$OK
 ]]></Implementation>
 </Method>
 
@@ -3988,20 +4163,6 @@ This is the Schema which defines the form of the dispatch map</Description>
 
 
 <Class name="Frontier.SQL.InlineQueryBuilder">
-<Description><![CDATA[
-This class is used to build dynamic SQL queries using URL inline parameters.
-You are required to put all the inline query into a single URL query parameter.
-Values are passed by using the placeholders mechanism provided by the Caché SQL API layer.
-Like this: ?filter=age_lt:10
-Regarding the format simple conditions are:
-fieldName_operator:value (the shorthand for equals is fieldName:value)
-While composite conditions are:
-$or:[fieldNameA_operator:value;fieldNameN_operator:value]
-In addition to the filter parameter, you can also provide two optional parameters
-to handle the ORDER BY and the SELECT <FIELDS>. Their syntax is exactly like they
-would be applied when using the SQL itself. E.g. age desc, name asc.
-Fields and OrderBy are sanitized and will blacklist any dubious characters to their syntax.
-Check the Frontier.UnitTest.Router:InlineQuery for insight on how to use the API.]]></Description>
 <IncludeCode>frontier</IncludeCode>
 <Super>%RegisteredObject</Super>
 <TimeCreated>65024,39355.587468</TimeCreated>
@@ -4029,6 +4190,7 @@ Check the Frontier.UnitTest.Router:InlineQuery for insight on how to use the API
 
 <Property name="SelectedFields">
 <Type>%String</Type>
+<InitialExpression>"*"</InitialExpression>
 <Private>1</Private>
 </Property>
 
@@ -4047,9 +4209,8 @@ Check the Frontier.UnitTest.Router:InlineQuery for insight on how to use the API
 <Type>%String</Type>
 </Property>
 
-<Property name="Position">
-<Type>%Integer</Type>
-<InitialExpression>0</InitialExpression>
+<Property name="GroupBy">
+<Type>%String</Type>
 <Private>1</Private>
 </Property>
 
@@ -4083,7 +4244,7 @@ Check the Frontier.UnitTest.Router:InlineQuery for insight on how to use the API
 <FormalSpec>page:%Integer,limit:%String</FormalSpec>
 <ReturnType>Frontier.SQL.InlineQueryBuilder</ReturnType>
 <Implementation><![CDATA[
-  do ..CheckPaginationParameters(page, limit)
+  
   if $$$ISOK(..Status) set ..PaginationParameters = $lb(page, limit)
   return $this
 ]]></Implementation>
@@ -4103,8 +4264,15 @@ Check the Frontier.UnitTest.Router:InlineQuery for insight on how to use the API
 <FormalSpec>orderBy:%String</FormalSpec>
 <ReturnType>Frontier.SQL.InlineQueryBuilder</ReturnType>
 <Implementation><![CDATA[
-  set ..OrderBy = " ORDER BY "_..SanitizeInput(orderBy)
+  set ..OrderBy = "ORDER BY "_..SanitizeInput(orderBy)
   return $this
+]]></Implementation>
+</Method>
+
+<Method name="GroupBy">
+<FormalSpec>groupBy:%String</FormalSpec>
+<ReturnType>Frontier.SQL.InlineQueryBuilder</ReturnType>
+<Implementation><![CDATA[  set ..GroupBy = "GROUP BY "_..SanitizeInput(groupBy)
 ]]></Implementation>
 </Method>
 
@@ -4112,12 +4280,12 @@ Check the Frontier.UnitTest.Router:InlineQuery for insight on how to use the API
 <FormalSpec>input:%String</FormalSpec>
 <Private>1</Private>
 <ReturnType>%String</ReturnType>
-<Implementation><![CDATA[  return $zstrip(input, "*E'N'A", "", "_. ")
+<Implementation><![CDATA[  return $zstrip(input, "*E'N'A", "", "_.*, ")
 ]]></Implementation>
 </Method>
 
-<Method name="WrapWithPaginationIfProvided">
-<FormalSpec>fields:%String="*",where:%String="",orderBy:%String="",tableName:%String</FormalSpec>
+<Method name="WithPagination">
+<FormalSpec>where:%String="",tableName:%String</FormalSpec>
 <Private>1</Private>
 <ReturnType>%String</ReturnType>
 <Implementation><![CDATA[
@@ -4128,17 +4296,29 @@ Check the Frontier.UnitTest.Router:InlineQuery for insight on how to use the API
   set offset = (page * limit) - (limit - 1)
   set limit = page * limit
   
-  return "SELECT *, %VID AS row FROM (SELECT TOP "_limit_" "_fields_" FROM "_tableName_where_orderBy_") WHERE %VID BETWEEN "_offset_" AND "_limit
+  set args = 8
+  set args(1) = limit
+  set args(2) = ..SelectedFields
+  set args(3) = tableName
+  set args(4) = where  
+  set args(5) = ..GroupBy
+  set args(6) = ..OrderBy
+  set args(7) = offset
+  set args(8) = limit
+  
+  return $$$FormatText("SELECT *, %VID AS row FROM (SELECT TOP %1 %2 FROM %3 %4 %5 %6) WHERE %VID BETWEEN %7 AND %8", args...)
 ]]></Implementation>
 </Method>
 
 <Method name="CheckPaginationParameters">
-<FormalSpec>page,limit</FormalSpec>
 <Private>1</Private>
 <Implementation><![CDATA[
-   
-  set sc = $$$OK
+     
   #define AppendStatus(%newStatus) set sc = $$$ADDSC(sc, $$$ERROR($$$GeneralError, %newStatus))  
+  
+  set sc = $$$OK
+  set page = $lg(..PaginationParameters)
+  set limit = $lg(..PaginationParameters, 2)
   
   if '$isvalidnum(page) $$$AppendStatus("Page must be a number.")
   if page = 0 $$$AppendStatus("Page must be start from 1")
@@ -4148,13 +4328,13 @@ Check the Frontier.UnitTest.Router:InlineQuery for insight on how to use the API
   if page = 0 $$$AppendStatus("Limit must be start from 1")
   if page < 0 $$$AppendStatus("Limit must be a positive number.")
   
-  set paginationSC = $$$EMBEDSC($$$ERROR($$$GeneralError, "Invalid pagination parameters."), sc)
-  if $$$ISERR(sc) set ..Status = $$$ADDSC(..Status, paginationSC)
+  if $$$ISERR(sc) return $$$EMBEDSC($$$ERROR($$$GeneralError, "Invalid pagination parameters."), sc)
+  return sc
 ]]></Implementation>
 </Method>
 
-<Method name="BuildSQLWhere">
-<FormalSpec>filter:%String=..Filter,type:%String="AND",whereStatement:%String="WHERE"</FormalSpec>
+<Method name="CreateWHEREStatement">
+<FormalSpec>filter:%String=..Filter,type:%String=" AND ",whereStatement:%String="WHERE "</FormalSpec>
 <Private>1</Private>
 <ReturnType>%String</ReturnType>
 <Implementation><![CDATA[
@@ -4167,97 +4347,113 @@ Check the Frontier.UnitTest.Router:InlineQuery for insight on how to use the API
     set condition = $piece(filter, ";", i)
     // If ] is found then the builder is trying to capture the same condition, so skip it.   
     if condition?.ANP1"]" = 1 continue
-    if $extract(condition, 1, 3)?1"$"1(1"or",1"an") = 1 {
-      set conditionType = $$$ucase($extract(condition, $find(condition, "$"), $find(condition, ":") - 2))
-      set expression = $$DesconstructComposition(condition, conditionType)
+    if $extract(condition, 1, 3)?1"_"1(1"or",1"an") = 1 {
+      set conditionType = $$$ucase($extract(condition, $find(condition, "_"), $find(condition, ":") - 2))
+      set expression = $$HandleCompositeCondition(condition, conditionType)
     } else {
-      set expression = $$ResolveSimpleCondition(condition)
+      set expression = $$HandleSingleCondition(condition)
     }    
     set $list(where, *+1) = expression    
   }
   
-  if $ll(where) '= 0 set where = " "_whereStatement_" ("_$lts(where, " "_type_" ")_")"
+  if $ll(where) '= 0 set where = whereStatement_"("_$lts(where, " "_type_" ")_")"
   return where
   
  
-ResolveSimpleCondition(condition)
+HandleSingleCondition(condition)
+  // Normalizes field:value to field_eq:value.
   if condition '[ "_" set condition = $piece(condition, ":")_"_eq:"_$piece(condition, ":", 2, *)
-  set field = $$$trim($piece(condition, "_"))    
+  set field = $$$trim($piece(condition, "_"))
+  
+  // Deep access: a.b = a->b in Caché SQL.
   if field [ "." set field = $replace(field, ".", "->")
   
   set op = $$$trim($piece($piece(condition, "_", 2, 2), ":", 1))
   set value = $piece(condition, ":", 2, *)
   
-  do ..BuildExpression(field, value, op, .exp)
+  set exp = ..TransformFilter(field, value, op)
   return exp
     
-DesconstructComposition(condition, conditionType)  
-  set setStart = $find(filter, condition) - ($length(condition) - 5)
-  set setEnd = $find(filter, "]", setStart) - 2
-  if conditionType = "AND" set setStart = setStart + 1
-  set composition = $extract(filter, setStart, setEnd)
-  set ..Position = $length(composition, ";")
-  return ..BuildSQLWhere(composition, conditionType, "")
+HandleCompositeCondition(condition, conditionType)  
+  set start = $find(filter, condition) - ($length(condition) - 5)
+  set end = $find(filter, "]", start) - 2
+  set setStart = start
+  if conditionType = "AND" set setStart = start + 1  
+  set composition = $extract(filter, setStart, end)
+  return ..CreateWHEREStatement(composition, conditionType, "")
 ]]></Implementation>
 </Method>
 
 <Method name="Build">
-<ReturnType>Frontier.SQL.InlineQueryBuilder</ReturnType>
+<ReturnType>%Status</ReturnType>
 <Implementation><![CDATA[
-  if $$$ISERR(..Status) $$$ThrowStatus(..Status)
+  set sc = $$$OK
   
-  set ..Position = 0
-  set cclass = ##class(%Dictionary.CompiledClass).%OpenId(..For)
-  if cclass = "" $$$ThrowStatus($$$ERROR($$$GeneralError, "Invalid table name."))
-  set tableName = cclass.SqlQualifiedNameQ
+  try {
+    if ..PaginationParameters '= "" $$$ThrowOnError(..CheckPaginationParameters())
+    if ..For = "" $$$ThrowStatus($$$ERROR($$$GeneralError, "For method not called."))
+    
+    set cclass = ##class(%Dictionary.CompiledClass).%OpenId(..For)
+    if cclass = "" $$$ThrowStatus($$$ERROR($$$GeneralError, $$$FormatText("Class '%1' does not exist.", ..For)))
+    set tableName = cclass.SqlQualifiedNameQ
   
-  set fields = ..SelectedFields
-  if fields = "" set fields = "*"
-  set orderBy = ..OrderBy
-  set where = ..BuildSQLWhere()
-  set paginatedQuery = ..WrapWithPaginationIfProvided(fields, where, orderBy, tableName)
-  set statement = paginatedQuery
-  if statement = "" set statement = "SELECT "_fields_ " FROM "_tableName_where_ " "_orderBy
-  set ..Result = statement
-  return $this
+    if tableName = "" $$$ThrowStatus($$$ERROR($$$GeneralError, "Class does is not a persistent representation."))  
+    
+    set where = ..CreateWHEREStatement()
+    set paginatedQuery = ..WithPagination(where, tableName)
+    set statement = paginatedQuery
+    
+    if statement = "" {
+      set statement = $$$FormatText("SELECT %1 FROM %2 %3 %4 %5", ..SelectedFields, tableName, where, ..GroupBy, ..OrderBy)
+    }
+    
+    set ..Result = statement
+    return $this
+  } catch ex {
+    if $data(%frontier) throw ex
+    set sc = ex.AsStatus()
+  }
+  return sc
 ]]></Implementation>
 </Method>
 
-<Method name="BuildExpression">
-<FormalSpec>field:%String,value,op:%String,*placeholder:%String=""</FormalSpec>
+<Method name="TransformFilter">
+<FormalSpec>filter:%String,value,op:%String</FormalSpec>
 <Private>1</Private>
+<ReturnType>%String</ReturnType>
 <Implementation><![CDATA[
+  set expression = ""
   set singleVarOpTypes = $lb("eq", "ne", "gt", "gte", "lt", "lte", "sw", "nsw", "ct", "nct", "lk", "nlk", "is", "isn", "il", "nil")
   
   if $lf(singleVarOpTypes, op) > 0 {
-    if op = "eq" set placeholder = field_" = ?"
-    if op = "ne" set placeholder = field_" <> ?"
-    if op = "gt" set placeholder = field_" > ?"
-    if op = "gte" set placeholder = field_" >= ?"
-    if op = "lt" set placeholder = field_" < ?"
-    if op = "lte" set placeholder = field_" <= ?"
-    if op = "sw" set placeholder = field_" %STARTSWITH ? "
-    if op = "nsw" set placeholder = field_" NOT %STARTSWITH ?"
-    if op = "ct" set placeholder = field_" [ ?"
-    if op = "nct" set placeholder = field_" '[ ?"
-    if op = "lk" set placeholder = field_" LIKE ?"
-    if op = "nlk" set placeholder = field_" NOT LIKE ?"
-    if op = "il" set placeholder = field_" %INLIST ?" set value = $lfs(value)
-    if op = "nil" set placeholder = field_" NOT %INLIST ?" set value = $lfs(value)
+    if op = "eq" set expression = filter_" = ?"
+    if op = "ne" set expression = filter_" <> ?"
+    if op = "gt" set expression = filter_" > ?"
+    if op = "gte" set expression = filter_" >= ?"
+    if op = "lt" set expression = filter_" < ?"
+    if op = "lte" set expression = filter_" <= ?"
+    if op = "sw" set expression = filter_" %STARTSWITH ? "
+    if op = "nsw" set expression = filter_" NOT %STARTSWITH ?"
+    if op = "ct" set expression = filter_" [ ?"
+    if op = "nct" set expression = filter_" '[ ?"
+    if op = "lk" set expression = filter_" LIKE ?"
+    if op = "nlk" set expression = filter_" NOT LIKE ?"
+    if op = "il" set expression = filter_" %INLIST ?" set value = $lfs(value)
+    if op = "nil" set expression = filter_" NOT %INLIST ?" set value = $lfs(value)
     
     if op '= "is" && (op '= "isn") {
       do AddParameter(value)
     } elseif value = "null" {
       set null = $$$ucase(value)
-      if op = "is" set placeholder = field_" IS "_null
-      if op = "isn" set placeholder = field_" IS NOT "_null
+      if op = "is" set expression = filter_" IS "_null
+      if op = "isn" set expression = filter_" IS NOT "_null
     }
   } elseif op = "bt" || (op = "nbt") {
     set not = ""
     if op = "nbt" set not = "NOT"
     set left = $piece(value, ",", 1, 1)
     set right = $piece(value, ",", 2, 2)
-    set placeholder = field_not_" BETWEEN ? AND ? "
+    set expression = filter_not_" BETWEEN ? AND ? "
     do AddParameter(left)
     do AddParameter(right)
   } elseif op = "in" || (op = "nin") {
@@ -4265,8 +4461,10 @@ DesconstructComposition(condition, conditionType)
     set phs = ""
     set l = $length(value, ",")
     for i=1:1:l  do AddParameter($piece(value, ",", i)) set $list(phs, *+1) = "?"
-    set placeholder = field_not_" IN ("_$lts(phs)_")"
+    set expression = filter_not_" IN ("_$lts(phs)_")"
   }
+  
+  return expression
   
 AddParameter(newparam)
   set i%Parameters = i%Parameters + 1
@@ -4766,6 +4964,58 @@ WritePattern(resource, placeholders, strict)
 </Class>
 
 
+<Class name="Frontier.Security.CookieSignature">
+<Description>
+This class can be used to generate a url/cookie friendly token.</Description>
+<TimeCreated>65140,51575.554716</TimeCreated>
+
+<Method name="Sign">
+<Description><![CDATA[
+Providing a value and secret, returns a token in the format:
+<value>.<b64(hmac(sha512(value, secret)))>
+The 'value' parameter is concatenated into the token in plain text. If you want to hide the info, you can encode/encrypt it before calling this method.
+The 'secret' is the string key used by the encryption algorithm and should never be exposed.]]></Description>
+<ClassMethod>1</ClassMethod>
+<FormalSpec>value:%String,secret:%String</FormalSpec>
+<ReturnType>%String</ReturnType>
+<Implementation><![CDATA[  return value_"."_$translate($System.Encryption.Base64Encode($System.Encryption.HMACSHA(512, value, secret), 1), "=/+$", "")
+]]></Implementation>
+</Method>
+
+<Method name="Unsign">
+<Description>
+Takes a token return the value portion if valid otherwise empty.
+The 'token' parameter must be exactly what was generated by the Sign method.
+The 'secret' must also be the same used to generated the token.</Description>
+<ClassMethod>1</ClassMethod>
+<FormalSpec>token:%String,secret:%String</FormalSpec>
+<ReturnType>%String</ReturnType>
+<Implementation><![CDATA[
+  set value = $piece(token, ".", 1)
+  set mac = ..Sign(value, secret)
+
+  if $$ConstantTimeCompare(mac, token) {
+    return value
+  }
+
+  return ""
+
+ConstantTimeCompare(a, b)
+  if $length(a) '= $length(b) return 0
+  for i=1:1:$length(a) {
+    // Convert char to ASCII code and then to bitstring.
+    set aChar = $factor($ascii($extract(a, i)))
+    set bChar = $factor($ascii($extract(b, i)))
+    set match = $bitlogic(aChar ^ bChar)
+    set all = $bitlogic(all | match)
+  }
+  // 00000000 = valid
+  return $bitfind(all, 1) = 0
+]]></Implementation>
+</Method>
+</Class>
+
+
 <Class name="Frontier.SessionEvents">
 <Super>%CSP.SessionEvents</Super>
 <TimeCreated>64594,37362.115919</TimeCreated>
@@ -4891,7 +5141,7 @@ Called when we have finished processing this request</Description>
     set ret = $method(instance, method, args...)
     if $extract(ret, 1, 2) = "0 " && $lv($p(ret, " ", 2)) {
       set errcode = $$$GETERRORCODE(ret)
-      if errcode?4N = 1 {
+      if errcode '= "" {
         set sc = ret
         set ret = ""
       }
@@ -4916,6 +5166,54 @@ Called when we have finished processing this request</Description>
 <FormalSpec>value:%String</FormalSpec>
 <ReturnType>%String</ReturnType>
 <Implementation><![CDATA[  return $System.Encryption.Base64Decode($translate(value, "-_", "+/"))
+]]></Implementation>
+</Method>
+
+<Method name="CallAndCapture">
+<ClassMethod>1</ClassMethod>
+<FormalSpec>object,method:%String,*str:%Stream.GlobalCharacter="",args...:%String</FormalSpec>
+<ProcedureBlock>0</ProcedureBlock>
+<ReturnType>%Status</ReturnType>
+<Implementation><![CDATA[
+  new oldMnemonic, alreadyRedirected, sc
+  
+  set sc = $$$OK
+  set isRedirected = 0  
+  
+  set str = ##class(%Stream.GlobalCharacter).%New()
+  set alreadyRedirected = ##class(%Device).ReDirectIO()
+  set oldMnemonic = "^"_##class(%Device).GetMnemonicRoutine()
+  set initIO = $io  
+  
+  try {   
+    use $io::("^"_$zname)    
+    do ##class(%Device).ReDirectIO(1)
+    set isRedirected = 1    
+    if $isobject(object) set sc = $method(object, method, args...)
+    else  set class = object set sc = $classmethod(class, method, args...)
+    do str.Rewind()
+  } catch ex {
+    set str = ""
+    set sc = ex.AsStatus()
+  }     
+  
+  if oldMnemonic '= "" {
+    use initIO::(oldMnemonic)
+  } else {
+    use oldMnemonic
+  }
+  
+  do ##class(%Device).ReDirectIO(alreadyRedirected)
+      
+  return sc
+  
+wstr(s) Do str.Write(s) Quit
+wchr(a) Do str.Write($char(a)) Quit
+wnl Do str.Write($char(13,10)) Quit
+wff Do str.Write($char(13,10,13,10)) Quit
+wtab(n) Do str.Write($c(9)) Quit
+rstr(len,time) Quit ""
+rchr(time) Quit ""
 ]]></Implementation>
 </Method>
 </Class>
@@ -5156,7 +5454,7 @@ Called when we have finished processing this request</Description>
 </Property>
 <Property name="Plate">
 <Selectivity>10.0000%</Selectivity>
-<AverageFieldSize>5</AverageFieldSize>
+<AverageFieldSize>4.8</AverageFieldSize>
 </Property>
 <SQLMap name="IDKEY">
 <BlockCount>-4</BlockCount>
@@ -5271,7 +5569,7 @@ Called when we have finished processing this request</Description>
 </Property>
 <Property name="Adress">
 <Selectivity>10.0000%</Selectivity>
-<AverageFieldSize>17.8</AverageFieldSize>
+<AverageFieldSize>18.1</AverageFieldSize>
 </Property>
 <Property name="BirthDate">
 <Selectivity>10.0000%</Selectivity>
@@ -5291,7 +5589,7 @@ Called when we have finished processing this request</Description>
 </Property>
 <Property name="Name">
 <Selectivity>10.0000%</Selectivity>
-<AverageFieldSize>15.2</AverageFieldSize>
+<AverageFieldSize>16</AverageFieldSize>
 </Property>
 <Property name="PeriodEnd">
 <Selectivity>10.0000%</Selectivity>
@@ -5299,7 +5597,7 @@ Called when we have finished processing this request</Description>
 </Property>
 <Property name="PeriodStart">
 <Selectivity>10.0000%</Selectivity>
-<AverageFieldSize>4.9</AverageFieldSize>
+<AverageFieldSize>4.7</AverageFieldSize>
 </Property>
 <Property name="SomeValue">
 <Selectivity>100.0000%</Selectivity>
@@ -5374,6 +5672,7 @@ Called when we have finished processing this request</Description>
 <XMLNamespace>http://github.com/rfns/frontier</XMLNamespace>
 <Data><![CDATA[
 <Routes>
+<Route Url="/public/single" Method="GET" Call="TestGETSingleStaticFile" />
 <Route Url="/public/?(.*)?" Strict="false" Method="GET" Call="TestGETStaticFile"/>
 <Route Url="/public/custom/?(.*)?" Strict="false" Method="GET" Call="TestGETStaticFileWithCustomConfig"/>
 <Route Url="/upload/multi" Method="POST" Call="TestPOSTMultipartFileUpload"/>
@@ -5384,6 +5683,7 @@ Called when we have finished processing this request</Description>
 <Route Url="/rest-params" Method="GET" Call="TestGETRestParametersSum"/>
 <Route Url="/sql/dynamic" Method="GET" Call="TestGETDynamicSQLResult"/>
 <Route Url="/sql/query" Method="GET" Call="TestGETQuerySQLResult"/>
+<Route Url="/sql/inline-query" Method="GET" Call="TestGETInlineQueryBuilder" />
 <Route Url="/raw" Method="GET" Call="TestGETRawMode"/>
 <Route Url="/shared_data" Method="GET" Call="TestGETData"/>
 <Route Url="/stream" Method="GET" Call="TestGETStream"/>
@@ -5399,11 +5699,11 @@ Called when we have finished processing this request</Description>
 <Route Url="/unmarshal" Method="POST" Call="TestPOSTUnmarshalToClass"/>
 <Route Url="/unmarshal/:class" Method="PUT" Call="TestPUTUnmarshalToClass"/>
 <Route Url="/user-info" Method="GET" Call="TestGETSessionUserInfo"/>
+<Route Url="/sign-in" Method="POST" UseAuth="false" Call="SignIn" />
 <Route Url="/errors/siblings" Method="GET" Call="TestGETMultipleSiblingErrors"/>
 <Route Url="/arguments/no-weak-typed" Method="GET" Call="TestGETNoWeakTypedArgs"/>
 <Route Url="/methods/no-weak-typed" Method="GET" Call="TestGETNoWeakTypedMethods" />
-<Route Url="/custom-auth" Method="GET" AuthStrategy="BasicSystemLogin" Call="TestGETCustomAuthData" />
-<Route Url="/query" Method="GET" Call="InlineQuery" /> 
+<Route Url="/custom-auth" Method="GET" AuthStrategy="BasicSystemLogin" Call="TestGETCustomAuth" />
 <Map Prefix="/map/A/:param1" Forward="Frontier.UnitTest.Router.Map.A" />
 <Map Prefix="/map/B/:param1/:param2" Forward="Frontier.UnitTest.Router.Map.B" />
 <Map Prefix="/map/C" Forward="Frontier.UnitTest.Router.Map.C" />
@@ -5427,17 +5727,6 @@ Use this method to share data between methods.</Description>
 ]]></Implementation>
 </Method>
 
-<Method name="InlineQuery">
-<ClassMethod>1</ClassMethod>
-<FormalSpec>filter:%String,limit:%Integer=50</FormalSpec>
-<ReturnType>Frontier.SQL.Provider</ReturnType>
-<Implementation><![CDATA[
-  set builder = %frontier.SQL.InlineQueryBuilder()
-  do builder.Filter(filter).For("Frontier.UnitTest.Fixtures.Student").OrderBy("id asc")
-  return builder.Build().Provide()
-]]></Implementation>
-</Method>
-
 <Method name="OnSetup">
 <Description>
 This method is reserved for setting up configurations.</Description>
@@ -5448,25 +5737,33 @@ This method is reserved for setting up configurations.</Description>
   // Reporters should be used to signal the developer about request errors.
   // $$$QuitOnError(%frontier.ReporterManager.AddReporter(##class(MyReporter.Email).%New()))
 
+  set cookieStrategy = ##class(Frontier.Authentication.CookieStrategy).%New({
+    "secret": "shhh",
+    "validator": ($classname()_":ValidateUsingCookie")
+  })
+
   // Asks the user for a Basic + Base64(username:password) encoded Authorization header.
   set basicStrategy = ##class(Frontier.Authentication.BasicStrategy).%New({
     "realm": "tests",
     "validator": ($classname()_":ValidateCredentials")
   })
-  
+
   set systemBasicStrategy = ##class(Frontier.Authentication.BasicStrategy).%New({
     "realm": "system",
     "name": "BasicSystemLogin",
     "validator": ($classname()_":ValidateSystemCredentials")
-  }) 
+  })
 
-  set %frontier.StrictQueryParameters = 0
+  //set %frontier.StrictQueryParameters = 0
+
+  // This uses the cookie generated by the /sign-in route to validate the access.
+  $$$QuitOnError(%frontier.AuthenticationManager.AddStrategy(cookieStrategy))
 
   // This provides a way to check if the current user is authenticated using Basic scheme.
   $$$QuitOnError(%frontier.AuthenticationManager.AddStrategy(basicStrategy))
-  $$$QuitOnError(%frontier.AuthenticationManager.AddStrategy(systemBasicStrategy))  
-  
-  set %frontier.Response.GzipOutput = 1  
+  $$$QuitOnError(%frontier.AuthenticationManager.AddStrategy(systemBasicStrategy))
+
+  set %frontier.Response.GzipOutput = 1
 
   return $$$OK
 ]]></Implementation>
@@ -5571,6 +5868,54 @@ curl -H "Content-Type: application/json" 'http://localhost:57772/api/frontier/te
 ]]></Implementation>
 </Method>
 
+<Method name="TestGETInlineQueryBuilder">
+<Description><![CDATA[
+This method captures parameter "filter" as a source to build the custom query.
+You need to provide the target class which resolves to the SQL Table using the For method.
+The filter format can be divided into two types:
+Simple: fieldnameA_operation:value;fieldnameB_operation:value
+Composited: _or:[fieldnameA_operation:value;fieldNameA_operation:value]
+Supported operations:
+field_eq:value field = value
+field_neq:value field <> value
+field_gt:value field > value
+field_gte:value field >= value
+field_lt:value field < value
+field_lte:value field <= value
+field_sw:value field %STARTSWITH value
+field_nsw:value field NOT %STARTSWITH value
+field_ct:value field [ value
+field_nct:value field '[ value
+field_lk:%value% field LIKE '%value%'
+field_nlk:%value% field NOT LIKE '%value%'
+field_il:v,a,l,u,e  field %INLIST($lfs('v,a,l,u,e'))
+field_nil:v,a,l,u,e field NOT %INLIST($lfs('v,a,l,u,e'))
+field_is:null field IS NULL
+field_isn:null field IS NOT NULL
+field_bt:0,5 field BETWEEN 0 and 5
+field_nbt:0,5 field NOT BETWEEN 0 and 5
+field_in:v,a,l,u,e field IN('v','a','l','u','e')
+field_nin:v,a,l,u,e field NOT IN('v','a','l','u','e')
+field:value is translate to field_eq:value
+OrderBy can be used to sort the fields, the syntax is the same as you would use with SQL.
+Fields can be used to select the fields you want include in the results.]]></Description>
+<ClassMethod>1</ClassMethod>
+<FormalSpec>filter:%String,page:%String="",limit:%String="",orderBy:%String="",groupBy:%String=""</FormalSpec>
+<ReturnType>Frontier.SQL.Provider</ReturnType>
+<Implementation><![CDATA[
+  set builder = %frontier.SQL.InlineQueryBuilder()
+
+  do builder.For("Frontier.UnitTest.Fixtures.Student")
+
+  if page '= "" && (limit '= "") do builder.Pagination(page, limit)
+  if orderBy '= "" do builder.OrderBy(orderBy)
+  if groupBy '= "" do builder.GroupBy(groupBy)
+  if filter '= "" do builder.Filter(filter)
+
+  return builder.Build().Provide()
+]]></Implementation>
+</Method>
+
 <Method name="TestGETRawMode">
 <Description>
 There can be cases where the response should not be a JSON.
@@ -5658,7 +6003,7 @@ Requests with array payloads also support query parameters.
 Call example:
 curl -H "Content-Type: application/json" -X POST -d '[{"username":"xyz","password":"xyz"}]' 'http://localhost:57772/api/frontier/test/payload/array-with-query-params?msg=hello'</Description>
 <ClassMethod>1</ClassMethod>
-<FormalSpec>payload:%DynamicObject,msg:%String=""</FormalSpec>
+<FormalSpec>payload:%DynamicArray,msg:%String=""</FormalSpec>
 <ReturnType>%DynamicArray</ReturnType>
 <Implementation><![CDATA[  return [ (msg), (payload) ]
 ]]></Implementation>
@@ -5679,7 +6024,7 @@ curl -H "Content-Type: application/json" -X POST -d '[{"username":"xyz","passwor
 <Method name="TestGETMixedDynamicObject">
 <Description>
 Normally %Dynamic instances cannot serialize childrens that aren't dynamic as well. (%ToJSON would thrown an exception).
-Frontier fixes it by marshalling irregular to %Dynamic instances beforehand and making it compatible.
+Frontier fixes it by marshalling irregularities to %Dynamic instances beforehand and making them compatible.
 Call example:
 curl -H "Content-Type: application/json" http://localhost:57772/api/frontier/test/mixed/object?class=1</Description>
 <ClassMethod>1</ClassMethod>
@@ -5731,7 +6076,7 @@ curl -H "Content-Type: application/json" -X POST -d '{"username":"xyz","password
 <Description>
 For compability with existing clients that use query parameters with symbols. For such cases
 ALIAS can be used to make it compatible. If the expected alias is not found then Frontier will
-fall back to using the argument name instead.</Description>
+fall back to using the original argument name instead.</Description>
 <ClassMethod>1</ClassMethod>
 <FormalSpec>msg:%String(ALIAS="aliased_key")</FormalSpec>
 <ReturnType>%String</ReturnType>
@@ -5742,7 +6087,7 @@ fall back to using the argument name instead.</Description>
 <Method name="TestPOSTUnmarshalToClass">
 <Description>
 It's also possible to save from a payload directly to a %Persistent instance as long as the payload
-has the same format as the %Persistent class. Just define the the parameter INSTANTIATE with the class you want
+has the same format as the %Persistent class. Just define the the parameter UNMARSHALL to 1.
 curl -H "Content-Type: application/json" -X POST -d '{"Plate": "R-2948","Students": [{"Name": "Rubens","BirthDate": "04/21/1970","SomeValue": 0}]}' 'http://localhost:57772/api/frontier/unmarshal'</Description>
 <ClassMethod>1</ClassMethod>
 <FormalSpec>class:Frontier.UnitTest.Fixtures.Class(UNMARSHAL=1)</FormalSpec>
@@ -5759,7 +6104,7 @@ curl -H "Content-Type: application/json" -X POST -d '{"Plate": "R-2948","Student
 <Method name="TestPUTUnmarshalToClass">
 <Description>
 You can also edit the entity just by providing the property "__id__" along with the new payload data. If you want the id to be read from the URL,
-add a new parameter and map the unmarshaller to use it as id by specifying the IDCOLUMN. If the named IDCOLUMN is not
+add a new parameter and map the unmarshaller to use it as id by specifying the WHEREID. If WHEREID is not
 found, the id will be searched inside the payload. Note that when the id is not found, an exception will be thrown regarding  the
 incorrect PUT usage.
 curl -H "Content-Type: application/json" -X POST -d '{"Plate": "R-2948","Students": [{"Name": "Rubens","BirthDate": "04/21/1970","SomeValue": 0}]}' 'http://localhost:57772/api/frontier/unmarshall/15'</Description>
@@ -5780,7 +6125,7 @@ curl -H "Content-Type: application/json" -X POST -d '{"Plate": "R-2948","Student
 This method depends on the authorization header sent by the client and validated with the validator method.
 The validator method is also responsible for defining the user object.
 Call example:
-curl -H "Authorization: Basic Zm9vOmJhcg==" 'http://localhost:57772/api/frontier/test/user'</Description>
+curl -H "Authorization: Basic Zm9vOmJhcg" 'http://localhost:57772/api/frontier/test/user'</Description>
 <ClassMethod>1</ClassMethod>
 <ReturnType>%Status</ReturnType>
 <Implementation><![CDATA[  return %frontier.User
@@ -5789,19 +6134,17 @@ curl -H "Authorization: Basic Zm9vOmJhcg==" 'http://localhost:57772/api/frontier
 
 <Method name="TestGETStaticFile">
 <Description><![CDATA[
-Serves all files from the path defined on Data.Workspace (this project's folder). 
+Serves all files from the path defined on Data.Workspace (this project's folder).
 This is the fastest to implement a file server.
 In order to use it, you must provide A non-Strict route that allows custom regular expressions like this one:
 <Route Url="/public/?(.*)?" Strict="false" Method="GET" Call="TestFileServer"/>
 That regular expression means 'put everything after public or public/ into %frontier.Matches'.
 E.g.: /public/my/path/has/this/file.txt resolves into /<root>/my/path/has/this/file.txt
-Keep in mind that this won't create a virtual host. So if you're serving files like HTML that link to other files, 
+Keep in mind that this won't create a virtual host. So if you're serving files like HTML that link to other files,
 you must provide the path relative to the server's virtual host instead of relating it to the Route path.]]></Description>
 <ClassMethod>1</ClassMethod>
 <ReturnType>%Stream.Object</ReturnType>
-<Implementation><![CDATA[
-  
-  return %frontier.Files.ServeFrom(%frontier.Data.Workspace)
+<Implementation><![CDATA[  return %frontier.Files.ServeFrom(%frontier.Data.Workspace)
 ]]></Implementation>
 </Method>
 
@@ -5813,16 +6156,20 @@ The settings are:
 
 root - Provides the path where files are located.
 
+file - If root is not provided, a 'file' is expected to be defined. Which points to a file instead of a directory.
+
 index - Indicates which files to search for and serve as default if no specific file path was provided.
 
 cache - How the cache should behave.
+
+charset - Defines which charset to be apply while reading the device and also sets the charset parameter for the response.
 
 cache.configuration - A string containing the Cache-Control header configuration. Eg: "max-age=120, public".
 cacheignore - A array indicating which extensions should not be cached.
 
 extensions - An Object containing how to the server should handle files matching the extension.
 
-The file server attempts to discover how to handle the extension. 
+The file server attempts to discover how to handle the extension.
 But defaults to 'application/octet-stream' if the extension is unknown. The 'extension' object provides a way to handle them.
 Each extension object should be keyed by its own extension identifier along with a child object.
 
@@ -5831,7 +6178,8 @@ Each extension object should be keyed by its own extension identifier along with
 <extension>.disposition = "attachment" will force the browser to download the file instead of opening it.
 <extension>.disposition = "inline" will force the browser to open the file.
 <extension>.mimeType - Sets the Content-Type to the specified string.
-<extension>.binary - Informs the file server to handle the file as binary. This disables charset conversion.]]></Description>
+<extension>.binary - Informs the file server to handle the file as binary. This disables charset conversion.
+<extension>.charset - If not specified, this assumes the global 'charset' configuration. This setting exists to differ the charset by file extension.]]></Description>
 <ClassMethod>1</ClassMethod>
 <ReturnType>%Stream.Object</ReturnType>
 <Implementation><![CDATA[
@@ -5849,13 +6197,24 @@ Each extension object should be keyed by its own extension identifier along with
 ]]></Implementation>
 </Method>
 
+<Method name="TestGETSingleStaticFile">
+<Description>
+If you need to provide access to a single file without exposing the path where it actually is, then
+you can do so by using the ServeFile instead, this method takes an absolute path to a file restricting
+the access to anything else.</Description>
+<ClassMethod>1</ClassMethod>
+<ReturnType>%Stream.Object</ReturnType>
+<Implementation><![CDATA[  return %frontier.Files.ServeFile(%frontier.Data.Workspace_"/README.md", "utf-8")
+]]></Implementation>
+</Method>
+
 <Method name="TestPOSTMultipartFileUpload">
 <Description>
 Provides a way to handle multipart uploads. Can only be used with POST routes.
 Configuration is made by using %DynamicObject instances to provide better readability.
 Usually returning the call like the example below is sufficient for the most of cases.
 The uploader always returns empty responses if not OK, throws an exception when a error happens.
-However uploads can be still be realized partiall, so the implementation must use the hooks to 
+However uploads can be still be realized partiall, so the implementation must use the hooks to
 undo any uploads that have succeeded (OnError) or do something based on its success (OnCompleteOne).
 
 The path is built based on a list of the following placeholders:
@@ -5887,12 +6246,12 @@ OnError - Called whenever an upload fails.</Description>
 <ClassMethod>1</ClassMethod>
 <ReturnType>%Status</ReturnType>
 <Implementation><![CDATA[
-  set location = %frontier.Data.Workspace_"/tests/fixtures/uploads/multiple"
+  set location = %frontier.Data.Workspace_"/fixtures/uploads/multiple"
   set destination = (location_"/:KEY/:FILE_NAME:EXTENSION")
-  
+
   // 512 KB
   set maxFileSize = (1024**2/0.5)
-  
+
   return %frontier.Files.Upload({
     "hooks": {
       "onItemUploadSuccess": "Frontier.UnitTest.Router:WriteResultToProcessGlobal",
@@ -5909,8 +6268,8 @@ OnError - Called whenever an upload fails.</Description>
       "file_b": { "path": (destination) },
       "file_c": { "path": (destination), "optional": true },
       "file_d": { "path": (destination), "optional": true },
-      "files": { 
-        "path": (location_"/files/:INDEX/:FILE_NAME:EXTENSION"), 
+      "files": {
+        "path": (location_"/files/:INDEX/:FILE_NAME:EXTENSION"),
         "slots": 3,
         "filters": { "maxFileSize": 500000000 }
       }
@@ -5925,7 +6284,7 @@ This is an alternative format for handling uploads that aren't form-data/multipa
 This format should be used to handle simple file uploads.
 The uploader changes to this mode if "destination" is passed instead of "destinations".
 With a few placeholder exceptions (FILE_NAME, EXTENSION), all other features can also be applied here.
-Since only the file is sent straight to %request.Content, there's no way to know the 
+Since only the file is sent straight to %request.Content, there's no way to know the
 file name, which means that its name should defined by the implementation.</Description>
 <ClassMethod>1</ClassMethod>
 <ReturnType>%Status</ReturnType>
@@ -5939,7 +6298,7 @@ file name, which means that its name should defined by the implementation.</Desc
       "onItemUploadError": "Frontier.UnitTest.Router:WriteErrorToProcessGlobal",
       "onComplete": "Frontier.UnitTest.Router:WriteResultSummaryToProcessGlobal"
     },
-    "destination": (%frontier.Data.Workspace_"/tests/fixtures/uploads/single/file.txt")
+    "destination": (%frontier.Data.Workspace_"/fixtures/uploads/single/file.txt")
   })
 ]]></Implementation>
 </Method>
@@ -6009,7 +6368,7 @@ Neither it allows methods without return type.</Description>
 ]]></Implementation>
 </Method>
 
-<Method name="TestGETCustomAuthData">
+<Method name="TestGETCustomAuth">
 <Description>
 This method can be retrieved only if the user logs with the Caché credentials.
 The purpose is to show that custom authentication strategies can be used exclusively.</Description>
@@ -6028,7 +6387,7 @@ The purpose is to show that custom authentication strategies can be used exclusi
   if login = "foo" && (password = "bar") set found = 1
   if login = "admin" && (password = "admin") set found = 1 set useScope = 1
   if found set httpStatus = ..#HTTP200OK
-  else  set httpStatus = ..#HTTP403FORBIDDEN 
+  else  set httpStatus = ..#HTTP403FORBIDDEN
 
   set user = {
     "login": (login)
@@ -6042,8 +6401,6 @@ The purpose is to show that custom authentication strategies can be used exclusi
 </Method>
 
 <Method name="ValidateSystemCredentials">
-<Description>
-This is only to demonstrate, DO NOT USE this in production environments.</Description>
 <ClassMethod>1</ClassMethod>
 <FormalSpec>login:%String,password:%String,*found:%Boolean=1,*httpStatus:%String,*user:%DynamicObject</FormalSpec>
 <ReturnType>%Status</ReturnType>
@@ -6053,12 +6410,46 @@ This is only to demonstrate, DO NOT USE this in production environments.</Descri
     set httpStatus = ..#HTTP403FORBIDDEN
     return $$$ERROR($$$InvalidUsernameOrPassword)
   }
-    
+
   if '$System.Security.CheckUserPermission(login, "%Development", "USE") {
     set httpStatus = ..#HTTP403FORBIDDEN
     return $$$ERROR($$$RequiresRoleForConnection, "%Development")
-  }  
+  }
   return $$$OK
+]]></Implementation>
+</Method>
+
+<Method name="ValidateUsingCookie">
+<ClassMethod>1</ClassMethod>
+<FormalSpec>value:%String,*found=0,*httpStatus,*user</FormalSpec>
+<ReturnType>%Status</ReturnType>
+<Implementation><![CDATA[
+  set data = $zcvt($System.Encryption.Base64Decode(value), "I", "UTF8")
+  set login = $listget(data, 1)
+
+  if login = "foo" set password = "bar"
+  set exp = +$listget(data, 2)
+
+  if exp < $h {
+    set found = 0
+    set httpStatus = "401 Forbidden"
+    return $$$OK
+  }
+
+  return ..ValidateCredentials(login, password, .found, .httpStatus, .user)
+]]></Implementation>
+</Method>
+
+<Method name="SignIn">
+<ClassMethod>1</ClassMethod>
+<ReturnType>%String</ReturnType>
+<Implementation><![CDATA[
+  do %frontier.Raw()
+  set exp = $piece($h, ",") +30_","_$piece($h, ",", 2)
+  set credential = $translate($System.Encryption.Base64Encode($zcvt($lb("foo", exp), "O", "UTF8")), "=/+$", "")
+  set expires = ##class(%CSP.StreamServer).ToHTTPDate(exp)
+  do %frontier.Response.SetCookie("__fc", ##class(Frontier.Security.CookieSignature).Sign(credential, "shhh"), expires, %frontier.Request.Application,,,1)
+  return ""
 ]]></Implementation>
 </Method>
 </Class>
@@ -6519,6 +6910,9 @@ This is only to demonstrate, DO NOT USE this in production environments.</Descri
   set sc = ##class(Frontier.Dynamic.Unmarshaller).Unmarshal("Frontier.UnitTest.Fixtures.Student", payload, .student)
   do $$$AssertStatusOK(sc, "doesn't output any error when an unknown property is provided")
   do $$$AssertTrue(($isobject(student) && (student.%Id() = "")), "simply creates a new instance")
+  
+  set sc = ##class(Frontier.Dynamic.Unmarshaller).Unmarshal("Frontier.UnitTest.Fixtures.Student", payload, .student,,1)
+  do $$$AssertStatusNotOK(sc, "outputs an error if strict mode enabled")
 ]]></Implementation>
 </Method>
 
@@ -6766,11 +7160,11 @@ This is only to demonstrate, DO NOT USE this in production environments.</Descri
 <ReturnType>%Status</ReturnType>
 <Implementation><![CDATA[
   do ##class(Frontier.UnitTest.Fixtures.Student).%DeleteExtent()
-  do ##class(Frontier.UnitTest.Fixtures.Class).%DeleteExtent()  
-  
+  do ##class(Frontier.UnitTest.Fixtures.Class).%DeleteExtent()
+
   do ##class(Frontier.UnitTest.Fixtures.Student).Populate()
   do ##class(Frontier.UnitTest.Fixtures.Class).Populate()
-  
+
   &sql(SELECT TOP 1 ID INTO :classId FROM FRONTIER_UNITTEST_FIXTURES.CLASS)
   &sql(SELECT TOP 1 ID INTO :studentId FROM FRONTIER_UNITTEST_FIXTURES.STUDENT)
 
@@ -6789,6 +7183,7 @@ This is only to demonstrate, DO NOT USE this in production environments.</Descri
 <ReturnType>%Status</ReturnType>
 <Implementation><![CDATA[
   kill %session
+  do ##class(%File).RemoveDirectoryTree(..GetTestDirectory("../fixtures"))
   return $$$OK
 ]]></Implementation>
 </Method>
@@ -6801,16 +7196,16 @@ This is only to demonstrate, DO NOT USE this in production environments.</Descri
   // Default authHeader is Basic foo:bar. Refer to the ValidateCredentials method defined in the Frontier.UnitTest.Router class.
   // There's also an admin:admin account that is used to simulate scope usage.
   set sc = ..Agent.Request({
-    "url": (resource), 
+    "url": (resource),
     "method": (method),
-    "data": (payload), 
+    "data": (payload),
     "headers": {
       "Authorization": (authHeader),
       "Content-Type": (contentType)
     }
   }, .response)
-  
-  $$$QuitOnError(sc)   
+
+  $$$QuitOnError(sc)
 
   set responseText = response.Read()
   set expectedText = expected
@@ -6879,14 +7274,14 @@ This is only to demonstrate, DO NOT USE this in production environments.</Descri
 
 <Method name="TestPOSTUnmarshalToClass">
 <Implementation><![CDATA[
-   
+
   &sql(SELECT TOP 1 CAST(ID + 1 as VARCHAR) INTO :classId FROM FRONTIER_UNITTEST_FIXTURES.CLASS ORDER BY ID DESC)
-  
+
   set resource = $$$FormatText("%1unmarshal", ..WebApplicationName)
   set payload = {"Plate": "R-101-3", "Students": [(..Student.%Id())]}
   set expected = {"ok": 1, "__id__": (classId)}
-  set result = ..AssertRequest(resource, expected, "POST", payload)  
-  
+  set result = ..AssertRequest(resource, expected, "POST", payload)
+
   return $$$AssertStatusOK(result, $$$FormatText("can unmarshal the payload data to the expected result when POST'ing to %1", resource))
 ]]></Implementation>
 </Method>
@@ -6999,12 +7394,12 @@ This is only to demonstrate, DO NOT USE this in production environments.</Descri
   set sd.%SelectMode = 2
   do sd.%Prepare("SELECT *, %VID as Index FROM (SELECT * FROM FRONTIER_UNITTEST_FIXTURES.STUDENT) WHERE %VID BETWEEN ? AND ?")
   set mt = sd.%Metadata
-  set rd = sd.%Execute(1, 5)      
-  
+  set rd = sd.%Execute(1, 5)
+
   set sc = ##class(Frontier.SQL.Serializer).SerializeToStream(.s, rd, mt)
-  set array =  {}.%FromJSON(.s)   
+  set array =  {}.%FromJSON(.s)
   set expected = {"results":(array)}
-  
+
   return $$$AssertStatusOK(..AssertRequest(resource, expected.%ToJSON()), $$$FormatText("can retrieve the expected data from the resource %1", resource))
 ]]></Implementation>
 </Method>
@@ -7018,9 +7413,9 @@ This is only to demonstrate, DO NOT USE this in production environments.</Descri
   do sd.%PrepareClassQuery("Frontier.UnitTest.Fixtures.Student", "PaginatedStudents")
   set mt = sd.%Metadata
   set rd = sd.%Execute(1, 5)
-  
+
   set sc = ##class(Frontier.SQL.Serializer).SerializeToStream(.s, rd, mt)
-  set array =  {}.%FromJSON(.s)   
+  set array =  {}.%FromJSON(.s)
   set expected = {"results":(array)}
   return $$$AssertStatusOK(..AssertRequest(resource, expected.%ToJSON()), $$$FormatText("can retrieve the expected data from the resource %1", resource))
 ]]></Implementation>
@@ -7123,19 +7518,19 @@ This is only to demonstrate, DO NOT USE this in production environments.</Descri
   )
   set file = ##class(%File).%New(filePath)
   do file.Open("RS")
-  
+
   set stream = ##class(%CSP.CharacterStream).%New()
   do stream.CopyFrom(file)
   set stream.FileName = file.Name
-  
-  set resource = $$$FormatText("%1upload/multi", ..WebApplicationName)  
+
+  set resource = $$$FormatText("%1upload/multi", ..WebApplicationName)
   set expected = ""
-  
+
   set payload = {
     "file_a": (stream),
     "file_b": (stream)
-  }  
-  
+  }
+
   return $$$AssertStatusOK(..AssertRequest(resource, expected, "POST", .payload,, "multipart/form-data"), $$$FormatText("can handle multipart uploads", resource))
 ]]></Implementation>
 </Method>
@@ -7150,11 +7545,11 @@ This is only to demonstrate, DO NOT USE this in production environments.</Descri
   set file = ##class(%File).%New(filePath)
   do file.Open("RS")
 
-  set resource = $$$FormatText("%1upload", ..WebApplicationName)  
+  set resource = $$$FormatText("%1upload", ..WebApplicationName)
   set expected = ""
-  
-  set submmitted = file.Name  
-  set expectation = ..GetTestDirectory("fixtures/uploads/single/file.txt")  
+
+  set submmitted = file.Name
+  set expectation = ..GetTestDirectory("../fixtures/uploads/single/file.txt")
 
   return $$$AssertStatusOK(..AssertRequest(resource, "", "POST", file,,"text/plain"), $$$FormatText("can upload a single file %1", resource))
 ]]></Implementation>
@@ -7162,9 +7557,10 @@ This is only to demonstrate, DO NOT USE this in production environments.</Descri
 
 <Method name="TestGETStaticFile">
 <Implementation><![CDATA[
-  for i = "README.md", "LICENSE.md", "CONTRIBUTING.md", "cls/Frontier/Router.cls", "cls/Frontier/UnitTest/Router.cls" {
+  for i = "README.md", "LICENSE.md", "CONTRIBUTING.md" {
     set filePath = ##class(%File).NormalizeFilename(##class(Port.Configuration).GetWorkspace("frontier")_"/"_i)
     set file = ##class(%Stream.FileCharacter).%New()
+    set file.TranslateTable = "UTF8"
     do file.LinkToFile(filePath)
     set resource = $$$FormatText("%1public/%2", ..WebApplicationName, i)
     do $$$AssertStatusOK(..AssertRequest(resource, file.Read(), "GET"), "can fetch file from "_resource)
@@ -7292,10 +7688,12 @@ This is only to demonstrate, DO NOT USE this in production environments.</Descri
 #define NormalizeClassName(%cn) if $l(%cn, ".") = 1 && ($e(%cn) = "%") set %cn = "%Library."_$e(%cn, 2, *)
 #define OSSlash $case($$$isWINDOWS, 1: "\", : "/")
 #define AssertClassExists(%o) return:'$isobject(%o) $$$ERROR($$$ClassDoesNotExist, %o)
+#define NULL $s($$$isWINDOWS : "//./nul", 1: "/dev/null")
+#define ObjectOrNull(%obj) $select($isobject(%obj) : %obj, 1: "null")
 ]]></Routine>
 
 
-<Project name="frontier" LastModified="2019-02-07 09:39:04.528512" TargetType="2" HttpServer="http://localhost:57772">
+<Project name="frontier" LastModified="2019-05-09 11:26:27.301384" Target="##class(Frontier.Authentication.CookieStrategy).T()" TargetType="2" HttpServer="http://localhost:57772">
   <Items>
     <ProjectItem name="Frontier.AbstractSerializer" type="CLS"></ProjectItem>
     <ProjectItem name="Frontier.ArgumentDescription" type="CLS"></ProjectItem>
@@ -7327,6 +7725,7 @@ This is only to demonstrate, DO NOT USE this in production environments.</Descri
     <ProjectItem name="Frontier.Schema.Route" type="CLS"></ProjectItem>
     <ProjectItem name="Frontier.Schema.Routes" type="CLS"></ProjectItem>
     <ProjectItem name="Frontier.Schema.Util" type="CLS"></ProjectItem>
+    <ProjectItem name="Frontier.Security.CookieSignature" type="CLS"></ProjectItem>
     <ProjectItem name="Frontier.SessionEvents" type="CLS"></ProjectItem>
     <ProjectItem name="Frontier.Shared.Utilities" type="CLS"></ProjectItem>
     <ProjectItem name="Frontier.Types" type="CLS"></ProjectItem>
@@ -7350,5 +7749,8 @@ This is only to demonstrate, DO NOT USE this in production environments.</Descri
     <ProjectItem name="UnitTest.Frontier.Types" type="CLS"></ProjectItem>
     <ProjectItem name="frontier.INC" type="MAC"></ProjectItem>
   </Items>
+  <BreakPoints>
+    <BreakPoint Routine="Frontier.Authentication.CookieStrategy.CLS" Offset="T+1"></BreakPoint>
+  </BreakPoints>
 </Project>
 </Export>

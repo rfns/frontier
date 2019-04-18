@@ -4,17 +4,15 @@
 
 # Frontier
 
-Frontier is a REST application framework that prevents divertion from the business code. It imposes a coding style style where __dispatcher methods should always return a value or throw an exception.__
+Frontier is a REST framework made with the purpose of reducing boilerplate code and imposing a clean coding style where __dispatcher methods should always return a value or throw an exception.__ This way the application will never use the WRITE command manually inside these kind of methods.
 
 # Why?
 
-Have you ever found yourself dealing with repetitive tasks like mounting objects, serializing them and eventually handling multiple kind of errors? Frontier is made to boost your development by making you focus on what really matters: your application.
-
-Using Frontier you'll stop using the WRITE command, leaving the output handling to the framework instead.
+Have you ever found yourself dealing with repetitive tasks like mounting objects, serializing them and eventually handling multiple kind of errors? Frontier was built to boost your development by making you focus on what really matters: your application.
 
 # Features
 
-%CSP.REST is the base class *exclusive* for creating RESTful applications. While Frontier uses the %CSP.REST for welcoming the requests, it overwrites how %CSP.REST transports the request to the dispatcher method in a way that you can use it even if your application is not RESTful.
+%CSP.REST is the base class *exclusive* for creating RESTful applications. While Frontier uses the %CSP.REST for welcoming the requests, it overwrites how %CSP.REST transports the request to the dispatcher method in a way that you can use it even if your application is not RESTful. Here's how Frontier compares to the default %CSP.REST:
 
 | Feature | Frontier | %CSP.REST
 | :------- | :------- | :---- |
@@ -60,10 +58,8 @@ ClassMethod SayHello() As %String
   set value = oops
 }
 ```
-
 * __Typed argument:__ Set the argument type as something that extends from %Persistent and it'll be
 replaced with the instance resulting from an implicit %OpenId call right before the dispatcher method is invoked. This works for both: query parameters and route parameters.
-
 ```
 ClassMethod TestGETRouteParams(class As Frontier.UnitTest.Fixtures.Class) As %Status
 {
@@ -72,9 +68,7 @@ ClassMethod TestGETRouteParams(class As Frontier.UnitTest.Fixtures.Class) As %St
   return class
 }
 ```
-
 * __Query parameters:__ Unhandled arguments (not explicitly set on Route/Map) are considered as query parameters. By default they are required, however it's possible to make them optional simply by providing a default value.
-
 ```
 ClassMethod SayHelloTo(who As %String = "John Doe") As %String
 {
@@ -83,9 +77,7 @@ ClassMethod SayHelloTo(who As %String = "John Doe") As %String
   return "hello "_who
 }
 ```
-
 * __Variable number of arguments:__ Multiple query parameters with the same name but different indexes. To enable it, use the three dot notation.
-
 ```
 ClassMethod TestGETRestParametersSum(n... As %String) As %Integer
 {
@@ -96,9 +88,7 @@ ClassMethod TestGETRestParametersSum(n... As %String) As %Integer
   return sum
 }
 ```
-
 * __Payload handling:__ Client applications requiring to send payload data (normally JSON), can be handled by the server with methods whose parameters are typed from %DynamicAbstractObject instances.
-
 ```
 ClassMethod EchoUserPayload(payload As %DynamicObject) As %DynamicObject
 {
@@ -107,9 +97,7 @@ ClassMethod EchoUserPayload(payload As %DynamicObject) As %DynamicObject
   return payload
 }
 ```
-
 * __Unmarshaling:__ Set `UNMARSHAL=1` while typing the payload to a persistent class so that the payload will be parsed and unmarshalled to it.
-
 ```
 ClassMethod CreateClass(class As Frontier.UnitTest.Fixtures.Class(UNMARSHAL=1)) As Frontier.UnitTest.Fixtures.Student
 {
@@ -124,7 +112,6 @@ ClassMethod CreateClass(class As Frontier.UnitTest.Fixtures.Class(UNMARSHAL=1)) 
   }
 }
 ```
-
 * __SQL results:__ Return a serializable SQL result using the Frontier SQL API.
 ```
 ClassMethod GetPaginatedSQLResult(
@@ -143,7 +130,6 @@ ClassMethod GetPaginatedSQLResult(
   return %frontier.SQL.Prepare("Package.Class:QueryName").Parameters(limit, offset)
 }
 ```
-
 * __Streams:__ Return a stream instance to deliver a content that exceeds the maximum string length.
 ```
 ClassMethod TestGETStream() As %Stream.Object
@@ -154,7 +140,6 @@ ClassMethod TestGETStream() As %Stream.Object
   return stream
 }
 ```
-
 *  __Seamless object serialization:__ Mix multiple object types into a single returning `%DynamicObject/%DynamicArray` instance and all its composition will be mutated to dynamic instances as well.
 ```
 ClassMethod TestGETMixedDynamicObject(class As Frontier.UnitTest.Fixtures.Class) As %DynamicObject
@@ -165,7 +150,6 @@ ClassMethod TestGETMixedDynamicObject(class As Frontier.UnitTest.Fixtures.Class)
   }
 }
 ```
-
 * __Shareable object__: Allows the context to share a set of objects that can be retrived on each dispatcher method.
 ```
 ClassMethod OnDataSet(data As %DynamicObject) As %Status
@@ -184,7 +168,7 @@ ClassMethod TestGETData() As %DynamicObject
 
 # Configuring the router
 
-Each Router class provides a configuration method called `OnSetup()`. This method allows the developer to define how the Router should behave for certain situations. Configuration is made by using the helpers provided in the `%frontier` object.
+Each Router class provides a configuration method called `OnSetup()`. This method allows the developer to define how the Router should behave for certain situations. Configuration is made by using the helpers provided in the `%frontier` object which is composed by several modules to handle different tasks.
 
 ## Authentication
 
@@ -273,9 +257,20 @@ Returning the provider will output `{ "results": [{...}, {...} ...]}`. If you wa
 
 > NOTE #2: You cannot use this API the iterate over each row, if you want to do so, then you're recommended to use the %SQL.Statement API itself.
 
-# Using the query builder
+## Using the query builder
 
-You can also allow the client to provide you the query, this can be useful for creating in-app advanced filters. You can setup the query builder by making it respond in place
+You can also allow the client to provide you the query, this can be useful for creating in-app advanced filters. You can setup the query builder by making it respond in place of the default API. E.g.
+
+```
+ClassMethod InlineQuery(filter As %String = "", page As %String = "", fields As %String = "id, name, ssn", orderBy As %String = "id asc, dob desc", limit As %Integer = 50) As Frontier.SQL.Provider
+{
+  set builder = %frontier.SQL.InlineQueryBuilder()
+  do builder.For("Sample.Person")
+  do builder.Filter(filter)
+  do builder.OrderBy("id as PersonID, SSN")
+  return builder.Build().Provide()
+}
+```
 
 # The Frontier Files API
 
@@ -283,7 +278,12 @@ This enables the application to serve or receive static files.
 
 ## Serving files
 
-Files are served starting from the `root` path that's only know to the application, combined with the URL match that indicates the root path's subdirectory. E.g.:
+There are two ways of serving a file. You can serve a directory or a single file.
+
+### Server a directory
+
+Serving a directory means that the user can select what to retrieve by using the URL path. As long as it belongs
+to the directory you provided the access: files are served starting from the `root` path that's only know to the server, combined with the URL match that indicates the root path's subdirectory. E.g.
 
 ```
 URL is             /my/application/static/docs/help.txt
@@ -291,7 +291,7 @@ Root is            /var/lib/app/public
 Which resolves to  /var/lib/app/public/docs/help.txt
 ```
 
-In order to serve files, you must make sure that you have configured a `Route` that:
+In order to serve files inside a directory, you must make sure that you have configured a `Route` that:
 
 1. Has `Strict` set to "false". So that you can use regular expressions.
 2. Uses group to capture the file path. Something like `?(.*)?` should be enough.
@@ -312,9 +312,25 @@ ClassMethod TestGETStaticFile() As %Stream.Object
 }
 ```
 
-This is the most basic format to start serving files.
+This is the most basic format to start serving files from a directory.
 
 Check out the class [Frontier.UnitTest.Router](https://github.com/rfns/frontier/blob/feature/files/cls/Frontier/UnitTest/Router.cls), method `TestGETStaticFileWithCustomConfig` to learn how to use advanced configurations.
+
+### Serving a file
+
+One of the cons on serving a directory is that the path inside the directory gets exposed. Serving a file however, allows the application to mask that path using the route url instead with the limitation of serving a file exclusively.
+
+```
+<Route Url="/static/documents/:id" Strict="false" Method="GET" Call="GetUserDocument"/>
+```
+
+```
+ClassMethod GeUserDocument(id As %String) As %Status
+{
+  set path = ##class(%File).NormalizeFilename(id_".pdf", "/uploads/files/pdf")
+  return %frontier.Files.ServeFile(path)
+}
+```
 
 ## Receiving files
 
@@ -382,6 +398,6 @@ If you want to contribute with this project, you're encouraged to do so, however
 
 ## LICENSE
 
-[MIT](https://github.com/rfns/forgery/blob/master/LICENSE.md).
+[MIT](https://github.com/rfns/frontier/blob/master/LICENSE.md).
 
 

@@ -1,23 +1,25 @@
 Include (frontier, %ZEN.Utils)
 
+/// This class holds the default implementation used to handle device redirection.
+/// You should not use this class but instead its specializations.
 Class Frontier.AbstractSerializer [ Abstract ]
 {
 
 ClassMethod SerializeToStream(Output str As %Stream.Object = "", arguments...) As %Status [ ProcedureBlock = 0 ]
 {
   new oldMnemonic, alreadyRedirected, sc
-  
+
   set sc = $$$OK
   set isRedirected = 0
-  
+
   set str = ##class(%Stream.TmpBinary).%New()
   set alreadyRedirected = ##class(%Device).ReDirectIO()
   set oldMnemonic = "^"_##class(%Device).GetMnemonicRoutine()
   set initIO = $io
-  
-  try {    
+
+  try {
     use $io::("^"_$zname)
-    
+
     do ##class(%Device).ReDirectIO(1)
     set isRedirected = 1
     set sc = ..Serialize(arguments...)
@@ -25,18 +27,18 @@ ClassMethod SerializeToStream(Output str As %Stream.Object = "", arguments...) A
   } catch ex {
     set str = ""
     set sc = ex.AsStatus()
-  }   
-  
+  }
+
   if oldMnemonic '= "" {
     use initIO::(oldMnemonic)
   } else {
     use oldMnemonic
   }
-  
-  do ##class(%Device).ReDirectIO(alreadyRedirected)  
-      
+
+  do ##class(%Device).ReDirectIO(alreadyRedirected)
+
   return sc
-  
+
 wstr(s) Do str.Write(s) Quit
 wchr(a) Do str.Write($char(a)) Quit
 wnl Do str.Write($char(13,10)) Quit
@@ -46,13 +48,4 @@ rstr(len,time) Quit ""
 rchr(time) Quit ""
 }
 
-ClassMethod HandleJSONWord(value As %String)
-{
-  if value?1(1"true",1"false",1"null") {
-    return value    
-  }
-  return $$$ZENJSONVALUE(value, "s")
 }
-
-}
-

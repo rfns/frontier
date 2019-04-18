@@ -18,11 +18,11 @@ Property Agent As Forgery.Agent;
 Method OnBeforeAllTests() As %Status [ PublicList = %session ]
 {
   do ##class(Frontier.UnitTest.Fixtures.Student).%DeleteExtent()
-  do ##class(Frontier.UnitTest.Fixtures.Class).%DeleteExtent()  
-  
+  do ##class(Frontier.UnitTest.Fixtures.Class).%DeleteExtent()
+
   do ##class(Frontier.UnitTest.Fixtures.Student).Populate()
   do ##class(Frontier.UnitTest.Fixtures.Class).Populate()
-  
+
   &sql(SELECT TOP 1 ID INTO :classId FROM FRONTIER_UNITTEST_FIXTURES.CLASS)
   &sql(SELECT TOP 1 ID INTO :studentId FROM FRONTIER_UNITTEST_FIXTURES.STUDENT)
 
@@ -38,6 +38,7 @@ Method OnBeforeAllTests() As %Status [ PublicList = %session ]
 Method OnAfterAllTests() As %Status [ PublicList = %session ]
 {
   kill %session
+  do ##class(%File).RemoveDirectoryTree(..GetTestDirectory("../fixtures"))
   return $$$OK
 }
 
@@ -47,16 +48,16 @@ Method AssertRequest(resource As %String, expected As %DynamicAbstractObject = "
   // Default authHeader is Basic foo:bar. Refer to the ValidateCredentials method defined in the Frontier.UnitTest.Router class.
   // There's also an admin:admin account that is used to simulate scope usage.
   set sc = ..Agent.Request({
-    "url": (resource), 
+    "url": (resource),
     "method": (method),
-    "data": (payload), 
+    "data": (payload),
     "headers": {
       "Authorization": (authHeader),
       "Content-Type": (contentType)
     }
   }, .response)
-  
-  $$$QuitOnError(sc)   
+
+  $$$QuitOnError(sc)
 
   set responseText = response.Read()
   set expectedText = expected
@@ -119,14 +120,14 @@ Method TestPOSTMixedRestParametersSum()
 
 Method TestPOSTUnmarshalToClass()
 {
-   
+
   &sql(SELECT TOP 1 CAST(ID + 1 as VARCHAR) INTO :classId FROM FRONTIER_UNITTEST_FIXTURES.CLASS ORDER BY ID DESC)
-  
+
   set resource = $$$FormatText("%1unmarshal", ..WebApplicationName)
   set payload = {"Plate": "R-101-3", "Students": [(..Student.%Id())]}
   set expected = {"ok": 1, "__id__": (classId)}
-  set result = ..AssertRequest(resource, expected, "POST", payload)  
-  
+  set result = ..AssertRequest(resource, expected, "POST", payload)
+
   return $$$AssertStatusOK(result, $$$FormatText("can unmarshal the payload data to the expected result when POST'ing to %1", resource))
 }
 
@@ -226,12 +227,12 @@ Method TestGETDynamicSQLResult()
   set sd.%SelectMode = 2
   do sd.%Prepare("SELECT *, %VID as Index FROM (SELECT * FROM FRONTIER_UNITTEST_FIXTURES.STUDENT) WHERE %VID BETWEEN ? AND ?")
   set mt = sd.%Metadata
-  set rd = sd.%Execute(1, 5)      
-  
+  set rd = sd.%Execute(1, 5)
+
   set sc = ##class(Frontier.SQL.Serializer).SerializeToStream(.s, rd, mt)
-  set array =  {}.%FromJSON(.s)   
+  set array =  {}.%FromJSON(.s)
   set expected = {"results":(array)}
-  
+
   return $$$AssertStatusOK(..AssertRequest(resource, expected.%ToJSON()), $$$FormatText("can retrieve the expected data from the resource %1", resource))
 }
 
@@ -244,9 +245,9 @@ Method TestGETQuerySQLResult()
   do sd.%PrepareClassQuery("Frontier.UnitTest.Fixtures.Student", "PaginatedStudents")
   set mt = sd.%Metadata
   set rd = sd.%Execute(1, 5)
-  
+
   set sc = ##class(Frontier.SQL.Serializer).SerializeToStream(.s, rd, mt)
-  set array =  {}.%FromJSON(.s)   
+  set array =  {}.%FromJSON(.s)
   set expected = {"results":(array)}
   return $$$AssertStatusOK(..AssertRequest(resource, expected.%ToJSON()), $$$FormatText("can retrieve the expected data from the resource %1", resource))
 }
@@ -337,19 +338,19 @@ Method TestPOSTFileUpload()
   )
   set file = ##class(%File).%New(filePath)
   do file.Open("RS")
-  
+
   set stream = ##class(%CSP.CharacterStream).%New()
   do stream.CopyFrom(file)
   set stream.FileName = file.Name
-  
-  set resource = $$$FormatText("%1upload/multi", ..WebApplicationName)  
+
+  set resource = $$$FormatText("%1upload/multi", ..WebApplicationName)
   set expected = ""
-  
+
   set payload = {
     "file_a": (stream),
     "file_b": (stream)
-  }  
-  
+  }
+
   return $$$AssertStatusOK(..AssertRequest(resource, expected, "POST", .payload,, "multipart/form-data"), $$$FormatText("can handle multipart uploads", resource))
 }
 
@@ -363,20 +364,21 @@ Method TestPOSTSingleFileUpload()
   set file = ##class(%File).%New(filePath)
   do file.Open("RS")
 
-  set resource = $$$FormatText("%1upload", ..WebApplicationName)  
+  set resource = $$$FormatText("%1upload", ..WebApplicationName)
   set expected = ""
-  
-  set submmitted = file.Name  
-  set expectation = ..GetTestDirectory("fixtures/uploads/single/file.txt")  
+
+  set submmitted = file.Name
+  set expectation = ..GetTestDirectory("../fixtures/uploads/single/file.txt")
 
   return $$$AssertStatusOK(..AssertRequest(resource, "", "POST", file,,"text/plain"), $$$FormatText("can upload a single file %1", resource))
 }
 
 Method TestGETStaticFile()
 {
-  for i = "README.md", "LICENSE.md", "CONTRIBUTING.md", "cls/Frontier/Router.cls", "cls/Frontier/UnitTest/Router.cls" {
+  for i = "README.md", "LICENSE.md", "CONTRIBUTING.md" {
     set filePath = ##class(%File).NormalizeFilename(##class(Port.Configuration).GetWorkspace("frontier")_"/"_i)
     set file = ##class(%Stream.FileCharacter).%New()
+    set file.TranslateTable = "UTF8"
     do file.LinkToFile(filePath)
     set resource = $$$FormatText("%1public/%2", ..WebApplicationName, i)
     do $$$AssertStatusOK(..AssertRequest(resource, file.Read(), "GET"), "can fetch file from "_resource)
@@ -385,4 +387,3 @@ Method TestGETStaticFile()
 }
 
 }
-

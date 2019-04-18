@@ -1,5 +1,6 @@
 Include (%occErrors, %occStatus)
 
+/// Testando.
 Class Frontier.Authentication.BasicStrategy Extends Frontier.Authentication.Strategy
 {
 
@@ -24,8 +25,8 @@ Method Verify(session As %CSP.Session, request As %CSP.Request, response As %CSP
   set sc = $$$OK
   set found = 0
   set httpStatus = ""
-  set authHeader = request.GetCgiEnv("HTTP_AUTHORIZATION")  
-  
+  set authHeader = request.GetCgiEnv("HTTP_AUTHORIZATION")
+
   if authHeader = "" {
     // Let the manager call the next strategy, if that's the last one than the error is
     // fired by the router class.
@@ -37,7 +38,7 @@ Method Verify(session As %CSP.Session, request As %CSP.Request, response As %CSP
   } else {
     set credentials = $System.Encryption.Base64Decode($piece(authHeader, " ", 2))
     set userName = $piece(credentials, ":")
-    set password = $piece(credentials, ":", 2)    
+    set password = $piece(credentials, ":", 2)
     set sc = ##class(Frontier.Shared.Utilities).SafeClassMethodCall(..Validator, userName, password, .found, .httpStatus, .user)
     set ..Verified = found
     if $$$ISERR(sc) {
@@ -45,12 +46,12 @@ Method Verify(session As %CSP.Session, request As %CSP.Request, response As %CSP
       else  set response.Status = "500 Internal Server Error"
     }
   }
-  
+
   if $$$ISOK(sc) && (found = 0) {
     set sc = $$$ERROR($$$InvalidUsernameOrPassword)
     set response.Status = "403 Forbidden"
   }
-  
+
   return sc
 }
 

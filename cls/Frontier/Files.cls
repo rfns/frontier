@@ -31,6 +31,23 @@ Method ServeFrom(root As %String) As %Stream.Object
       "md": {
         "disposition": "inline",
         "mimeType": "text/markdown",
+        "charset": "utf-8",
+        "binary": false
+      }
+    }
+  })
+}
+
+Method ServeFile(absoluteFilePath As %String, charset As %String = "utf-8") As %Stream.Object
+{
+  return ..Serve({
+    "file": (absoluteFilePath),
+    "etag": "weak",
+    "charset": (charset),
+    "extensions": {
+      "md": {
+        "disposition": "inline",
+        "mimeType": "text/markdown",
         "binary": false
       }
     }
@@ -39,32 +56,40 @@ Method ServeFrom(root As %String) As %Stream.Object
 
 Method Serve(config As %DynamicObject) As %Status
 {
-      
-  set directory = config.root
-  set indexAs = config.index  
-  
-  // Makes sure request is not returned using JSON format.
+       
+  // Make sure to stream the file in plain text.
   do ..Context.Raw()
   
-  // Checks if a path to a file has been provided. 
-  set virtualPath = $get(..Context.Matches(1))
-  set requestDirectory = ""  
-  
-  // Otherwise fallback to possible indexAs files.
-  if virtualPath = "" set virtualPath = indexAs
-  set fileExists = 0
-  
-  // Attempted to access a path outside the root.
-  if virtualPath [ ".." {
-    return ..Context.ThrowException("File does not exist.", "404 Not Found")
-  }
-  
-  for i=1:1:$length(virtualPath, " ") {
-    set virtualFileName = $piece(virtualPath, " ", i)
-    set requestDirectory = ##class(%File).NormalizeFilename(virtualFileName, directory)
-    if ##class(%File).Exists(requestDirectory) set fileExists = 1 quit
-  }
+  if config.%IsDefined("file") {
+    // We are only serving a file that we define which is it.
+    set normalizedAbsoluteFilePath = ##class(%File).NormalizeFilename(config.file)
+    set fileExists = ##class(%File).Exists(normalizedAbsoluteFilePath)
+    set requestDirectory = normalizedAbsoluteFilePath
+  } else {
+    // We are serving a directory.
+    set directory = config.root
+    set indexAs = config.index  
     
+    // Checks if a path to a file has been provided. 
+    set virtualPath = $get(..Context.Matches(1))
+    set requestDirectory = ""  
+    
+    // Otherwise fallback to possible indexAs files.
+    if virtualPath = "" set virtualPath = indexAs
+    set fileExists = 0
+    
+    // Attempted to access a path outside the root.
+    if virtualPath [ ".." {
+      return ..Context.ThrowException("File does not exist.", "404 Not Found")
+    }
+    
+    for i=1:1:$length(virtualPath, " ") {
+      set virtualFileName = $piece(virtualPath, " ", i)
+      set requestDirectory = ##class(%File).NormalizeFilename(virtualFileName, directory)
+      if ##class(%File).Exists(requestDirectory) set fileExists = 1 quit
+    }       
+  }
+  
   if 'fileExists {
     return ..Context.ThrowException("File does not exist.", "404 Not Found")
   } 
@@ -75,19 +100,25 @@ Method Serve(config As %DynamicObject) As %Status
   set extension = $piece(fileName, ".", *)
   
   set contentConfig = ..GetContentConfiguration(extension, config)
+  set charset = contentConfig.charset
   
   if contentConfig.binary = 1 {
     // Prevents content corruption.
     set ..Context.Response.NoCharSetConvert = 1
+    set ..Context.Response.CharSet = ""
     set stream = ##class(%Stream.FileBinary).%New()      
   } else {
-    set stream = ##class(%Stream.FileCharacter).%New() 
+    set stream = ##class(%Stream.FileCharacter).%New()
+    if charset '= "" {
+      set stream.TranslateTable = $$MapCharset^%SYS.NLS(charset)
+      set ..Context.Response.CharSet = contentConfig.charset
+    }
   } 
     
   $$$ThrowOnError(stream.LinkToFile(requestDirectory))  
   
   set ..Context.Response.ContentType = contentConfig.mimeType
-  set ..Context.Response.ContentLength = stream.Size
+  set ..Context.Response.ContentLength = stream.Size  
   
   set extensionMatch = 0
   
@@ -103,7 +134,7 @@ Method Serve(config As %DynamicObject) As %Status
     do ..Context.Response.SetHeader("Cache-Control", contentConfig.cache.configuration)
   }
       
-  if ..IsCacheHit(stream) {        
+  if ..IsCacheHit(stream, config.etag) {
     do ..Context.Status("304 Not Modified")  
     return ""
   } 
@@ -119,9 +150,13 @@ Method Serve(config As %DynamicObject) As %Status
 
 Method GetContentConfiguration(extension As %String, config As %DynamicObject) As %DynamicObject [ Private ]
 {
+  
+  set defaultCharset = config.charset
   set extensionConfig = $property(config.extensions, extension)
   
-  do ##class(%CSP.StreamServer).FileClassify(extension, .contentType, .bin, .charset)
+  do ##class(%CSP.StreamServer).FileClassify(extension, .contentType, .bin, .charset)  
+  if charset = "" set charset = defaultCharset
+  if charset = "" set charset = "utf-8"
   
   if '$isobject(extensionConfig) set extensionConfig = {}
   if '$isobject(config.cache) set config.cache = {}
@@ -130,14 +165,14 @@ Method GetContentConfiguration(extension As %String, config As %DynamicObject) A
     extensionConfig, 
     { "cache": (config.cache) },
     { "cache": { "configuration": "max-age=2628000, public", "ignore": [] } },
-    { "binary": (bin), "mimeType": (contentType) },
+    { "binary": (bin), "mimeType": (contentType), "charset": (charset) },
     { "disposition": "inline" } 
   )
 }
 
-Method MakeETag(stream As %Stream.Object, type As %String) As %String [ Private ]
+Method MakeETag(stream As %Stream.Object, validator As %String) As %String [ Private ]
 {
-  if type = "strong" {
+  if validator = "strong" {
     set hash = ##class(%File).SHA1Hash(stream.Filename)
     return $c(34)_$zcvt(##class(%xsd.hexBinary).LogicalToXSD(hash), "l")_$c(34)
   }
@@ -146,10 +181,10 @@ Method MakeETag(stream As %Stream.Object, type As %String) As %String [ Private 
   return "W/"_$c(34)_$zcvt(##class(%xsd.hexBinary).LogicalToXSD(hash), "l")_$c(34)
 }
 
-Method IsCacheHit(stream As %Stream.Object) As %Boolean [ Private ]
+Method IsCacheHit(stream As %Stream.Object, validator As %String) As %Boolean [ Private ]
 {
   set ifNoneMatch = ..Context.Request.GetCgiEnv("HTTP_IF_NONE_MATCH")  
-  if ifNoneMatch '= "" && (ifNoneMatch = ..MakeETag(stream)) return 1
+  if ifNoneMatch '= "" && (ifNoneMatch = ..MakeETag(stream, validator)) return 1
   return 0
 }
 

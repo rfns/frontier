@@ -20,7 +20,7 @@ ClassMethod SanitizeFilename(fileName) As %String
   if fileName [ "/" set fileName = $piece(fileName, "/", *)
   if fileName [ "\" set fileName = $piece(fileName, "\", *)
   
-  set fileName = $translate(fileName, "‡·¡¿¬‚√¡¬√„ËÈ…»Í …ÏÌÕÃŒÓÚÛ”“‘Ù’”‘ı˘˙⁄Ÿ€˚«Á÷ˆ‹¸—", "aaAAAaAAAAaeeEEeEEiiIIIiooOOOOOoOouuUUUuCcOoUuN")
+  set fileName = $translate(fileName, "√†√°√Å√Ä√Ç√¢√É√Å√Ç√É√£√®√©√â√à√™√ä√â√¨√≠√ç√å√é√Æ√≤√≥√ì√í√î√¥√ï√ì√î√µ√π√∫√ö√ô√õ√ª√á√ß√ñ√∂√ú√º√ë", "aaAAAaAAAAaeeEEeEEiiIIIiooOOOOOoOouuUUUuCcOoUuN")
   return $zstrip(fileName, "*E'N'A", "", "_-@. ")
 }
 
@@ -82,7 +82,7 @@ ClassMethod SafeMethodCallAndReturn(sc As %Status = {$$$OK}, instance As %Regist
     set ret = $method(instance, method, args...)
     if $extract(ret, 1, 2) = "0 " && $lv($p(ret, " ", 2)) {
       set errcode = $$$GETERRORCODE(ret)
-      if errcode?4N = 1 {
+      if errcode '= "" {
         set sc = ret
         set ret = ""
       }
@@ -101,6 +101,49 @@ ClassMethod URLBase64Encode(value As %String) As %String
 ClassMethod URLBase64Decode(value As %String) As %String
 {
   return $System.Encryption.Base64Decode($translate(value, "-_", "+/"))
+}
+
+ClassMethod CallAndCapture(object, method As %String, Output str As %Stream.GlobalCharacter = "", args... As %String) As %Status [ ProcedureBlock = 0 ]
+{
+  new oldMnemonic, alreadyRedirected, sc
+  
+  set sc = $$$OK
+  set isRedirected = 0  
+  
+  set str = ##class(%Stream.GlobalCharacter).%New()
+  set alreadyRedirected = ##class(%Device).ReDirectIO()
+  set oldMnemonic = "^"_##class(%Device).GetMnemonicRoutine()
+  set initIO = $io  
+  
+  try {   
+    use $io::("^"_$zname)    
+    do ##class(%Device).ReDirectIO(1)
+    set isRedirected = 1    
+    if $isobject(object) set sc = $method(object, method, args...)
+    else  set class = object set sc = $classmethod(class, method, args...)
+    do str.Rewind()
+  } catch ex {
+    set str = ""
+    set sc = ex.AsStatus()
+  }     
+  
+  if oldMnemonic '= "" {
+    use initIO::(oldMnemonic)
+  } else {
+    use oldMnemonic
+  }
+  
+  do ##class(%Device).ReDirectIO(alreadyRedirected)
+      
+  return sc
+  
+wstr(s) Do str.Write(s) Quit
+wchr(a) Do str.Write($char(a)) Quit
+wnl Do str.Write($char(13,10)) Quit
+wff Do str.Write($char(13,10,13,10)) Quit
+wtab(n) Do str.Write($c(9)) Quit
+rstr(len,time) Quit ""
+rchr(time) Quit ""
 }
 
 }
