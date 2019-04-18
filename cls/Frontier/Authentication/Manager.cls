@@ -115,5 +115,10 @@ Method SetChallenge(strategy As Frontier.Authentication.Strategy) [ Private ]
   $$$ThrowOnError(sc)
 }
 
+Method HasStrategies() As %Boolean
+{
+  return ..Strategies.Count() > 0
+}
+
 }
 

@@ -462,6 +462,12 @@ ConstantTimeCompare(a, b)
   $$$ThrowOnError(sc)
 ]]></Implementation>
 </Method>
+
+<Method name="HasStrategies">
+<ReturnType>%Boolean</ReturnType>
+<Implementation><![CDATA[  return ..Strategies.Count() > 0
+]]></Implementation>
+</Method>
 </Class>
 
 
@@ -1089,12 +1095,13 @@ ConstantTimeCompare(a, b)
     set property = properties.GetAt(index)
     if property = "" return 0
     
-    set index = index + 1
-    if property.MultiDimensional || property.Private || property.Internal || ($extract(property.Name) = "%") {
-      continue
-    } else {
-      return 1
-    }     
+    set index = index + 1    
+    
+    if property.MultiDimensional || property.Private || property.Internal continue
+    if ($extract(property.Name) = "%") continue
+    if property.Cardinality = "parent" || property.Cardinality = "one" continue
+      
+    return 1    
   }
 ]]></Implementation>
 </Method>
@@ -1386,7 +1393,7 @@ WriteEscaped(v)
   do v.Rewind()
   
   // Instead of using AtEnd, we compare the stream size with the buffer read size.
-  // This is because apparently AtEnd doesn't track the position correctly when the device is redirected.
+  // We use it this way, because apparently AtEnd doesn't track the position correctly when the device is redirected.
   // This can also be related to how we are dealing with this redirection along with %CSP.REST.
   while readCount < v.Size {
     set buffer = v.Read()
@@ -1425,22 +1432,28 @@ WriteEscaped(v)
 <Private>1</Private>
 </Property>
 
+<Property name="Strict">
+<Type>%Boolean</Type>
+<InitialExpression>0</InitialExpression>
+</Property>
+
 <Method name="%OnNew">
-<FormalSpec>formatter:Frontier.PropertyFormatter=""</FormalSpec>
+<FormalSpec>formatter:Frontier.PropertyFormatter="",strict:%Boolean=0</FormalSpec>
 <Private>1</Private>
 <ReturnType>%Status</ReturnType>
 <Implementation><![CDATA[
   set ..Formatter = formatter
+  set ..Strict = strict
   return $$$OK
 ]]></Implementation>
 </Method>
 
 <Method name="Unmarshal">
 <ClassMethod>1</ClassMethod>
-<FormalSpec>className:%String,source:%DynamicAbstractObject,*result:%RegisteredObject="",formatter:Frontier.PropertyFormatter=""</FormalSpec>
+<FormalSpec>className:%String,source:%DynamicAbstractObject,*result:%RegisteredObject="",formatter:Frontier.PropertyFormatter="",strict:%Boolean=0</FormalSpec>
 <ReturnType>%Status</ReturnType>
 <Implementation><![CDATA[
-  set unmarshaller = ..%New(formatter)  
+  set unmarshaller = ..%New(formatter, strict)
   return unmarshaller.DetermineTypeAndUnmarshal(className, source, .result)
 ]]></Implementation>
 </Method>
@@ -1584,13 +1597,15 @@ WriteEscaped(v)
 </Method>
 
 <Method name="NextQualifiedProperty">
-<FormalSpec>className:%String,iterator:%Iterator.AbstractIterator,*key:%String="",*value="",*property:%Dictionary.CompiledProperty</FormalSpec>
+<FormalSpec>className:%String,iterator:%Iterator.AbstractIterator,*key:%String="",*value="",*property:%Dictionary.CompiledProperty,iterationError:%Status=$$$OK</FormalSpec>
 <Private>1</Private>
 <ReturnType>%Boolean</ReturnType>
 <Implementation><![CDATA[
+   
   #define IsQualifiedProperty(%p) '(%p.Private || %p.Calculated || ($extract(%p.Name) = "%"))  
      
   while 1 {
+    set iterationError = $$$OK
     set hasNext = iterator.%GetNext(.candidateKey, .candidateValue)
     if 'hasNext return 0
     
@@ -1598,7 +1613,13 @@ WriteEscaped(v)
     
     set propertyId = ..GetPropertyId(className, candidateKey)
     set property = ..GetAndCacheDefinition(propertyId)
-    if '$isobject(property) continue
+    
+    if '$isobject(property) {
+      if '..Strict continue
+      do ..UpdatePath(candidateKey)
+      set iterationError = $$$ERROR($$$GeneralError, $$$FormatText("Candidate field '%1' is not a property from '%2'", candidateKey, className))
+      return 0
+    }
     
     if $$$IsQualifiedProperty(property) {
       set key = candidateKey
@@ -1655,13 +1676,12 @@ WriteEscaped(v)
 
 <Method name="GetSerialObject">
 <ClassMethod>1</ClassMethod>
-<FormalSpec>type:%String,value,serial:%SerialObject=""</FormalSpec>
+<FormalSpec>type:%String,value,*serial:%SerialObject=""</FormalSpec>
 <Private>1</Private>
 <ReturnType>%Status</ReturnType>
 <Implementation><![CDATA[
   
   set serial = $classmethod(type, "%Open", $lb(value, type))
-  if serial = "" set serial = "null"
   return $$$OK
 ]]></Implementation>
 </Method>
@@ -1739,7 +1759,7 @@ WriteEscaped(v)
   
   set iterator = dynamicObject.%GetIterator()  
   
-  while ..NextQualifiedProperty(className, iterator, .key, .value, .property) {
+  while ..NextQualifiedProperty(className, iterator, .key, .value, .property, .sc) {    
     set type = ..GetInputType(value, property)
     set result = ""
     
@@ -2264,9 +2284,10 @@ TraverseException(payload, ex)
  
   #define DestinationAsObject(%d) if '$isobject(%d) set %d = { "path": (%d) }
   set sc = $$$OK 
+  set validMethods = $lb("POST", "PUT")
   
-  if ..Context.Request.Method '= "POST" {
-    return $$$ERROR($$$GeneralError, "Must use POST to handle form data.")
+  if $lf(validMethods, ..Context.Request.Method) < 1 {
+    return $$$ERROR($$$GeneralError, "Must use POST or PUT to handle uploads.")
   }
   
   if '$isobject(settings.filters) set settings.filters = {}
@@ -2284,13 +2305,15 @@ TraverseException(payload, ex)
     
     while it.%GetNext(.key, .destination) {    
       $$$DestinationAsObject(destination)
-      if destination.slots = "" set destination.slots = 1                 
+      if destination.slots = "" || (destination.slots < 0) set destination.slots = 1
         
-        set ssc = ..HandleMultipart(key, destination, settings.filters, .filePath)
-        if $$$ISOK(ssc) set ssc = $$$EMBEDSC(ssc, ..CallHook(settings.hooks.onItemUploadSuccess, key, destination, filePath))
-        else  set ssc = $$$EMBEDSC(ssc, ..CallHook(settings.hooks.onItemUploadError, key, destination, filePath, ssc))
-        set sc = $$$ADDSC(sc, ssc)
-        do result.%Push({ "sc": (ssc), "key": (key), "destination": (destination), "filePath": (filePath) })
+      set ssc = ..HandleMultipart(key, destination, settings.filters, .filePath)
+      
+      if $$$ISOK(ssc) set ssc = $$$EMBEDSC(ssc, ..CallHook(settings.hooks.onItemUploadSuccess, key, destination, filePath))
+      else  set ssc = $$$EMBEDSC(ssc, ..CallHook(settings.hooks.onItemUploadError, key, destination, filePath, ssc))
+      
+      set sc = $$$ADDSC(sc, ssc)
+      do result.%Push({ "sc": (ssc), "key": (key), "destination": (destination), "filePath": (filePath) })
     }           
   } elseif settings.destination '= "" {
     set sc = $$$ADDSC(sc, ..HandleSingleFile(settings.destination, settings.filters, .filePath))
@@ -2412,7 +2435,6 @@ AssertContentTypeMatch(multi)
   
   try {
     // Sometimes GetDirectory cannot find the directory.
-    // E.g.: C:\CacheProjects\DEV\frontier\tests\fixtures\uploads\single\file.txt
     // So we use $piece instead.
     // set path = ##class(%File).GetDirectory(filePath)
     set path = $piece(filePath, $$$OSSlash, 1, *-1)
@@ -2752,6 +2774,7 @@ BuildFilter(filter, templateMsg, normalizedFilter)
   #dim methodArgument As Frontier.ArgumentDescription
   #define TriggerPayloadFlag if ..HttpMethod = "POST" || (..HttpMethod = "PUT") || (..HttpMethod = "PATCH") set payloadFound = 1
   #define AssertSinglePayloadParameter throw:payloadFound=1 ##class(%Exception.StatusException).CreateFromStatus($$$ERROR($$$GeneralError, "Cannot have more than one payload for POST/PUT/PATCH requests."))
+  #define GetPayloadType(%classname) $case(%classname, "%Library.DynamicArray" : "array", : "object")
 
   set sc = $$$OK
 
@@ -2791,10 +2814,10 @@ BuildFilter(filter, templateMsg, normalizedFilter)
       }
 
       if shouldUnmarshall || isDynamic {
-        set dynamicClass = $select('shouldUnmarshall : methodArgument.Type, 1: "%DynamicObject")
+        set dynamicClass = $select('shouldUnmarshall : methodArgument.Type, 1: "%Library.DynamicObject")
         if ..Payload = "" {
           return $$$ERROR($$$GeneralError, $$$FormatText(jsonErrorMessage, dynamicClass))
-        }
+        }        
 
         // If there's already a payloadable argument and another one is found, then we fail the request.
         $$$AssertSinglePayloadParameter
@@ -2810,9 +2833,13 @@ BuildFilter(filter, templateMsg, normalizedFilter)
         try {
           set value = $classmethod(dynamicClass, "%FromJSON", ..Payload)
           if 'shouldUnmarshall {
-            set jsonType = "object"
-            if dynamicClass = "%DynamicArray" set jsonType = "array"
-            if $classname(value) '= ##class(%RegisteredObject).%ClassName()
+            set type = methodArgument.Type
+            $$$NormalizeClassName(type)
+            set expected = $$$GetPayloadType(type)
+            set received = $$$GetPayloadType($classname(value))
+            if expected '= received {
+              return $$$ERROR($$$GeneralError, $$$FormatText("Payload type mismatch: expected %1 but received %2", expected, received))
+            }
           }         
         } catch ex {
           return $$$ERROR($$$GeneralError, "Error while parsing the payload: the request did not send a valid JSON format.")
@@ -2873,10 +2900,15 @@ BuildFilter(filter, templateMsg, normalizedFilter)
   set preArguments = 0
   set methodArgumentsLength = ..MethodArguments.Count()
   set keysFound = ""
+  
+  if $data(requestArguments("Error:ErrorCode", 1)) {
+    return $$$EMBEDSC($$$ERROR($$$GeneralError, "A fatal error happened while trying to dispatch the result. Check this web application's configuration."), requestArguments("Error:ErrorCode", 1))
+  } 
 
   for {
     set key = $order(requestArguments(key))
     quit:key=""
+    
 
     set keyGroup = $$$KeyGroup(key)
     set $list(keysFound, *+1) = keyGroup
@@ -3035,9 +3067,13 @@ BuildFilter(filter, templateMsg, normalizedFilter)
 <FormalSpec>*methodReturn="",*stack:%Stream.Object=""</FormalSpec>
 <ReturnType>%Status</ReturnType>
 <Implementation><![CDATA[
+ 
   set sc = $$$OK
+  set io = $io
   merge methodArguments = ..Arguments
   set returnType = ..MethodDescriptor.ReturnType
+  
+  use $$$NULL
   
   new $estack   
 
@@ -3051,6 +3087,8 @@ BuildFilter(filter, templateMsg, normalizedFilter)
     do ##class(Frontier.Exception).CaptureStack(.stack)
     set sc = ex.AsStatus()
   }
+  
+  use io 
   return sc
 ]]></Implementation>
 </Method>
@@ -3605,7 +3643,10 @@ MakeString(list)
   // Normalize the HTTP method.
   set httpMethod = $$$ucase(httpMethod)
   
-  try {    
+  // Prevents attempts to dispatch from this class itself.
+  $$$QuitOnError($$ValidateRouteOrigin)
+  
+  try {       
     set resolvedUrl = $$ResolveUrl(url)
     
     while $$NextDispatchMap(.index, .mapEntry) {
@@ -3649,11 +3690,11 @@ MakeString(list)
         // Found the router that should handle the request.
         if matchType = "R" {         
           set useAuth = $lg(mapEntry, 8)
-          set authStrategy = $lg(mapEntry, 11)
+          set authStrategy = $lg(mapEntry, 11)      
           
-          do %frontier.CORS.Set()
+          do %frontier.CORS.Set()         
                    
-          if useAuth {
+          if useAuth && %frontier.AuthenticationManager.HasStrategies() {
             // Run pending authentication strategies. If one passes, then the implementation
             // is responsible for filling the user object.
             if authStrategy = "" {
@@ -3706,7 +3747,7 @@ MakeString(list)
           // Executes the method and retrives its value. The method MUST return a value or a 
           // <COMMAND> will be issued.
           set sc = publicMethod.Invoke(.methodReturn, .stack)
-          set %frontier.Stack = stack
+          set %frontier.Stack = stack          
           
           $$$ThrowOnError(sc)
           
@@ -3798,6 +3839,12 @@ ManualGroupMerge(matcher)
     set %frontier.Matches(i) = matcher.Group(i)
   }
  quit
+ 
+ValidateRouteOrigin()
+  if $classname() = "Frontier.Router" {
+    return $$$ERROR($$$GeneralError, "Invalid route origin: did you configure Frontier.Router as 'Dispatch Class' instead?")
+  }
+  return $$$OK
 ]]></Implementation>
 </Method>
 
@@ -3988,20 +4035,6 @@ This is the Schema which defines the form of the dispatch map</Description>
 
 
 <Class name="Frontier.SQL.InlineQueryBuilder">
-<Description><![CDATA[
-This class is used to build dynamic SQL queries using URL inline parameters.
-You are required to put all the inline query into a single URL query parameter.
-Values are passed by using the placeholders mechanism provided by the Caché SQL API layer.
-Like this: ?filter=age_lt:10
-Regarding the format simple conditions are:
-fieldName_operator:value (the shorthand for equals is fieldName:value)
-While composite conditions are:
-$or:[fieldNameA_operator:value;fieldNameN_operator:value]
-In addition to the filter parameter, you can also provide two optional parameters
-to handle the ORDER BY and the SELECT <FIELDS>. Their syntax is exactly like they
-would be applied when using the SQL itself. E.g. age desc, name asc.
-Fields and OrderBy are sanitized and will blacklist any dubious characters to their syntax.
-Check the Frontier.UnitTest.Router:InlineQuery for insight on how to use the API.]]></Description>
 <IncludeCode>frontier</IncludeCode>
 <Super>%RegisteredObject</Super>
 <TimeCreated>65024,39355.587468</TimeCreated>
@@ -4029,6 +4062,7 @@ Check the Frontier.UnitTest.Router:InlineQuery for insight on how to use the API
 
 <Property name="SelectedFields">
 <Type>%String</Type>
+<InitialExpression>"*"</InitialExpression>
 <Private>1</Private>
 </Property>
 
@@ -4047,9 +4081,8 @@ Check the Frontier.UnitTest.Router:InlineQuery for insight on how to use the API
 <Type>%String</Type>
 </Property>
 
-<Property name="Position">
-<Type>%Integer</Type>
-<InitialExpression>0</InitialExpression>
+<Property name="GroupBy">
+<Type>%String</Type>
 <Private>1</Private>
 </Property>
 
@@ -4083,7 +4116,7 @@ Check the Frontier.UnitTest.Router:InlineQuery for insight on how to use the API
 <FormalSpec>page:%Integer,limit:%String</FormalSpec>
 <ReturnType>Frontier.SQL.InlineQueryBuilder</ReturnType>
 <Implementation><![CDATA[
-  do ..CheckPaginationParameters(page, limit)
+  
   if $$$ISOK(..Status) set ..PaginationParameters = $lb(page, limit)
   return $this
 ]]></Implementation>
@@ -4103,8 +4136,15 @@ Check the Frontier.UnitTest.Router:InlineQuery for insight on how to use the API
 <FormalSpec>orderBy:%String</FormalSpec>
 <ReturnType>Frontier.SQL.InlineQueryBuilder</ReturnType>
 <Implementation><![CDATA[
-  set ..OrderBy = " ORDER BY "_..SanitizeInput(orderBy)
+  set ..OrderBy = "ORDER BY "_..SanitizeInput(orderBy)
   return $this
+]]></Implementation>
+</Method>
+
+<Method name="GroupBy">
+<FormalSpec>groupBy:%String</FormalSpec>
+<ReturnType>Frontier.SQL.InlineQueryBuilder</ReturnType>
+<Implementation><![CDATA[  set ..GroupBy = "GROUP BY "_..SanitizeInput(groupBy)
 ]]></Implementation>
 </Method>
 
@@ -4112,12 +4152,12 @@ Check the Frontier.UnitTest.Router:InlineQuery for insight on how to use the API
 <FormalSpec>input:%String</FormalSpec>
 <Private>1</Private>
 <ReturnType>%String</ReturnType>
-<Implementation><![CDATA[  return $zstrip(input, "*E'N'A", "", "_. ")
+<Implementation><![CDATA[  return $zstrip(input, "*E'N'A", "", "_.*, ")
 ]]></Implementation>
 </Method>
 
-<Method name="WrapWithPaginationIfProvided">
-<FormalSpec>fields:%String="*",where:%String="",orderBy:%String="",tableName:%String</FormalSpec>
+<Method name="WithPagination">
+<FormalSpec>where:%String="",tableName:%String</FormalSpec>
 <Private>1</Private>
 <ReturnType>%String</ReturnType>
 <Implementation><![CDATA[
@@ -4128,17 +4168,29 @@ Check the Frontier.UnitTest.Router:InlineQuery for insight on how to use the API
   set offset = (page * limit) - (limit - 1)
   set limit = page * limit
   
-  return "SELECT *, %VID AS row FROM (SELECT TOP "_limit_" "_fields_" FROM "_tableName_where_orderBy_") WHERE %VID BETWEEN "_offset_" AND "_limit
+  set args = 8
+  set args(1) = limit
+  set args(2) = ..SelectedFields
+  set args(3) = tableName
+  set args(4) = where  
+  set args(5) = ..GroupBy
+  set args(6) = ..OrderBy
+  set args(7) = offset
+  set args(8) = limit
+  
+  return $$$FormatText("SELECT *, %VID AS row FROM (SELECT TOP %1 %2 FROM %3 %4 %5 %6) WHERE %VID BETWEEN %7 AND %8", args...)
 ]]></Implementation>
 </Method>
 
 <Method name="CheckPaginationParameters">
-<FormalSpec>page,limit</FormalSpec>
 <Private>1</Private>
 <Implementation><![CDATA[
-   
-  set sc = $$$OK
+     
   #define AppendStatus(%newStatus) set sc = $$$ADDSC(sc, $$$ERROR($$$GeneralError, %newStatus))  
+  
+  set sc = $$$OK
+  set page = $lg(..PaginationParameters)
+  set limit = $lg(..PaginationParameters, 2)
   
   if '$isvalidnum(page) $$$AppendStatus("Page must be a number.")
   if page = 0 $$$AppendStatus("Page must be start from 1")
@@ -4148,13 +4200,13 @@ Check the Frontier.UnitTest.Router:InlineQuery for insight on how to use the API
   if page = 0 $$$AppendStatus("Limit must be start from 1")
   if page < 0 $$$AppendStatus("Limit must be a positive number.")
   
-  set paginationSC = $$$EMBEDSC($$$ERROR($$$GeneralError, "Invalid pagination parameters."), sc)
-  if $$$ISERR(sc) set ..Status = $$$ADDSC(..Status, paginationSC)
+  if $$$ISERR(sc) return $$$EMBEDSC($$$ERROR($$$GeneralError, "Invalid pagination parameters."), sc)
+  return sc
 ]]></Implementation>
 </Method>
 
-<Method name="BuildSQLWhere">
-<FormalSpec>filter:%String=..Filter,type:%String="AND",whereStatement:%String="WHERE"</FormalSpec>
+<Method name="CreateWHEREStatement">
+<FormalSpec>filter:%String=..Filter,type:%String=" AND ",whereStatement:%String="WHERE "</FormalSpec>
 <Private>1</Private>
 <ReturnType>%String</ReturnType>
 <Implementation><![CDATA[
@@ -4167,97 +4219,113 @@ Check the Frontier.UnitTest.Router:InlineQuery for insight on how to use the API
     set condition = $piece(filter, ";", i)
     // If ] is found then the builder is trying to capture the same condition, so skip it.   
     if condition?.ANP1"]" = 1 continue
-    if $extract(condition, 1, 3)?1"$"1(1"or",1"an") = 1 {
-      set conditionType = $$$ucase($extract(condition, $find(condition, "$"), $find(condition, ":") - 2))
-      set expression = $$DesconstructComposition(condition, conditionType)
+    if $extract(condition, 1, 3)?1"_"1(1"or",1"an") = 1 {
+      set conditionType = $$$ucase($extract(condition, $find(condition, "_"), $find(condition, ":") - 2))
+      set expression = $$HandleCompositeCondition(condition, conditionType)
     } else {
-      set expression = $$ResolveSimpleCondition(condition)
+      set expression = $$HandleSingleCondition(condition)
     }    
     set $list(where, *+1) = expression    
   }
   
-  if $ll(where) '= 0 set where = " "_whereStatement_" ("_$lts(where, " "_type_" ")_")"
+  if $ll(where) '= 0 set where = whereStatement_"("_$lts(where, " "_type_" ")_")"
   return where
   
  
-ResolveSimpleCondition(condition)
+HandleSingleCondition(condition)
+  // Normalizes field:value to field_eq:value.
   if condition '[ "_" set condition = $piece(condition, ":")_"_eq:"_$piece(condition, ":", 2, *)
-  set field = $$$trim($piece(condition, "_"))    
+  set field = $$$trim($piece(condition, "_"))
+  
+  // Deep access: a.b = a->b in Caché SQL.
   if field [ "." set field = $replace(field, ".", "->")
   
   set op = $$$trim($piece($piece(condition, "_", 2, 2), ":", 1))
   set value = $piece(condition, ":", 2, *)
   
-  do ..BuildExpression(field, value, op, .exp)
+  set exp = ..TransformFilter(field, value, op)
   return exp
     
-DesconstructComposition(condition, conditionType)  
-  set setStart = $find(filter, condition) - ($length(condition) - 5)
-  set setEnd = $find(filter, "]", setStart) - 2
-  if conditionType = "AND" set setStart = setStart + 1
-  set composition = $extract(filter, setStart, setEnd)
-  set ..Position = $length(composition, ";")
-  return ..BuildSQLWhere(composition, conditionType, "")
+HandleCompositeCondition(condition, conditionType)  
+  set start = $find(filter, condition) - ($length(condition) - 5)
+  set end = $find(filter, "]", start) - 2
+  set setStart = start
+  if conditionType = "AND" set setStart = start + 1  
+  set composition = $extract(filter, setStart, end)
+  return ..CreateWHEREStatement(composition, conditionType, "")
 ]]></Implementation>
 </Method>
 
 <Method name="Build">
-<ReturnType>Frontier.SQL.InlineQueryBuilder</ReturnType>
+<ReturnType>%Status</ReturnType>
 <Implementation><![CDATA[
-  if $$$ISERR(..Status) $$$ThrowStatus(..Status)
+  set sc = $$$OK
   
-  set ..Position = 0
-  set cclass = ##class(%Dictionary.CompiledClass).%OpenId(..For)
-  if cclass = "" $$$ThrowStatus($$$ERROR($$$GeneralError, "Invalid table name."))
-  set tableName = cclass.SqlQualifiedNameQ
+  try {
+    if ..PaginationParameters '= "" $$$ThrowOnError(..CheckPaginationParameters())
+    if ..For = "" $$$ThrowStatus($$$ERROR($$$GeneralError, "For method not called."))
+    
+    set cclass = ##class(%Dictionary.CompiledClass).%OpenId(..For)
+    if cclass = "" $$$ThrowStatus($$$ERROR($$$GeneralError, $$$FormatText("Class '%1' does not exist.", ..For)))
+    set tableName = cclass.SqlQualifiedNameQ
   
-  set fields = ..SelectedFields
-  if fields = "" set fields = "*"
-  set orderBy = ..OrderBy
-  set where = ..BuildSQLWhere()
-  set paginatedQuery = ..WrapWithPaginationIfProvided(fields, where, orderBy, tableName)
-  set statement = paginatedQuery
-  if statement = "" set statement = "SELECT "_fields_ " FROM "_tableName_where_ " "_orderBy
-  set ..Result = statement
-  return $this
+    if tableName = "" $$$ThrowStatus($$$ERROR($$$GeneralError, "Class does is not a persistent representation."))  
+    
+    set where = ..CreateWHEREStatement()
+    set paginatedQuery = ..WithPagination(where, tableName)
+    set statement = paginatedQuery
+    
+    if statement = "" {
+      set statement = $$$FormatText("SELECT %1 FROM %2 %3 %4 %5", ..SelectedFields, tableName, where, ..GroupBy, ..OrderBy)
+    }
+    
+    set ..Result = statement
+    return $this
+  } catch ex {
+    if $data(%frontier) throw ex
+    set sc = ex.AsStatus()
+  }
+  return sc
 ]]></Implementation>
 </Method>
 
-<Method name="BuildExpression">
-<FormalSpec>field:%String,value,op:%String,*placeholder:%String=""</FormalSpec>
+<Method name="TransformFilter">
+<FormalSpec>filter:%String,value,op:%String</FormalSpec>
 <Private>1</Private>
+<ReturnType>%String</ReturnType>
 <Implementation><![CDATA[
+  set expression = ""
   set singleVarOpTypes = $lb("eq", "ne", "gt", "gte", "lt", "lte", "sw", "nsw", "ct", "nct", "lk", "nlk", "is", "isn", "il", "nil")
   
   if $lf(singleVarOpTypes, op) > 0 {
-    if op = "eq" set placeholder = field_" = ?"
-    if op = "ne" set placeholder = field_" <> ?"
-    if op = "gt" set placeholder = field_" > ?"
-    if op = "gte" set placeholder = field_" >= ?"
-    if op = "lt" set placeholder = field_" < ?"
-    if op = "lte" set placeholder = field_" <= ?"
-    if op = "sw" set placeholder = field_" %STARTSWITH ? "
-    if op = "nsw" set placeholder = field_" NOT %STARTSWITH ?"
-    if op = "ct" set placeholder = field_" [ ?"
-    if op = "nct" set placeholder = field_" '[ ?"
-    if op = "lk" set placeholder = field_" LIKE ?"
-    if op = "nlk" set placeholder = field_" NOT LIKE ?"
-    if op = "il" set placeholder = field_" %INLIST ?" set value = $lfs(value)
-    if op = "nil" set placeholder = field_" NOT %INLIST ?" set value = $lfs(value)
+    if op = "eq" set expression = filter_" = ?"
+    if op = "ne" set expression = filter_" <> ?"
+    if op = "gt" set expression = filter_" > ?"
+    if op = "gte" set expression = filter_" >= ?"
+    if op = "lt" set expression = filter_" < ?"
+    if op = "lte" set expression = filter_" <= ?"
+    if op = "sw" set expression = filter_" %STARTSWITH ? "
+    if op = "nsw" set expression = filter_" NOT %STARTSWITH ?"
+    if op = "ct" set expression = filter_" [ ?"
+    if op = "nct" set expression = filter_" '[ ?"
+    if op = "lk" set expression = filter_" LIKE ?"
+    if op = "nlk" set expression = filter_" NOT LIKE ?"
+    if op = "il" set expression = filter_" %INLIST ?" set value = $lfs(value)
+    if op = "nil" set expression = filter_" NOT %INLIST ?" set value = $lfs(value)
     
     if op '= "is" && (op '= "isn") {
       do AddParameter(value)
     } elseif value = "null" {
       set null = $$$ucase(value)
-      if op = "is" set placeholder = field_" IS "_null
-      if op = "isn" set placeholder = field_" IS NOT "_null
+      if op = "is" set expression = filter_" IS "_null
+      if op = "isn" set expression = filter_" IS NOT "_null
     }
   } elseif op = "bt" || (op = "nbt") {
     set not = ""
     if op = "nbt" set not = "NOT"
     set left = $piece(value, ",", 1, 1)
     set right = $piece(value, ",", 2, 2)
-    set placeholder = field_not_" BETWEEN ? AND ? "
+    set expression = filter_not_" BETWEEN ? AND ? "
     do AddParameter(left)
     do AddParameter(right)
   } elseif op = "in" || (op = "nin") {
@@ -4265,8 +4333,10 @@ DesconstructComposition(condition, conditionType)
     set phs = ""
     set l = $length(value, ",")
     for i=1:1:l  do AddParameter($piece(value, ",", i)) set $list(phs, *+1) = "?"
-    set placeholder = field_not_" IN ("_$lts(phs)_")"
+    set expression = filter_not_" IN ("_$lts(phs)_")"
   }
+  
+  return expression
   
 AddParameter(newparam)
   set i%Parameters = i%Parameters + 1
@@ -4891,7 +4961,7 @@ Called when we have finished processing this request</Description>
     set ret = $method(instance, method, args...)
     if $extract(ret, 1, 2) = "0 " && $lv($p(ret, " ", 2)) {
       set errcode = $$$GETERRORCODE(ret)
-      if errcode?4N = 1 {
+      if errcode '= "" {
         set sc = ret
         set ret = ""
       }
@@ -4916,6 +4986,54 @@ Called when we have finished processing this request</Description>
 <FormalSpec>value:%String</FormalSpec>
 <ReturnType>%String</ReturnType>
 <Implementation><![CDATA[  return $System.Encryption.Base64Decode($translate(value, "-_", "+/"))
+]]></Implementation>
+</Method>
+
+<Method name="CallAndCapture">
+<ClassMethod>1</ClassMethod>
+<FormalSpec>object,method:%String,*str:%Stream.GlobalCharacter="",args...:%String</FormalSpec>
+<ProcedureBlock>0</ProcedureBlock>
+<ReturnType>%Status</ReturnType>
+<Implementation><![CDATA[
+  new oldMnemonic, alreadyRedirected, sc
+  
+  set sc = $$$OK
+  set isRedirected = 0  
+  
+  set str = ##class(%Stream.GlobalCharacter).%New()
+  set alreadyRedirected = ##class(%Device).ReDirectIO()
+  set oldMnemonic = "^"_##class(%Device).GetMnemonicRoutine()
+  set initIO = $io  
+  
+  try {   
+    use $io::("^"_$zname)    
+    do ##class(%Device).ReDirectIO(1)
+    set isRedirected = 1    
+    if $isobject(object) set sc = $method(object, method, args...)
+    else  set class = object set sc = $classmethod(class, method, args...)
+    do str.Rewind()
+  } catch ex {
+    set str = ""
+    set sc = ex.AsStatus()
+  }     
+  
+  if oldMnemonic '= "" {
+    use initIO::(oldMnemonic)
+  } else {
+    use oldMnemonic
+  }
+  
+  do ##class(%Device).ReDirectIO(alreadyRedirected)
+      
+  return sc
+  
+wstr(s) Do str.Write(s) Quit
+wchr(a) Do str.Write($char(a)) Quit
+wnl Do str.Write($char(13,10)) Quit
+wff Do str.Write($char(13,10,13,10)) Quit
+wtab(n) Do str.Write($c(9)) Quit
+rstr(len,time) Quit ""
+rchr(time) Quit ""
 ]]></Implementation>
 </Method>
 </Class>
@@ -5271,7 +5389,7 @@ Called when we have finished processing this request</Description>
 </Property>
 <Property name="Adress">
 <Selectivity>10.0000%</Selectivity>
-<AverageFieldSize>17.8</AverageFieldSize>
+<AverageFieldSize>16.6</AverageFieldSize>
 </Property>
 <Property name="BirthDate">
 <Selectivity>10.0000%</Selectivity>
@@ -5291,11 +5409,11 @@ Called when we have finished processing this request</Description>
 </Property>
 <Property name="Name">
 <Selectivity>10.0000%</Selectivity>
-<AverageFieldSize>15.2</AverageFieldSize>
+<AverageFieldSize>16.1</AverageFieldSize>
 </Property>
 <Property name="PeriodEnd">
 <Selectivity>10.0000%</Selectivity>
-<AverageFieldSize>4.8</AverageFieldSize>
+<AverageFieldSize>4.9</AverageFieldSize>
 </Property>
 <Property name="PeriodStart">
 <Selectivity>10.0000%</Selectivity>
@@ -5384,6 +5502,7 @@ Called when we have finished processing this request</Description>
 <Route Url="/rest-params" Method="GET" Call="TestGETRestParametersSum"/>
 <Route Url="/sql/dynamic" Method="GET" Call="TestGETDynamicSQLResult"/>
 <Route Url="/sql/query" Method="GET" Call="TestGETQuerySQLResult"/>
+<Route Url="/sql/inline-query" Method="GET" Call="TestGETInlineQueryBuilder" />
 <Route Url="/raw" Method="GET" Call="TestGETRawMode"/>
 <Route Url="/shared_data" Method="GET" Call="TestGETData"/>
 <Route Url="/stream" Method="GET" Call="TestGETStream"/>
@@ -5402,8 +5521,7 @@ Called when we have finished processing this request</Description>
 <Route Url="/errors/siblings" Method="GET" Call="TestGETMultipleSiblingErrors"/>
 <Route Url="/arguments/no-weak-typed" Method="GET" Call="TestGETNoWeakTypedArgs"/>
 <Route Url="/methods/no-weak-typed" Method="GET" Call="TestGETNoWeakTypedMethods" />
-<Route Url="/custom-auth" Method="GET" AuthStrategy="BasicSystemLogin" Call="TestGETCustomAuthData" />
-<Route Url="/query" Method="GET" Call="InlineQuery" /> 
+<Route Url="/custom-auth" Method="GET" AuthStrategy="BasicSystemLogin" Call="TestGETCustomAuth" />
 <Map Prefix="/map/A/:param1" Forward="Frontier.UnitTest.Router.Map.A" />
 <Map Prefix="/map/B/:param1/:param2" Forward="Frontier.UnitTest.Router.Map.B" />
 <Map Prefix="/map/C" Forward="Frontier.UnitTest.Router.Map.C" />
@@ -5424,17 +5542,6 @@ Use this method to share data between methods.</Description>
   set data.Message = "This 'Message' is shared between all methods."
   set data.Workspace = ##class(%File).NormalizeFilename(##class(Port.Configuration).GetWorkspace("frontier"))
   return $$$OK
-]]></Implementation>
-</Method>
-
-<Method name="InlineQuery">
-<ClassMethod>1</ClassMethod>
-<FormalSpec>filter:%String,limit:%Integer=50</FormalSpec>
-<ReturnType>Frontier.SQL.Provider</ReturnType>
-<Implementation><![CDATA[
-  set builder = %frontier.SQL.InlineQueryBuilder()
-  do builder.Filter(filter).For("Frontier.UnitTest.Fixtures.Student").OrderBy("id asc")
-  return builder.Build().Provide()
 ]]></Implementation>
 </Method>
 
@@ -5460,7 +5567,7 @@ This method is reserved for setting up configurations.</Description>
     "validator": ($classname()_":ValidateSystemCredentials")
   }) 
 
-  set %frontier.StrictQueryParameters = 0
+  //set %frontier.StrictQueryParameters = 0
 
   // This provides a way to check if the current user is authenticated using Basic scheme.
   $$$QuitOnError(%frontier.AuthenticationManager.AddStrategy(basicStrategy))
@@ -5571,6 +5678,54 @@ curl -H "Content-Type: application/json" 'http://localhost:57772/api/frontier/te
 ]]></Implementation>
 </Method>
 
+<Method name="TestGETInlineQueryBuilder">
+<Description><![CDATA[
+This method captures parameter "filter" as a source to build the custom query.
+You need to provide the target class which resolves to the SQL Table using the For method.
+The filter format can be divided into two types:
+Simple: fieldnameA_operation:value;fieldnameB_operation:value
+Composited: _or:[fieldnameA_operation:value;fieldNameA_operation:value]
+Supported operations:
+field_eq:value field = value
+field_neq:value field <> value
+field_gt:value field > value
+field_gte:value field >= value
+field_lt:value field < value
+field_lte:value field <= value
+field_sw:value field %STARTSWITH value
+field_nsw:value field NOT %STARTSWITH value
+field_ct:value field [ value
+field_nct:value field '[ value
+field_lk:%value% field LIKE '%value%'
+field_nlk:%value% field NOT LIKE '%value%'
+field_il:v,a,l,u,e  field %INLIST($lfs('v,a,l,u,e'))
+field_nil:v,a,l,u,e field NOT %INLIST($lfs('v,a,l,u,e'))
+field_is:null field IS NULL
+field_isn:null field IS NOT NULL
+field_bt:0,5 field BETWEEN 0 and 5
+field_nbt:0,5 field NOT BETWEEN 0 and 5
+field_in:v,a,l,u,e field IN('v','a','l','u','e')
+field_nin:v,a,l,u,e field NOT IN('v','a','l','u','e')
+field:value is translate to field_eq:value
+OrderBy can be used to sort the fields, the syntax is the same as you would use with SQL.
+Fields can be used to select the fields you want include in the results.]]></Description>
+<ClassMethod>1</ClassMethod>
+<FormalSpec>filter:%String,page:%String="",limit:%String="",orderBy:%String="",groupBy:%String=""</FormalSpec>
+<ReturnType>Frontier.SQL.Provider</ReturnType>
+<Implementation><![CDATA[
+  set builder = %frontier.SQL.InlineQueryBuilder()
+  
+  do builder.For("Frontier.UnitTest.Fixtures.Student")
+  
+  if page '= "" && (limit '= "") do builder.Pagination(page, limit)
+  if orderBy '= "" do builder.OrderBy(orderBy)
+  if groupBy '= "" do builder.GroupBy(groupBy)
+  if filter '= "" do builder.Filter(filter) 
+  
+  return builder.Build().Provide()
+]]></Implementation>
+</Method>
+
 <Method name="TestGETRawMode">
 <Description>
 There can be cases where the response should not be a JSON.
@@ -5658,7 +5813,7 @@ Requests with array payloads also support query parameters.
 Call example:
 curl -H "Content-Type: application/json" -X POST -d '[{"username":"xyz","password":"xyz"}]' 'http://localhost:57772/api/frontier/test/payload/array-with-query-params?msg=hello'</Description>
 <ClassMethod>1</ClassMethod>
-<FormalSpec>payload:%DynamicObject,msg:%String=""</FormalSpec>
+<FormalSpec>payload:%DynamicArray,msg:%String=""</FormalSpec>
 <ReturnType>%DynamicArray</ReturnType>
 <Implementation><![CDATA[  return [ (msg), (payload) ]
 ]]></Implementation>
@@ -5679,7 +5834,7 @@ curl -H "Content-Type: application/json" -X POST -d '[{"username":"xyz","passwor
 <Method name="TestGETMixedDynamicObject">
 <Description>
 Normally %Dynamic instances cannot serialize childrens that aren't dynamic as well. (%ToJSON would thrown an exception).
-Frontier fixes it by marshalling irregular to %Dynamic instances beforehand and making it compatible.
+Frontier fixes it by marshalling irregularities to %Dynamic instances beforehand and making them compatible.
 Call example:
 curl -H "Content-Type: application/json" http://localhost:57772/api/frontier/test/mixed/object?class=1</Description>
 <ClassMethod>1</ClassMethod>
@@ -5731,7 +5886,7 @@ curl -H "Content-Type: application/json" -X POST -d '{"username":"xyz","password
 <Description>
 For compability with existing clients that use query parameters with symbols. For such cases
 ALIAS can be used to make it compatible. If the expected alias is not found then Frontier will
-fall back to using the argument name instead.</Description>
+fall back to using the original argument name instead.</Description>
 <ClassMethod>1</ClassMethod>
 <FormalSpec>msg:%String(ALIAS="aliased_key")</FormalSpec>
 <ReturnType>%String</ReturnType>
@@ -5742,7 +5897,7 @@ fall back to using the argument name instead.</Description>
 <Method name="TestPOSTUnmarshalToClass">
 <Description>
 It's also possible to save from a payload directly to a %Persistent instance as long as the payload
-has the same format as the %Persistent class. Just define the the parameter INSTANTIATE with the class you want
+has the same format as the %Persistent class. Just define the the parameter UNMARSHALL to 1.
 curl -H "Content-Type: application/json" -X POST -d '{"Plate": "R-2948","Students": [{"Name": "Rubens","BirthDate": "04/21/1970","SomeValue": 0}]}' 'http://localhost:57772/api/frontier/unmarshal'</Description>
 <ClassMethod>1</ClassMethod>
 <FormalSpec>class:Frontier.UnitTest.Fixtures.Class(UNMARSHAL=1)</FormalSpec>
@@ -5759,7 +5914,7 @@ curl -H "Content-Type: application/json" -X POST -d '{"Plate": "R-2948","Student
 <Method name="TestPUTUnmarshalToClass">
 <Description>
 You can also edit the entity just by providing the property "__id__" along with the new payload data. If you want the id to be read from the URL,
-add a new parameter and map the unmarshaller to use it as id by specifying the IDCOLUMN. If the named IDCOLUMN is not
+add a new parameter and map the unmarshaller to use it as id by specifying the WHEREID. If WHEREID is not
 found, the id will be searched inside the payload. Note that when the id is not found, an exception will be thrown regarding  the
 incorrect PUT usage.
 curl -H "Content-Type: application/json" -X POST -d '{"Plate": "R-2948","Students": [{"Name": "Rubens","BirthDate": "04/21/1970","SomeValue": 0}]}' 'http://localhost:57772/api/frontier/unmarshall/15'</Description>
@@ -6009,7 +6164,7 @@ Neither it allows methods without return type.</Description>
 ]]></Implementation>
 </Method>
 
-<Method name="TestGETCustomAuthData">
+<Method name="TestGETCustomAuth">
 <Description>
 This method can be retrieved only if the user logs with the Caché credentials.
 The purpose is to show that custom authentication strategies can be used exclusively.</Description>
@@ -6042,8 +6197,6 @@ The purpose is to show that custom authentication strategies can be used exclusi
 </Method>
 
 <Method name="ValidateSystemCredentials">
-<Description>
-This is only to demonstrate, DO NOT USE this in production environments.</Description>
 <ClassMethod>1</ClassMethod>
 <FormalSpec>login:%String,password:%String,*found:%Boolean=1,*httpStatus:%String,*user:%DynamicObject</FormalSpec>
 <ReturnType>%Status</ReturnType>
@@ -6369,5 +6522,6 @@ This is only to demonstrate, DO NOT USE this in production environments.</Descri
 #define NormalizeClassName(%cn) if $l(%cn, ".") = 1 && ($e(%cn) = "%") set %cn = "%Library."_$e(%cn, 2, *)
 #define OSSlash $case($$$isWINDOWS, 1: "\", : "/")
 #define AssertClassExists(%o) return:'$isobject(%o) $$$ERROR($$$ClassDoesNotExist, %o)
+#define NULL $s($$$isWINDOWS : "//./nul", 1: "/dev/null")
 ]]></Routine>
 </Export>

@@ -11,15 +11,18 @@ Property CachedDefinitions As %String [ MultiDimensional ];
 
 Property Path As %String [ InitialExpression = "<root>", Private ];
 
-Method %OnNew(formatter As Frontier.PropertyFormatter = "") As %Status [ Private ]
+Property Strict As %Boolean [ InitialExpression = 0 ];
+
+Method %OnNew(formatter As Frontier.PropertyFormatter = "", strict As %Boolean = 0) As %Status [ Private ]
 {
   set ..Formatter = formatter
+  set ..Strict = strict
   return $$$OK
 }
 
-ClassMethod Unmarshal(className As %String, source As %DynamicAbstractObject, Output result As %RegisteredObject = "", formatter As Frontier.PropertyFormatter = "") As %Status
+ClassMethod Unmarshal(className As %String, source As %DynamicAbstractObject, Output result As %RegisteredObject = "", formatter As Frontier.PropertyFormatter = "", strict As %Boolean = 0) As %Status
 {
-  set unmarshaller = ..%New(formatter)  
+  set unmarshaller = ..%New(formatter, strict)
   return unmarshaller.DetermineTypeAndUnmarshal(className, source, .result)
 }
 
@@ -134,11 +137,13 @@ Method GetPropertyId(className As %String, key As %String) As %String [ Private 
   return propertyId
 }
 
-Method NextQualifiedProperty(className As %String, iterator As %Iterator.AbstractIterator, Output key As %String = "", Output value = "", Output property As %Dictionary.CompiledProperty) As %Boolean [ Private ]
+Method NextQualifiedProperty(className As %String, iterator As %Iterator.AbstractIterator, Output key As %String = "", Output value = "", Output property As %Dictionary.CompiledProperty, iterationError As %Status = {$$$OK}) As %Boolean [ Private ]
 {
+   
   #define IsQualifiedProperty(%p) '(%p.Private || %p.Calculated || ($extract(%p.Name) = "%"))  
      
   while 1 {
+    set iterationError = $$$OK
     set hasNext = iterator.%GetNext(.candidateKey, .candidateValue)
     if 'hasNext return 0
     
@@ -146,7 +151,13 @@ Method NextQualifiedProperty(className As %String, iterator As %Iterator.Abstrac
     
     set propertyId = ..GetPropertyId(className, candidateKey)
     set property = ..GetAndCacheDefinition(propertyId)
-    if '$isobject(property) continue
+    
+    if '$isobject(property) {
+      if '..Strict continue
+      do ..UpdatePath(candidateKey)
+      set iterationError = $$$ERROR($$$GeneralError, $$$FormatText("Candidate field '%1' is not a property from '%2'", candidateKey, className))
+      return 0
+    }
     
     if $$$IsQualifiedProperty(property) {
       set key = candidateKey
@@ -191,11 +202,10 @@ ClassMethod WrapString(type As %String, value, Output stream As %Stream.Object =
   return $$$OK
 }
 
-ClassMethod GetSerialObject(type As %String, value, serial As %SerialObject = "") As %Status [ Private ]
+ClassMethod GetSerialObject(type As %String, value, Output serial As %SerialObject = "") As %Status [ Private ]
 {
   
   set serial = $classmethod(type, "%Open", $lb(value, type))
-  if serial = "" set serial = "null"
   return $$$OK
 }
 
@@ -261,7 +271,7 @@ Method UnmarshalObject(className As %String, dynamicObject As %DynamicAbstractOb
   
   set iterator = dynamicObject.%GetIterator()  
   
-  while ..NextQualifiedProperty(className, iterator, .key, .value, .property) {
+  while ..NextQualifiedProperty(className, iterator, .key, .value, .property, .sc) {    
     set type = ..GetInputType(value, property)
     set result = ""
     

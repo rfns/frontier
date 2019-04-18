@@ -13,3 +13,5 @@
 #define NormalizeClassName(%cn) if $l(%cn, ".") = 1 && ($e(%cn) = "%") set %cn = "%Library."_$e(%cn, 2, *)
 #define OSSlash $case($$$isWINDOWS, 1: "\", : "/")
 #define AssertClassExists(%o) return:'$isobject(%o) $$$ERROR($$$ClassDoesNotExist, %o)
+#define NULL $s($$$isWINDOWS : "//./nul", 1: "/dev/null")
+#define ObjectOrNull(%obj) $select($isobject(%obj) : %obj, 1: "null")

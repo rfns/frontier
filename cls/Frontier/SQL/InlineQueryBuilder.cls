@@ -1,18 +1,5 @@
 Include frontier
 
-/// This class is used to build dynamic SQL queries using URL inline parameters.
-/// You are required to put all the inline query into a single URL query parameter.
-/// Values are passed by using the placeholders mechanism provided by the Caché SQL API layer.
-/// Like this: ?filter=age_lt:10
-/// Regarding the format simple conditions are:
-/// fieldName_operator:value (the shorthand for equals is fieldName:value)
-/// While composite conditions are:
-/// $or:[fieldNameA_operator:value;fieldNameN_operator:value]
-/// In addition to the filter parameter, you can also provide two optional parameters
-/// to handle the ORDER BY and the SELECT <FIELDS>. Their syntax is exactly like they
-/// would be applied when using the SQL itself. E.g. age desc, name asc.
-/// Fields and OrderBy are sanitized and will blacklist any dubious characters to their syntax.
-/// Check the Frontier.UnitTest.Router:InlineQuery for insight on how to use the API.
 Class Frontier.SQL.InlineQueryBuilder Extends %RegisteredObject
 {
 
@@ -24,7 +11,7 @@ Property Parameters As %String [ MultiDimensional, Private ];
 
 Property PaginationParameters As %List [ Private ];
 
-Property SelectedFields As %String [ Private ];
+Property SelectedFields As %String [ InitialExpression = "*", Private ];
 
 Property Status As %Status [ InitialExpression = 1, Private ];
 
@@ -32,7 +19,7 @@ Property For As %String [ Private ];
 
 Property Result As %String;
 
-Property Position As %Integer [ InitialExpression = 0, Private ];
+Property GroupBy As %String [ Private ];
 
 Method %OnNew() As %Status
 {
@@ -54,7 +41,7 @@ Method For(className As %String) As Frontier.SQL.InlineQueryBuilder
 
 Method Pagination(page As %Integer, limit As %String) As Frontier.SQL.InlineQueryBuilder
 {
-  do ..CheckPaginationParameters(page, limit)
+  
   if $$$ISOK(..Status) set ..PaginationParameters = $lb(page, limit)
   return $this
 }
@@ -68,16 +55,21 @@ Method Fields(fields As %String) As Frontier.SQL.InlineQueryBuilder
 
 Method OrderBy(orderBy As %String) As Frontier.SQL.InlineQueryBuilder
 {
-  set ..OrderBy = " ORDER BY "_..SanitizeInput(orderBy)
+  set ..OrderBy = "ORDER BY "_..SanitizeInput(orderBy)
   return $this
+}
+
+Method GroupBy(groupBy As %String) As Frontier.SQL.InlineQueryBuilder
+{
+  set ..GroupBy = "GROUP BY "_..SanitizeInput(groupBy)
 }
 
 Method SanitizeInput(input As %String) As %String [ Private ]
 {
-  return $zstrip(input, "*E'N'A", "", "_. ")
+  return $zstrip(input, "*E'N'A", "", "_.*, ")
 }
 
-Method WrapWithPaginationIfProvided(fields As %String = "*", where As %String = "", orderBy As %String = "", tableName As %String) As %String [ Private ]
+Method WithPagination(where As %String = "", tableName As %String) As %String [ Private ]
 {
   if ..PaginationParameters = "" return ""
   
@@ -86,14 +78,27 @@ Method WrapWithPaginationIfProvided(fields As %String = "*", where As %String = 
   set offset = (page * limit) - (limit - 1)
   set limit = page * limit
   
-  return "SELECT *, %VID AS row FROM (SELECT TOP "_limit_" "_fields_" FROM "_tableName_where_orderBy_") WHERE %VID BETWEEN "_offset_" AND "_limit
+  set args = 8
+  set args(1) = limit
+  set args(2) = ..SelectedFields
+  set args(3) = tableName
+  set args(4) = where  
+  set args(5) = ..GroupBy
+  set args(6) = ..OrderBy
+  set args(7) = offset
+  set args(8) = limit
+  
+  return $$$FormatText("SELECT *, %VID AS row FROM (SELECT TOP %1 %2 FROM %3 %4 %5 %6) WHERE %VID BETWEEN %7 AND %8", args...)
 }
 
-Method CheckPaginationParameters(page, limit) [ Private ]
+Method CheckPaginationParameters() [ Private ]
 {
-   
-  set sc = $$$OK
+     
   #define AppendStatus(%newStatus) set sc = $$$ADDSC(sc, $$$ERROR($$$GeneralError, %newStatus))  
+  
+  set sc = $$$OK
+  set page = $lg(..PaginationParameters)
+  set limit = $lg(..PaginationParameters, 2)
   
   if '$isvalidnum(page) $$$AppendStatus("Page must be a number.")
   if page = 0 $$$AppendStatus("Page must be start from 1")
@@ -103,11 +108,11 @@ Method CheckPaginationParameters(page, limit) [ Private ]
   if page = 0 $$$AppendStatus("Limit must be start from 1")
   if page < 0 $$$AppendStatus("Limit must be a positive number.")
   
-  set paginationSC = $$$EMBEDSC($$$ERROR($$$GeneralError, "Invalid pagination parameters."), sc)
-  if $$$ISERR(sc) set ..Status = $$$ADDSC(..Status, paginationSC)
+  if $$$ISERR(sc) return $$$EMBEDSC($$$ERROR($$$GeneralError, "Invalid pagination parameters."), sc)
+  return sc
 }
 
-Method BuildSQLWhere(filter As %String = {..Filter}, type As %String = "AND", whereStatement As %String = "WHERE") As %String [ Private ]
+Method CreateWHEREStatement(filter As %String = {..Filter}, type As %String = " AND ", whereStatement As %String = "WHERE ") As %String [ Private ]
 {
  
   if filter = "" return ""  
@@ -118,92 +123,107 @@ Method BuildSQLWhere(filter As %String = {..Filter}, type As %String = "AND", wh
     set condition = $piece(filter, ";", i)
     // If ] is found then the builder is trying to capture the same condition, so skip it.   
     if condition?.ANP1"]" = 1 continue
-    if $extract(condition, 1, 3)?1"$"1(1"or",1"an") = 1 {
-      set conditionType = $$$ucase($extract(condition, $find(condition, "$"), $find(condition, ":") - 2))
-      set expression = $$DesconstructComposition(condition, conditionType)
+    if $extract(condition, 1, 3)?1"_"1(1"or",1"an") = 1 {
+      set conditionType = $$$ucase($extract(condition, $find(condition, "_"), $find(condition, ":") - 2))
+      set expression = $$HandleCompositeCondition(condition, conditionType)
     } else {
-      set expression = $$ResolveSimpleCondition(condition)
+      set expression = $$HandleSingleCondition(condition)
     }    
     set $list(where, *+1) = expression    
   }
   
-  if $ll(where) '= 0 set where = " "_whereStatement_" ("_$lts(where, " "_type_" ")_")"
+  if $ll(where) '= 0 set where = whereStatement_"("_$lts(where, " "_type_" ")_")"
   return where
   
  
-ResolveSimpleCondition(condition)
+HandleSingleCondition(condition)
+  // Normalizes field:value to field_eq:value.
   if condition '[ "_" set condition = $piece(condition, ":")_"_eq:"_$piece(condition, ":", 2, *)
-  set field = $$$trim($piece(condition, "_"))    
+  set field = $$$trim($piece(condition, "_"))
+  
+  // Deep access: a.b = a->b in Caché SQL.
   if field [ "." set field = $replace(field, ".", "->")
   
   set op = $$$trim($piece($piece(condition, "_", 2, 2), ":", 1))
   set value = $piece(condition, ":", 2, *)
   
-  do ..BuildExpression(field, value, op, .exp)
+  set exp = ..TransformFilter(field, value, op)
   return exp
     
-DesconstructComposition(condition, conditionType)  
-  set setStart = $find(filter, condition) - ($length(condition) - 5)
-  set setEnd = $find(filter, "]", setStart) - 2
-  if conditionType = "AND" set setStart = setStart + 1
-  set composition = $extract(filter, setStart, setEnd)
-  set ..Position = $length(composition, ";")
-  return ..BuildSQLWhere(composition, conditionType, "")
+HandleCompositeCondition(condition, conditionType)  
+  set start = $find(filter, condition) - ($length(condition) - 5)
+  set end = $find(filter, "]", start) - 2
+  set setStart = start
+  if conditionType = "AND" set setStart = start + 1  
+  set composition = $extract(filter, setStart, end)
+  return ..CreateWHEREStatement(composition, conditionType, "")
 }
 
-Method Build() As Frontier.SQL.InlineQueryBuilder
+Method Build() As %Status
 {
-  if $$$ISERR(..Status) $$$ThrowStatus(..Status)
+  set sc = $$$OK
   
-  set ..Position = 0
-  set cclass = ##class(%Dictionary.CompiledClass).%OpenId(..For)
-  if cclass = "" $$$ThrowStatus($$$ERROR($$$GeneralError, "Invalid table name."))
-  set tableName = cclass.SqlQualifiedNameQ
+  try {
+    if ..PaginationParameters '= "" $$$ThrowOnError(..CheckPaginationParameters())
+    if ..For = "" $$$ThrowStatus($$$ERROR($$$GeneralError, "For method not called."))
+    
+    set cclass = ##class(%Dictionary.CompiledClass).%OpenId(..For)
+    if cclass = "" $$$ThrowStatus($$$ERROR($$$GeneralError, $$$FormatText("Class '%1' does not exist.", ..For)))
+    set tableName = cclass.SqlQualifiedNameQ
   
-  set fields = ..SelectedFields
-  if fields = "" set fields = "*"
-  set orderBy = ..OrderBy
-  set where = ..BuildSQLWhere()
-  set paginatedQuery = ..WrapWithPaginationIfProvided(fields, where, orderBy, tableName)
-  set statement = paginatedQuery
-  if statement = "" set statement = "SELECT "_fields_ " FROM "_tableName_where_ " "_orderBy
-  set ..Result = statement
-  return $this
+    if tableName = "" $$$ThrowStatus($$$ERROR($$$GeneralError, "Class does is not a persistent representation."))  
+    
+    set where = ..CreateWHEREStatement()
+    set paginatedQuery = ..WithPagination(where, tableName)
+    set statement = paginatedQuery
+    
+    if statement = "" {
+      set statement = $$$FormatText("SELECT %1 FROM %2 %3 %4 %5", ..SelectedFields, tableName, where, ..GroupBy, ..OrderBy)
+    }
+    
+    set ..Result = statement
+    return $this
+  } catch ex {
+    if $data(%frontier) throw ex
+    set sc = ex.AsStatus()
+  }
+  return sc
 }
 
-Method BuildExpression(field As %String, value, op As %String, Output placeholder As %String = "") [ Private ]
+Method TransformFilter(filter As %String, value, op As %String) As %String [ Private ]
 {
+  set expression = ""
   set singleVarOpTypes = $lb("eq", "ne", "gt", "gte", "lt", "lte", "sw", "nsw", "ct", "nct", "lk", "nlk", "is", "isn", "il", "nil")
   
   if $lf(singleVarOpTypes, op) > 0 {
-    if op = "eq" set placeholder = field_" = ?"
-    if op = "ne" set placeholder = field_" <> ?"
-    if op = "gt" set placeholder = field_" > ?"
-    if op = "gte" set placeholder = field_" >= ?"
-    if op = "lt" set placeholder = field_" < ?"
-    if op = "lte" set placeholder = field_" <= ?"
-    if op = "sw" set placeholder = field_" %STARTSWITH ? "
-    if op = "nsw" set placeholder = field_" NOT %STARTSWITH ?"
-    if op = "ct" set placeholder = field_" [ ?"
-    if op = "nct" set placeholder = field_" '[ ?"
-    if op = "lk" set placeholder = field_" LIKE ?"
-    if op = "nlk" set placeholder = field_" NOT LIKE ?"
-    if op = "il" set placeholder = field_" %INLIST ?" set value = $lfs(value)
-    if op = "nil" set placeholder = field_" NOT %INLIST ?" set value = $lfs(value)
+    if op = "eq" set expression = filter_" = ?"
+    if op = "ne" set expression = filter_" <> ?"
+    if op = "gt" set expression = filter_" > ?"
+    if op = "gte" set expression = filter_" >= ?"
+    if op = "lt" set expression = filter_" < ?"
+    if op = "lte" set expression = filter_" <= ?"
+    if op = "sw" set expression = filter_" %STARTSWITH ? "
+    if op = "nsw" set expression = filter_" NOT %STARTSWITH ?"
+    if op = "ct" set expression = filter_" [ ?"
+    if op = "nct" set expression = filter_" '[ ?"
+    if op = "lk" set expression = filter_" LIKE ?"
+    if op = "nlk" set expression = filter_" NOT LIKE ?"
+    if op = "il" set expression = filter_" %INLIST ?" set value = $lfs(value)
+    if op = "nil" set expression = filter_" NOT %INLIST ?" set value = $lfs(value)
     
     if op '= "is" && (op '= "isn") {
       do AddParameter(value)
     } elseif value = "null" {
       set null = $$$ucase(value)
-      if op = "is" set placeholder = field_" IS "_null
-      if op = "isn" set placeholder = field_" IS NOT "_null
+      if op = "is" set expression = filter_" IS "_null
+      if op = "isn" set expression = filter_" IS NOT "_null
     }
   } elseif op = "bt" || (op = "nbt") {
     set not = ""
     if op = "nbt" set not = "NOT"
     set left = $piece(value, ",", 1, 1)
     set right = $piece(value, ",", 2, 2)
-    set placeholder = field_not_" BETWEEN ? AND ? "
+    set expression = filter_not_" BETWEEN ? AND ? "
     do AddParameter(left)
     do AddParameter(right)
   } elseif op = "in" || (op = "nin") {
@@ -211,8 +231,10 @@ Method BuildExpression(field As %String, value, op As %String, Output placeholde
     set phs = ""
     set l = $length(value, ",")
     for i=1:1:l  do AddParameter($piece(value, ",", i)) set $list(phs, *+1) = "?"
-    set placeholder = field_not_" IN ("_$lts(phs)_")"
+    set expression = filter_not_" IN ("_$lts(phs)_")"
   }
+  
+  return expression
   
 AddParameter(newparam)
   set i%Parameters = i%Parameters + 1

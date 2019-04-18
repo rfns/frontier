@@ -46,13 +46,5 @@ rstr(len,time) Quit ""
 rchr(time) Quit ""
 }
 
-ClassMethod HandleJSONWord(value As %String)
-{
-  if value?1(1"true",1"false",1"null") {
-    return value    
-  }
-  return $$$ZENJSONVALUE(value, "s")
-}
-
 }
 

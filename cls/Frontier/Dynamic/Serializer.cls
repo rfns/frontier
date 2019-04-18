@@ -22,21 +22,19 @@ ClassMethod Serialize(dynamic As %DynamicAbstractObject, depth As %String = 1, p
     set propertyName = key
     set type = dynamic.%GetTypeOf(key)
     
-    if type = "null" && (value = "") {
-      set value = "null"
-    } elseif type = "boolean" {
-      set value = $$$FormatBoolean(value)
-    }
-    
     if $isobject(propertyFormatter) {
       set propertyName = propertyFormatter.Format(propertyName, depth)
     }
     
     if 'isArray {
       write $$$ZENJSONPROP(propertyName, "s")_":"
-    }
+    }          
     
-    if $isobject(value) {
+    if value = "null" || (type = "null" && (value = "")) {
+      write "null"
+    } elseif type = "boolean" || (value?1(1"true",1"false") = 1) {
+      write $$$FormatBoolean(value)
+    } elseif $isobject(value) {
       set type = $classname(value)
       if ##class(Frontier.Types).IsDynamic(type) {         
         set sc = $$$ADDSC(sc, ..Serialize(value, depth, propertyFormatter))
@@ -48,11 +46,15 @@ ClassMethod Serialize(dynamic As %DynamicAbstractObject, depth As %String = 1, p
         if 'value.StatementExecuted set sc = value.Execute()
         if $$$ISERR(sc) quit
         $$$ThrowOnError(##class(Frontier.SQL.Serializer).Serialize(value.Results, value.Metadata, depth, propertyFormatter))
-      }
+      }    
+    } elseif type = "string" {
+      write $$$ZENJSONSTR(value, "s")      
+    } elseif type = "number" {
+      write $$$ZENJSNUM(value)
     } else {
-      write ..HandleJSONWord(value)
-    }    
-  }
+      write $$$ZENJSONVALUE(value, "s")
+    }
+  }        
   
   $$$QuitOnError(sc)
   
@@ -66,7 +68,7 @@ WriteEscaped(v)
   do v.Rewind()
   
   // Instead of using AtEnd, we compare the stream size with the buffer read size.
-  // This is because apparently AtEnd doesn't track the position correctly when the device is redirected.
+  // We use it this way, because apparently AtEnd doesn't track the position correctly when the device is redirected.
   // This can also be related to how we are dealing with this redirection along with %CSP.REST.
   while readCount < v.Size {
     set buffer = v.Read()

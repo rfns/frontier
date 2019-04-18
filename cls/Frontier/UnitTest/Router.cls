@@ -14,6 +14,7 @@ XData UrlMap [ XMLNamespace = "http://github.com/rfns/frontier" ]
 <Route Url="/rest-params" Method="GET" Call="TestGETRestParametersSum"/>
 <Route Url="/sql/dynamic" Method="GET" Call="TestGETDynamicSQLResult"/>
 <Route Url="/sql/query" Method="GET" Call="TestGETQuerySQLResult"/>
+<Route Url="/sql/inline-query" Method="GET" Call="TestGETInlineQueryBuilder" />
 <Route Url="/raw" Method="GET" Call="TestGETRawMode"/>
 <Route Url="/shared_data" Method="GET" Call="TestGETData"/>
 <Route Url="/stream" Method="GET" Call="TestGETStream"/>
@@ -32,8 +33,7 @@ XData UrlMap [ XMLNamespace = "http://github.com/rfns/frontier" ]
 <Route Url="/errors/siblings" Method="GET" Call="TestGETMultipleSiblingErrors"/>
 <Route Url="/arguments/no-weak-typed" Method="GET" Call="TestGETNoWeakTypedArgs"/>
 <Route Url="/methods/no-weak-typed" Method="GET" Call="TestGETNoWeakTypedMethods" />
-<Route Url="/custom-auth" Method="GET" AuthStrategy="BasicSystemLogin" Call="TestGETCustomAuthData" />
-<Route Url="/query" Method="GET" Call="InlineQuery" /> 
+<Route Url="/custom-auth" Method="GET" AuthStrategy="BasicSystemLogin" Call="TestGETCustomAuth" />
 <Map Prefix="/map/A/:param1" Forward="Frontier.UnitTest.Router.Map.A" />
 <Map Prefix="/map/B/:param1/:param2" Forward="Frontier.UnitTest.Router.Map.B" />
 <Map Prefix="/map/C" Forward="Frontier.UnitTest.Router.Map.C" />
@@ -49,13 +49,6 @@ ClassMethod OnDataSet(data As %DynamicObject) As %Status
   set data.Message = "This 'Message' is shared between all methods."
   set data.Workspace = ##class(%File).NormalizeFilename(##class(Port.Configuration).GetWorkspace("frontier"))
   return $$$OK
-}
-
-ClassMethod InlineQuery(filter As %String, limit As %Integer = 50) As Frontier.SQL.Provider
-{
-  set builder = %frontier.SQL.InlineQueryBuilder()
-  do builder.Filter(filter).For("Frontier.UnitTest.Fixtures.Student").OrderBy("id asc")
-  return builder.Build().Provide()
 }
 
 /// This method is reserved for setting up configurations.
@@ -77,7 +70,7 @@ ClassMethod OnSetup() As %Status
     "validator": ($classname()_":ValidateSystemCredentials")
   }) 
 
-  set %frontier.StrictQueryParameters = 0
+  //set %frontier.StrictQueryParameters = 0
 
   // This provides a way to check if the current user is authenticated using Basic scheme.
   $$$QuitOnError(%frontier.AuthenticationManager.AddStrategy(basicStrategy))
@@ -160,6 +153,49 @@ ClassMethod TestGETQuerySQLResult(page As %Integer = 1, rows As %Integer = 5) As
   return %frontier.SQL.Prepare("Frontier.UnitTest.Fixtures.Student:PaginatedStudents").Parameters(offset, limit).Mode(2)
 }
 
+/// This method captures parameter "filter" as a source to build the custom query.
+/// You need to provide the target class which resolves to the SQL Table using the For method.
+/// The filter format can be divided into two types:
+/// Simple: fieldnameA_operation:value;fieldnameB_operation:value
+/// Composited: _or:[fieldnameA_operation:value;fieldNameA_operation:value]
+/// Supported operations:
+/// field_eq:value field = value
+/// field_neq:value field <> value
+/// field_gt:value field > value
+/// field_gte:value field >= value
+/// field_lt:value field < value
+/// field_lte:value field <= value
+/// field_sw:value field %STARTSWITH value
+/// field_nsw:value field NOT %STARTSWITH value
+/// field_ct:value field [ value
+/// field_nct:value field '[ value
+/// field_lk:%value% field LIKE '%value%'
+/// field_nlk:%value% field NOT LIKE '%value%'
+/// field_il:v,a,l,u,e  field %INLIST($lfs('v,a,l,u,e'))
+/// field_nil:v,a,l,u,e field NOT %INLIST($lfs('v,a,l,u,e'))
+/// field_is:null field IS NULL
+/// field_isn:null field IS NOT NULL
+/// field_bt:0,5 field BETWEEN 0 and 5
+/// field_nbt:0,5 field NOT BETWEEN 0 and 5
+/// field_in:v,a,l,u,e field IN('v','a','l','u','e')
+/// field_nin:v,a,l,u,e field NOT IN('v','a','l','u','e')
+/// field:value is translate to field_eq:value
+/// OrderBy can be used to sort the fields, the syntax is the same as you would use with SQL.
+/// Fields can be used to select the fields you want include in the results.
+ClassMethod TestGETInlineQueryBuilder(filter As %String, page As %String = "", limit As %String = "", orderBy As %String = "", groupBy As %String = "") As Frontier.SQL.Provider
+{
+  set builder = %frontier.SQL.InlineQueryBuilder()
+  
+  do builder.For("Frontier.UnitTest.Fixtures.Student")
+  
+  if page '= "" && (limit '= "") do builder.Pagination(page, limit)
+  if orderBy '= "" do builder.OrderBy(orderBy)
+  if groupBy '= "" do builder.GroupBy(groupBy)
+  if filter '= "" do builder.Filter(filter) 
+  
+  return builder.Build().Provide()
+}
+
 /// There can be cases where the response should not be a JSON.
 /// This method shows how to output a text in plain format.
 /// Call example:
@@ -220,7 +256,7 @@ ClassMethod TestPOSTArrayPayloadSingle(payload As %DynamicArray) As %DynamicObje
 /// Requests with array payloads also support query parameters.
 /// Call example:
 /// curl -H "Content-Type: application/json" -X POST -d '[{"username":"xyz","password":"xyz"}]' 'http://localhost:57772/api/frontier/test/payload/array-with-query-params?msg=hello'
-ClassMethod TestPOSTArrayPayloadQueryParams(payload As %DynamicObject, msg As %String = "") As %DynamicArray
+ClassMethod TestPOSTArrayPayloadQueryParams(payload As %DynamicArray, msg As %String = "") As %DynamicArray
 {
   return [ (msg), (payload) ]
 }
@@ -234,7 +270,7 @@ ClassMethod TestPOSTInvalidPayload(payloadA As %DynamicArray, payloadB As %Dynam
 }
 
 /// Normally %Dynamic instances cannot serialize childrens that aren't dynamic as well. (%ToJSON would thrown an exception).
-/// Frontier fixes it by marshalling irregular to %Dynamic instances beforehand and making it compatible.
+/// Frontier fixes it by marshalling irregularities to %Dynamic instances beforehand and making them compatible.
 /// Call example:
 /// curl -H "Content-Type: application/json" http://localhost:57772/api/frontier/test/mixed/object?class=1
 ClassMethod TestGETMixedDynamicObject(class As Frontier.UnitTest.Fixtures.Class) As %DynamicObject
@@ -272,14 +308,14 @@ ClassMethod TestPOSTMixedRestParametersSum(msg As %String, data As %DynamicObjec
 
 /// For compability with existing clients that use query parameters with symbols. For such cases
 /// ALIAS can be used to make it compatible. If the expected alias is not found then Frontier will
-/// fall back to using the argument name instead.
+/// fall back to using the original argument name instead.
 ClassMethod TestGETAliasedQueryParameter(msg As %String(ALIAS="aliased_key")) As %String
 {
   return msg
 }
 
 /// It's also possible to save from a payload directly to a %Persistent instance as long as the payload
-/// has the same format as the %Persistent class. Just define the the parameter INSTANTIATE with the class you want
+/// has the same format as the %Persistent class. Just define the the parameter UNMARSHALL to 1.
 /// curl -H "Content-Type: application/json" -X POST -d '{"Plate": "R-2948","Students": [{"Name": "Rubens","BirthDate": "04/21/1970","SomeValue": 0}]}' 'http://localhost:57772/api/frontier/unmarshal'
 ClassMethod TestPOSTUnmarshalToClass(class As Frontier.UnitTest.Fixtures.Class(UNMARSHAL=1)) As Frontier.UnitTest.Fixtures.Student
 {
@@ -291,7 +327,7 @@ ClassMethod TestPOSTUnmarshalToClass(class As Frontier.UnitTest.Fixtures.Class(U
 }
 
 /// You can also edit the entity just by providing the property "__id__" along with the new payload data. If you want the id to be read from the URL,
-/// add a new parameter and map the unmarshaller to use it as id by specifying the IDCOLUMN. If the named IDCOLUMN is not
+/// add a new parameter and map the unmarshaller to use it as id by specifying the WHEREID. If WHEREID is not
 /// found, the id will be searched inside the payload. Note that when the id is not found, an exception will be thrown regarding  the
 /// incorrect PUT usage.
 /// curl -H "Content-Type: application/json" -X POST -d '{"Plate": "R-2948","Students": [{"Name": "Rubens","BirthDate": "04/21/1970","SomeValue": 0}]}' 'http://localhost:57772/api/frontier/unmarshall/15'
@@ -497,9 +533,9 @@ ClassMethod TestGETNoWeakTypedMethods()
   return $$$OK
 }
 
-/// This method can be retrieved only if the user logs with the Caché credentials.
+/// This method can be retrieved only if the user logs with the CachÃ© credentials.
 /// The purpose is to show that custom authentication strategies can be used exclusively.
-ClassMethod TestGETCustomAuthData() As %String
+ClassMethod TestGETCustomAuth() As %String
 {
   return "works"
 }
@@ -522,7 +558,6 @@ ClassMethod ValidateCredentials(login As %String, password As %String, found As 
   return $$$OK
 }
 
-/// This is only to demonstrate, DO NOT USE this in production environments.
 ClassMethod ValidateSystemCredentials(login As %String, password As %String, Output found As %Boolean = 1, Output httpStatus As %String, Output user As %DynamicObject) As %Status
 {
   set found = $System.Security.Login(login, password)

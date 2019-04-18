@@ -147,7 +147,10 @@ ClassMethod DispatchRequest(url As %String, httpMethod As %String, forwarded As 
   // Normalize the HTTP method.
   set httpMethod = $$$ucase(httpMethod)
   
-  try {    
+  // Prevents attempts to dispatch from this class itself.
+  $$$QuitOnError($$ValidateRouteOrigin)
+  
+  try {       
     set resolvedUrl = $$ResolveUrl(url)
     
     while $$NextDispatchMap(.index, .mapEntry) {
@@ -191,11 +194,11 @@ ClassMethod DispatchRequest(url As %String, httpMethod As %String, forwarded As 
         // Found the router that should handle the request.
         if matchType = "R" {         
           set useAuth = $lg(mapEntry, 8)
-          set authStrategy = $lg(mapEntry, 11)
+          set authStrategy = $lg(mapEntry, 11)      
           
-          do %frontier.CORS.Set()
+          do %frontier.CORS.Set()         
                    
-          if useAuth {
+          if useAuth && %frontier.AuthenticationManager.HasStrategies() {
             // Run pending authentication strategies. If one passes, then the implementation
             // is responsible for filling the user object.
             if authStrategy = "" {
@@ -248,7 +251,7 @@ ClassMethod DispatchRequest(url As %String, httpMethod As %String, forwarded As 
           // Executes the method and retrives its value. The method MUST return a value or a 
           // <COMMAND> will be issued.
           set sc = publicMethod.Invoke(.methodReturn, .stack)
-          set %frontier.Stack = stack
+          set %frontier.Stack = stack          
           
           $$$ThrowOnError(sc)
           
@@ -340,6 +343,12 @@ ManualGroupMerge(matcher)
     set %frontier.Matches(i) = matcher.Group(i)
   }
  quit
+ 
+ValidateRouteOrigin()
+  if $classname() = "Frontier.Router" {
+    return $$$ERROR($$$GeneralError, "Invalid route origin: did you configure Frontier.Router as 'Dispatch Class' instead?")
+  }
+  return $$$OK
 }
 
 ClassMethod HandleException(exception As %Exception.AbstractException) As %DynamicObject [ Private ]

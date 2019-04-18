@@ -5,154 +5,196 @@ Property Cache As %DynamicObject [ MultiDimensional, Private ];
 
 Property Properties As %List [ Private ];
 
-Property DropCyclicReferences [ InitialExpression = 1 ];
+Property Depth As %Integer [ Private ];
 
-Method %OnNew() As %Status [ Private ]
-{
-  quit $$$OK
-}
+Property DescriptorsCache As %CacheString [ Internal, MultiDimensional, Private ];
+
+Property PropertiesCache As %CacheString [ Internal, MultiDimensional, Private ];
+
+Property JSONDataFormatsCache As %CacheString [ Internal, MultiDimensional, Private ];
 
 Method PropertiesSet(value As %String = "") As %Status
 {
   set i%Properties = $lfs(value)
-  quit $$$OK
+  return $$$OK
 }
 
-ClassMethod Marshall(object As %RegisteredObject, Output dynamicObject As %DynamicAbstractObject, properties As %String = "") As %Status
+ClassMethod Marshal(object As %RegisteredObject, Output dynamicObject As %DynamicAbstractObject, properties As %String = "") As %Status
 {
+ 
   set marshaller = ..%New()
   set marshaller.Properties = properties
+    
   if $isobject(object) {
     set type = $classname(object)
     if ##class(Frontier.Types).IsCollection(type) return marshaller.MakeDynamicCollection(object, .dynamicObject)
-    if ##class(Frontier.Types).IsDynamic(type) return marshaller.MarshallPartial(object, .dynamicObject)
+    if ##class(Frontier.Types).IsDynamic(type) return marshaller.MarshalPartial(object, .dynamicObject)
     if ##class(Frontier.Types).IsInstantiable(type) return marshaller.MakeDynamicObject(object, .dynamicObject)
   }
   return $$$OK
 }
 
-Method MarshallPartial(dynamicInstance As %DynamicAbstractObject, marshalledObject As %DynamicAbstractObject = "") As %Status
+Method MarshalPartial(dynamicInstance As %DynamicAbstractObject, marshalledObject As %DynamicAbstractObject = "") As %Status [ Private ]
 {
-  set sc = $$$OK
+  set sc = $$$OK  
+  
   set iterator = dynamicInstance.%GetIterator()
-  set marshalledObject = $System.OBJ.New($classname(dynamicInstance))
+  set marshalledObject = dynamicInstance
+  
+  if '$isobject(dynamicInstance) {
+    set marshalledObject = $System.OBJ.New($classname(dynamicInstance))
+  }
+  
   set dynamicValueResult = ""
   
   while iterator.%GetNext(.key, .value) {
-    set dynamicValueResult = value
+    set dynamicValueResult = value    
     if $isobject(value) {
       set valueType = $classname(value)
       set isDynamic = ##class(Frontier.Types).IsDynamic(valueType)
       set isStream = ##class(Frontier.Types).IsStream(valueType)
-      set isSQLProvider = ##class(Frontier.Types).IsSQLProvider(valueType)
-      if isDynamic {
-        set sc = ..MarshallPartial(value, .dynamicValueResult)       
+      set isSQLProvider = ##class(Frontier.Types).IsSQLProvider(valueType)      
+      if isDynamic {        
+        set sc = ..MarshalPartial(value, .dynamicValueResult)       
       } elseif 'isStream && 'isSQLProvider {
-        set sc = ..Marshall(value, .dynamicValueResult)
+        set sc = ..MakeDynamicObject(value, .dynamicValueResult)
+        do marshalledObject.%Set(key, .dynamicValueResult)
       }
       if $$$ISERR(sc) return sc
     }
-    do marshalledObject.%Set(key, dynamicValueResult)
   }
   return sc
 }
 
-ClassMethod MarshallCollection(collection As %RegisteredObject, Output dynamicCollection As %DynamicObject, properties As %String = "") As %Status
+ClassMethod MarshalCollection(collection As %RegisteredObject, Output dynamicCollection As %DynamicObject, properties As %String = "") As %Status [ Private ]
 {
   set marshaller = ..%New()
   set marshaller.Properties = properties
-  quit marshaller.MakeDynamicCollection(collection, .dynamicCollection)
+  return marshaller.MakeDynamicCollection(collection, .dynamicCollection)
 }
 
-Method MakeDynamicObject(object As %RegisteredObject, Output dynamicObject As %DynamicObject = "", parentKey As %String = "", parentObject As %RegisteredObject = "") As %Status [ Private ]
+Method BuildPropertiesList(classDescriptor As %Dictionary.CompiledClass, Output properties As %AbstractList = "") As %Status [ Private ]
 {
-  set sc = $$$OK     
-  
-  // Temporary table to reuse processed instances.
-  if $data(i%Cache(object)) {
-    quit $$$OK
-  } else {
-    set dynamicObject = ##class(%DynamicObject).%New()
-    set i%Cache(object) = dynamicObject
-  }
-    
-  set isSameObject = 0
-  set affectedProperties = ""
-  set classDescriptors = ##class(%Dictionary.CompiledClass).%OpenId($classname(object))
-  
+     
   if $lv(..Properties) && (..Properties '= "") {
-    set affectedProperties = ##class(%ListOfObjects).%New()
-    for i=1:1:classDescriptors.Properties.Count() {
-      set propertyDescriptors = classDescriptors.Properties.GetAt(i)
+    set properties = ##class(%ListOfObjects).%New()
+    for i=1:1:classDescriptor.Properties.Count() {
+      set propertyDescriptors = classDescriptor.Properties.GetAt(i)
       if $lf(..Properties, propertyDescriptors.Name) {
-        set sc = affectedProperties.Insert(propertyDescriptors)
+        set sc = properties.Insert(propertyDescriptors)
+        if $$$ISERR(sc) return sc
       }
     }
   } else {
-    set affectedProperties = classDescriptors.Properties
-  }  
+    set properties = classDescriptor.Properties
+  }
+  return $$$OK
+}
+
+Method NextSerializableProperty(properties As %ListOfObjects, ByRef property As %Dictionary.CompiledProperty = "", ByRef index As %Integer = 1) As %Boolean [ Private ]
+{
+  
+  while 1 {
+    set property = properties.GetAt(index)
+    if property = "" return 0
     
-  for i=1:1:affectedProperties.Count() {    
-    set propertyDescriptors = affectedProperties.GetAt(i)    
-    if '$isobject(propertyDescriptors) continue    
-    if propertyDescriptors.MultiDimensional || propertyDescriptors.Private || propertyDescriptors.Internal || ($extract(propertyDescriptors.Name) = "%") continue    
-    set value = $property(object, propertyDescriptors.Name)
-    if $isobject(value) && $isobject(parentObject) && ($data(i%Cache(parentObject)) || (value.%IsA("%RelationshipObject") && $data(i%Cache(value.InverseReference)))) {
-      // Prevents the buffer from overflowing by skipping parent relationship serialization.
-      // DO NOT DISABLE THIS FLAG WHEN SERIALIZING TO JSON!
-      // This will prevent Parent A -> Child B -> Parent A path building.
-      if '..DropCyclicReferences set $property(dynamicObject, parentKey) = i%Cache(parentObject)
-      continue
-    }
-    set jsonDataFormat = ##class(Frontier.Types).GetJSONDataFormat(propertyDescriptors.Type)    
-    if $isobject(value) {
-      if propertyDescriptors.Collection = "" {        
-        if value.%Extends("%Stream.Object") {
-          set dynamicChild = $System.OBJ.New($classname(value))
-          set sc = dynamicChild.CopyFrom(value)
-          if $$$ISERR(sc) quit
-        } else {
-          set parentObject = value
-          set parentKey = propertyDescriptors.Name
-          set sc = ..MakeDynamicObject(value, .dynamicChild, parentKey, parentObject)
-        }        
-      } else {
-        set sc = ..MakeDynamicCollection(value, .dynamicChild, parentKey, parentObject)          
-      }
-      if $$$ISERR(sc) quit      
-      if $isobject(dynamicChild) { do dynamicObject.%Set(propertyDescriptors.Name, dynamicChild) }
-      elseif '$data(i%Cache(parentObject)) { do dynamicObject.%Set(propertyDescriptors.Name, "", jsonDataFormat) }
+    set index = index + 1    
+    
+    if property.MultiDimensional || property.Private || property.Internal continue
+    if ($extract(property.Name) = "%") continue
+    if property.Cardinality = "parent" || property.Cardinality = "one" continue
+      
+    return 1    
+  }
+}
+
+Method MakeChildObject(object As %RegisteredObject, child As %RegisteredObject, isCollection As %Boolean = 0) [ Private ]
+{
+  
+  set sc = $$$OK   
+  
+  if 'isCollection {        
+    if object.%Extends("%Stream.Object") {
+      set child = $System.OBJ.New($classname(object))
+      set sc = child.CopyFrom(object)
+      if $$$ISERR(sc) quit
     } else {
-      set internalValue = $property(object, propertyDescriptors.Name)
-      set d = propertyDescriptors.Type
-      if jsonDataFormat '= "null" {
-        do dynamicObject.%Set(propertyDescriptors.Name, internalValue, jsonDataFormat)
-      } else {
-        do dynamicObject.%Set(propertyDescriptors.Name, internalValue)
-      }
-      if ##class(%Dictionary.CompiledMethod).%ExistsId(propertyDescriptors.Type_"||LogicalToDisplay") {                
-        set externalValue = $classmethod(propertyDescriptors.Type, "LogicalToDisplay", internalValue)
-        if externalValue '= internalValue {
-          set $property(dynamicObject, propertyDescriptors.Name_"__x") = externalValue
-        }
-      }
-    }      
+      set sc = ..MakeDynamicObject(object, .child)
+    }        
+  } else {
+    set sc = ..MakeDynamicCollection(object, .child)
   }  
+  return sc
+}
+
+Method GetExternalValue(object As %RegisteredObject, propertyName As %String, propertyType As %String, internalValue As %String) As %String [ Private ]
+{
+  if ##class(%Dictionary.CompiledMethod).%ExistsId(propertyType_"||LogicalToDisplay") {
+    return $method(object, propertyName_"LogicalToDisplay", internalValue)
+  }
+  return ""
+}
+
+Method MakeDynamicObject(object As %RegisteredObject, Output dynamicObject As %DynamicObject = "", skipCacheCheck As %Boolean = 0) As %Status [ Private ]
+{
+  set sc = $$$OK  
+ 
+  if 'skipCacheCheck && ..IsCached(object) return $$$OK  
+  set dynamicObject = {}
+  
+  do ..PutInCache(object)
+  set ..Depth = ..Depth + 1
+  
+  set classname = $classname(object)  
+  $$$QuitOnError(..GetProperties(classname, .properties))
+  
+  while ..NextSerializableProperty(properties, .property, .index) {
+    set value = $property(object, property.Name)
+    set jsonDataFormat = ..GetJSONDataFormat(property.Type)
+    set isCollection = property.Collection '= ""
+    if isCollection || ##class(Frontier.Types).IsInstantiable(property.Type) {
+      set child = ""
+      if '$isobject(value) do dynamicObject.%Set(property.Name, "", "null")
+      else  set sc = ..MakeChildObject(value, .child, isCollection)
+      if $$$ISERR(sc) { 
+        quit 
+      } elseif child = "" && (value '= "") {
+        if ##class(Frontier.Types).IsPersistent($classname(value)) {
+          do dynamicObject.%Set(property.Name,  value.%Id())
+        } elseif '##class(Frontier.Types).IsSerial($classname(value)) {
+          do dynamicObject.%Set(property.Name, "null")
+        }
+      } else {
+        do dynamicObject.%Set(property.Name, child)
+      }            
+    } elseif '(property.Type = "%Boolean" || (property.Type = "%Library.Boolean")) {
+      do dynamicObject.%Set(property.Name, value)
+      if value = "" continue      
+      set external = ..GetExternalValue(object, property.Name, property.Type, value)      
+      if value '= external do dynamicObject.%Set(property.Name_"__x", external)
+    } else {
+      do dynamicObject.%Set(property.Name, value, "boolean")
+    }
+  }
+      
   if object.%Extends("%Persistent") {
     if $lf(..Properties, "__id__") || (..Properties = "") {
       set id = object.%Id()
       if id '= "" set $property(dynamicObject, "__id__") = object.%Id()
     }
-  }      
+  }
+  set ..Depth = ..Depth - 1
   quit sc
 }
 
-Method MakeDynamicCollection(collection As %Collection.Super, Output dynamicCollection As %String, parentKey As %String = "", parentObject As %RegisteredObject = "") As %Status [ Private ]
+Method MakeDynamicCollection(collection As %Collection.Super, Output dynamicCollection As %String) As %Status [ Private ]
 {
   
-  set sc = $$$OK   
+  set sc = $$$OK  
+  if ..IsCached(collection) return $$$OK
+  
   set startOffset = 0
-  set cyclicReferenceTrap = 0
+  set expectingObject = ##class(Frontier.Types).IsInstantiable(collection.ElementType)
       
   if collection.%IsA("%Collection.AbstractList") || collection.%IsA("%RelationshipObject") {
     set startOffset = 1
@@ -160,27 +202,80 @@ Method MakeDynamicCollection(collection As %Collection.Super, Output dynamicColl
   } else {
     set dynamicCollection = {}
   }
+  
+  do ..PutInCache(collection)
+  set ..Depth = ..Depth + 1
    
   set key = ""
-  set item = collection.GetNext(.key)
+  set item = collection.GetNext(.key)   
   
-  while key {  
+  while key {
     if $isobject(item) {
       if item.%IsA("%Collection.AbstractIterator") {
-        set sc = ..MakeDynamicCollection(item , .value)
+        set sc = ..MakeDynamicCollection(item, .value, 1)
       } else {
-        set sc = ..MakeDynamicObject(item, .value, parentKey, parentObject)
-        set cyclicReferenceTrap = (value = "")
+        set sc = ..MakeDynamicObject(item, .value, 1)
       }
     } else {
+      if expectingObject set item = "null"
       set value = item
-    }
-    if 'cyclicReferenceTrap do dynamicCollection.%Set(key - startOffset, value)    
+    }    
+    do dynamicCollection.%Set(key - startOffset, value)    
     if $$$ISERR(sc) quit
     
     set item = collection.GetNext(.key)
   }
+  
+  set ..Depth = ..Depth - 1
   quit sc
+}
+
+Method IsCached(object As %RegisteredObject) As %Boolean [ Internal, Private ]
+{
+  if '$isobject(object) return 0
+  return $data(i%Cache(object))
+}
+
+Method PutInCache(object As %RegisteredObject) As %Boolean [ Internal, Private ]
+{
+  if '$isobject(object) quit
+  set i%Cache(object) = ""
+}
+
+Method GetDescriptor(classname As %String) As %Status [ Internal, Private ]
+{
+  set descriptor = $get(i%DescriptorsCache(classname))
+  if descriptor = "" {
+    set descriptor = ##class(%Dictionary.CompiledClass).%OpenId(classname)
+    set i%DescriptorsCache(classname) = descriptor
+  }
+  
+  return descriptor
+}
+
+Method GetProperties(classname As %String, Output properties As %Collection.AbstractList = "") As %Status [ Internal, Private ]
+{
+  
+  set properties = $get(i%PropertiesCache(classname))
+  if properties '= "" return $$$OK
+  
+  set descriptor = ..GetDescriptor(classname)  
+  
+  $$$QuitOnError(..BuildPropertiesList(descriptor, .properties))
+  set i%PropertiesCache(classname) = properties  
+  
+  return $$$OK
+}
+
+Method GetJSONDataFormat(propertyType As %String) As %String [ Internal, Private ]
+{
+  set format = $get(i%JSONDataFormatsCache(propertyType))
+  if format = "" {
+    set format = ##class(Frontier.Types).GetJSONDataFormat(propertyType)
+    set i%JSONDataFormatsCache(propertyType) = format
+  }
+  
+  return format
 }
 
 }

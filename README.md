@@ -273,9 +273,20 @@ Returning the provider will output `{ "results": [{...}, {...} ...]}`. If you wa
 
 > NOTE #2: You cannot use this API the iterate over each row, if you want to do so, then you're recommended to use the %SQL.Statement API itself.
 
-# Using the query builder
+## Using the query builder
 
-You can also allow the client to provide you the query, this can be useful for creating in-app advanced filters. You can setup the query builder by making it respond in place
+You can also allow the client to provide you the query, this can be useful for creating in-app advanced filters. You can setup the query builder by making it respond in place of the default API. E.g.
+
+```
+ClassMethod InlineQuery(filter As %String = "", page As %String = "", fields As %String = "id, name, ssn", orderBy As %String = "id asc, dob desc", limit As %Integer = 50) As Frontier.SQL.Provider
+{
+  set builder = %frontier.SQL.InlineQueryBuilder()
+  do builder.Filter(filter)
+  do builder.
+  do builder.OrderBy("id asc")
+  return builder.Build().Provide()
+}
+```
 
 # The Frontier Files API
 

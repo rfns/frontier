@@ -43,6 +43,9 @@ Method TestUnmarshalPropertyIgnore()
   set sc = ##class(Frontier.Dynamic.Unmarshaller).Unmarshal("Frontier.UnitTest.Fixtures.Student", payload, .student)
   do $$$AssertStatusOK(sc, "doesn't output any error when an unknown property is provided")
   do $$$AssertTrue(($isobject(student) && (student.%Id() = "")), "simply creates a new instance")
+  
+  set sc = ##class(Frontier.Dynamic.Unmarshaller).Unmarshal("Frontier.UnitTest.Fixtures.Student", payload, .student,,1)
+  do $$$AssertStatusNotOK(sc, "outputs an error if strict mode enabled")
 }
 
 Method TestUnmarshalSpecialId()

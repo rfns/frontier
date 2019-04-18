@@ -41,8 +41,8 @@ ClassMethod GeneratePatterns(routes As Frontier.Schema.Routes, targetClass As %S
     set resourceType = "R"
     for i=1:1:totalRoutes {
       set route = routes.Route.GetAt(i)
-      set pattern = $$WritePattern(route.Url, .placeholders)
-      set routePattern = $lb(resourceType, pattern, route.Method, route.Call, route.Cors, placeholders, route.Scope, route.UseAuth, route.Strict, route.Url)
+      set pattern = $$WritePattern(route.Url, .placeholders, route.Strict)
+      set routePattern = $lb(resourceType, pattern, route.Method, route.Call, route.Cors, placeholders, route.Scope, route.UseAuth, route.Strict, route.Url, route.AuthStrategy)
       if placeholders = "" && (pattern '= "/") {
         set patterns($increment(p)) = routePattern
       } else {
@@ -56,8 +56,8 @@ ClassMethod GeneratePatterns(routes As Frontier.Schema.Routes, targetClass As %S
     set resourceType = "M"
     for j=1:1:totalMaps {
       set map = routes.Map.GetAt(j)
-      set pattern = $$WritePattern(map.Prefix, .placeholders)
-      set routePattern = $lb(resourceType, pattern, map.Forward, placeholders, map.Strict, map.Prefix)
+      set pattern = $$WritePattern(map.Prefix, .placeholders, 1)
+      set routePattern = $lb(resourceType, pattern, map.Forward, placeholders, 1)
       if placeholders = "" && (pattern '= "/") {
         set patterns($increment(p)) = routePattern
       } else {
@@ -73,17 +73,18 @@ ClassMethod GeneratePatterns(routes As Frontier.Schema.Routes, targetClass As %S
   
   return $$$OK
   
-WritePattern(resource, placeholders)
+WritePattern(resource, placeholders, strict)
   #define GetPlaceholder(%exp) $piece(%exp, ":", 2) 
   #define AddPlaceholderIfNotDefined(%placeholder)  ##continue
   if '$lf(placeholders, %placeholder) { ##continue
     set $list(placeholders, *+1) = $$$GetPlaceholder(%placeholder) ##continue 
-  }
-    
-  
+  }    
+      
   set pattern = ""
   set placeholders = ""
   set shouldCloseParenthesis = 0
+  
+  if 'strict return resource
   
   if $extract(resource) = ":" {
     $$$AddPlaceholderIfNotDefined($piece(resource, "/", 1))

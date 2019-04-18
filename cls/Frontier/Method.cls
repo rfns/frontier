@@ -157,6 +157,7 @@ Method Sequentialize(ByRef mergedArguments = 0, propertyFormatter As Frontier.Pr
   #dim methodArgument As Frontier.ArgumentDescription
   #define TriggerPayloadFlag if ..HttpMethod = "POST" || (..HttpMethod = "PUT") || (..HttpMethod = "PATCH") set payloadFound = 1
   #define AssertSinglePayloadParameter throw:payloadFound=1 ##class(%Exception.StatusException).CreateFromStatus($$$ERROR($$$GeneralError, "Cannot have more than one payload for POST/PUT/PATCH requests."))
+  #define GetPayloadType(%classname) $case(%classname, "%Library.DynamicArray" : "array", : "object")
 
   set sc = $$$OK
 
@@ -196,10 +197,10 @@ Method Sequentialize(ByRef mergedArguments = 0, propertyFormatter As Frontier.Pr
       }
 
       if shouldUnmarshall || isDynamic {
-        set dynamicClass = $select('shouldUnmarshall : methodArgument.Type, 1: "%DynamicObject")
+        set dynamicClass = $select('shouldUnmarshall : methodArgument.Type, 1: "%Library.DynamicObject")
         if ..Payload = "" {
           return $$$ERROR($$$GeneralError, $$$FormatText(jsonErrorMessage, dynamicClass))
-        }
+        }        
 
         // If there's already a payloadable argument and another one is found, then we fail the request.
         $$$AssertSinglePayloadParameter
@@ -215,9 +216,13 @@ Method Sequentialize(ByRef mergedArguments = 0, propertyFormatter As Frontier.Pr
         try {
           set value = $classmethod(dynamicClass, "%FromJSON", ..Payload)
           if 'shouldUnmarshall {
-            set jsonType = "object"
-            if dynamicClass = "%DynamicArray" set jsonType = "array"
-            if $classname(value) '= ##class(%RegisteredObject).%ClassName()
+            set type = methodArgument.Type
+            $$$NormalizeClassName(type)
+            set expected = $$$GetPayloadType(type)
+            set received = $$$GetPayloadType($classname(value))
+            if expected '= received {
+              return $$$ERROR($$$GeneralError, $$$FormatText("Payload type mismatch: expected %1 but received %2", expected, received))
+            }
           }         
         } catch ex {
           return $$$ERROR($$$GeneralError, "Error while parsing the payload: the request did not send a valid JSON format.")
@@ -274,10 +279,15 @@ Method MergeArguments(ByRef routeArguments As %String = 0, ByRef requestArgument
   set preArguments = 0
   set methodArgumentsLength = ..MethodArguments.Count()
   set keysFound = ""
+  
+  if $data(requestArguments("Error:ErrorCode", 1)) {
+    return $$$EMBEDSC($$$ERROR($$$GeneralError, "A fatal error happened while trying to dispatch the result. Check this web application's configuration."), requestArguments("Error:ErrorCode", 1))
+  } 
 
   for {
     set key = $order(requestArguments(key))
     quit:key=""
+    
 
     set keyGroup = $$$KeyGroup(key)
     set $list(keysFound, *+1) = keyGroup
@@ -427,9 +437,13 @@ Method ResolveWhereId(whereId As %String, argumentName As %String, argumentType 
 
 Method Invoke(Output methodReturn = "", Output stack As %Stream.Object = "") As %Status [ Internal ]
 {
+ 
   set sc = $$$OK
+  set io = $io
   merge methodArguments = ..Arguments
   set returnType = ..MethodDescriptor.ReturnType
+  
+  use $$$NULL
   
   new $estack   
 
@@ -443,6 +457,8 @@ Method Invoke(Output methodReturn = "", Output stack As %Stream.Object = "") As 
     do ##class(Frontier.Exception).CaptureStack(.stack)
     set sc = ex.AsStatus()
   }
+  
+  use io 
   return sc
 }
 

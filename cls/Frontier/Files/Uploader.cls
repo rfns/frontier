@@ -30,9 +30,10 @@ Method HandleRequest(settings As %DynamicObject) As %Status [ Internal ]
  
   #define DestinationAsObject(%d) if '$isobject(%d) set %d = { "path": (%d) }
   set sc = $$$OK 
+  set validMethods = $lb("POST", "PUT")
   
-  if ..Context.Request.Method '= "POST" {
-    return $$$ERROR($$$GeneralError, "Must use POST to handle form data.")
+  if $lf(validMethods, ..Context.Request.Method) < 1 {
+    return $$$ERROR($$$GeneralError, "Must use POST or PUT to handle uploads.")
   }
   
   if '$isobject(settings.filters) set settings.filters = {}
@@ -50,13 +51,15 @@ Method HandleRequest(settings As %DynamicObject) As %Status [ Internal ]
     
     while it.%GetNext(.key, .destination) {    
       $$$DestinationAsObject(destination)
-      if destination.slots = "" set destination.slots = 1                 
+      if destination.slots = "" || (destination.slots < 0) set destination.slots = 1
         
-        set ssc = ..HandleMultipart(key, destination, settings.filters, .filePath)
-        if $$$ISOK(ssc) set ssc = $$$EMBEDSC(ssc, ..CallHook(settings.hooks.onItemUploadSuccess, key, destination, filePath))
-        else  set ssc = $$$EMBEDSC(ssc, ..CallHook(settings.hooks.onItemUploadError, key, destination, filePath, ssc))
-        set sc = $$$ADDSC(sc, ssc)
-        do result.%Push({ "sc": (ssc), "key": (key), "destination": (destination), "filePath": (filePath) })
+      set ssc = ..HandleMultipart(key, destination, settings.filters, .filePath)
+      
+      if $$$ISOK(ssc) set ssc = $$$EMBEDSC(ssc, ..CallHook(settings.hooks.onItemUploadSuccess, key, destination, filePath))
+      else  set ssc = $$$EMBEDSC(ssc, ..CallHook(settings.hooks.onItemUploadError, key, destination, filePath, ssc))
+      
+      set sc = $$$ADDSC(sc, ssc)
+      do result.%Push({ "sc": (ssc), "key": (key), "destination": (destination), "filePath": (filePath) })
     }           
   } elseif settings.destination '= "" {
     set sc = $$$ADDSC(sc, ..HandleSingleFile(settings.destination, settings.filters, .filePath))
@@ -162,7 +165,6 @@ Method StoreToFS(key As %String, index As %String, destination As %String, fileP
   
   try {
     // Sometimes GetDirectory cannot find the directory.
-    // E.g.: C:\CacheProjects\DEV\frontier\tests\fixtures\uploads\single\file.txt
     // So we use $piece instead.
     // set path = ##class(%File).GetDirectory(filePath)
     set path = $piece(filePath, $$$OSSlash, 1, *-1)
