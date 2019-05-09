@@ -5593,7 +5593,7 @@ rchr(time) Quit ""
 </Property>
 <Property name="PeriodEnd">
 <Selectivity>10.0000%</Selectivity>
-<AverageFieldSize>4.8</AverageFieldSize>
+<AverageFieldSize>4.9</AverageFieldSize>
 </Property>
 <Property name="PeriodStart">
 <Selectivity>10.0000%</Selectivity>
