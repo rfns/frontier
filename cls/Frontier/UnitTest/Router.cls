@@ -360,7 +360,7 @@ ClassMethod TestGETSessionUserInfo() As %Status
 }
 
 /// Serves all files from the path defined on Data.Workspace (this project's folder).
-/// This is the fastest to implement a file server.
+/// This is the fastest way to implement a file server.
 /// In order to use it, you must provide A non-Strict route that allows custom regular expressions like this one:
 /// <Route Url="/public/?(.*)?" Strict="false" Method="GET" Call="TestFileServer"/>
 /// That regular expression means 'put everything after public or public/ into %frontier.Matches'.
@@ -425,39 +425,7 @@ ClassMethod TestGETSingleStaticFile() As %Stream.Object
   return %frontier.Files.ServeFile(%frontier.Data.Workspace_"/README.md", "utf-8")
 }
 
-/// Provides a way to handle multipart uploads. Can only be used with POST routes.
-/// Configuration is made by using %DynamicObject instances to provide better readability.
-/// Usually returning the call like the example below is sufficient for the most of cases.
-/// The uploader always returns empty responses if not OK, throws an exception when a error happens.
-/// However uploads can be still be realized partiall, so the implementation must use the hooks to
-/// undo any uploads that have succeeded (OnError) or do something based on its success (OnCompleteOne).
-/// 
-/// The path is built based on a list of the following placeholders:
-/// 
-/// :KEY - Represents the destination name.
-/// :FILE_NAME - Self-described.
-/// :NAMESPACE - Self-described.
-/// :USERNAME - Self-described.
-/// :EXTENSION - The extension in the file name, could be empty.
-/// :RANDOM - Represents a list of random characters to provide lower conflict chances.
-/// 
-/// The path can be provided as string to each destination key or using object format.
-/// Using object format allows certain uploads to be optional.
-/// 
-/// Its also possible to define a set of filters that purge irregular entries.
-/// 
-/// Those filters can be:
-/// 
-/// fileMaxSize - Specify a KB size limit, files bigger than that are purged from the queue.
-/// extensions - When providing a list of extensions, files whose extension is outside the array are purged from queue.
-/// minNameLength - Requires the filename to have at least N chars length.
-/// maxNameLength - Requires the filename to have a maxium of N chars length.
-/// 
-/// There are also 3 optional hooks that can be used to handle specific situations:
-/// 
-/// OnComplete - Called whenever a upload is finished without errors.
-/// OnCompleteAll - Called when all uploads are finished without error
-/// OnError - Called whenever an upload fails.
+/// This method implements a full-sized configuration on how to handle multipart uploads.
 ClassMethod TestPOSTMultipartFileUpload() As %Status
 {
   set location = %frontier.Data.Workspace_"/fixtures/uploads/multiple"

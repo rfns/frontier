@@ -1,7 +1,41 @@
 Include frontier
 
-/// Provides the capability of handling file payloads. form-data/multipart and single file are supported.
-/// This class cannot be used without the %frontier context variable.
+/// This class is the actual engine for handling multipart/form-data uploads.
+/// 
+/// Configuration is made by using a %DynamicObject instances.
+/// The uploader always returns empty responses if not OK, throws an exception when a error happens.
+/// However since uploads can be still be realized partially, the implementation can use the hooks to
+/// undo any uploads that have succeeded (OnError) or do something based on its success (OnCompleteOne).
+/// 
+/// The path is built based on a list of the following placeholders:
+/// 
+/// :KEY - Represents the destination name.
+/// :FILE_NAME - Self-described.
+/// :NAMESPACE - Self-described.
+/// :USERNAME - Self-described.
+/// :EXTENSION - The extension in the file name, could be empty.
+/// :RANDOM - Represents a list of random characters to provide lower conflict chances.
+/// 
+/// The path can be provided as string to each destination key or using object format.
+/// Using object format allows certain uploads to be optional.
+/// 
+/// Its also possible to define a set of filters that purge irregular entries.
+/// 
+/// Those filters can be:
+/// 
+/// fileMaxSize - Specify a KB size limit, files bigger than that are purged from the queue.
+/// extensions - When providing a list of extensions, files whose extension is outside the array are purged from queue.
+/// minNameLength - Requires the filename to have at least N chars length.
+/// maxNameLength - Requires the filename to have a maxium of N chars length.
+/// 
+/// There are also 3 optional hooks that can be used to handle specific situations:
+/// 
+/// OnComplete - Called whenever a upload is finished without errors.
+/// OnCompleteAll - Called when all uploads are finished without error
+/// OnError - Called whenever an upload fails.
+/// 
+/// You can check the method TestPOSTMultipartFileUpload from the class Frontier.UnitTest.Router
+/// to see a complete example on how to configure it.
 Class Frontier.Files.Uploader Extends %RegisteredObject
 {
 

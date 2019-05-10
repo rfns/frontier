@@ -1,16 +1,24 @@
 Include (%occErrors, %occStatus)
 
-/// Testando.
+/// This strategy provides the implementation for handling clients requests whose authentication
+/// follows the format: Authorization: Basic b64(user:password). This class can be used to demonstrate
+/// how a strategy can be implemented and even augmented. This strategy works as the following:
+/// * If the user doesn't provide an Authorization header, we assume the client isn't used the Basic
+/// specification and let the request be handle by the next strategy.
+/// * If the user provided an Authorization header, but the value doesn't start with 'Basic', we consider
+/// it as malformed and reply it back to client as an error.
+/// * If the client didn't provided any authentication, we challenge it using the implemented GetChallenge.
 Class Frontier.Authentication.BasicStrategy Extends Frontier.Authentication.Strategy
 {
 
+/// This is the name the of the strategy. Can be used to determine that this strategy should be used for a Route exclusively.
+Property Name As %String [ InitialExpression = "Basic" ];
+
+/// This is used by the challenge. Represents the "realm=<value>" from the WWW-Authenticate challenge header.
 Property Realm As %String [ Private ];
 
+/// A string whose format should be classname:classmethod, which is used to validate the value from the Authorization header.
 Property Validator As %String [ Private ];
-
-Property Required As %Boolean [ InitialExpression = 0 ];
-
-Property Name As %String [ InitialExpression = "Basic" ];
 
 Method %OnNew(config As %DynamicObject) As %Status
 {
@@ -20,6 +28,7 @@ Method %OnNew(config As %DynamicObject) As %Status
   return $$$OK
 }
 
+/// Searches for the Authorization header, skips if nothing is found. Otherwise validates the header and the credentials themselves.
 Method Verify(session As %CSP.Session, request As %CSP.Request, response As %CSP.Response, Output user As %DynamicObject = {{}}, resourceScope As %String = "") As %Status
 {
   set sc = $$$OK
@@ -55,6 +64,7 @@ Method Verify(session As %CSP.Session, request As %CSP.Request, response As %CSP
   return sc
 }
 
+/// Returns a string that is used to populate the WWW-Authenticate.
 Method GetChallenge(session As %CSP.Session, request As %CSP.Request, response As %CSP.Response, challenge As %String = "") As %Status
 {
   set challenge = "Basic realm="""_..Realm_""""
@@ -62,4 +72,3 @@ Method GetChallenge(session As %CSP.Session, request As %CSP.Request, response A
 }
 
 }
-
