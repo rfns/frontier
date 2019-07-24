@@ -6,9 +6,9 @@ Method Prepare(SQLExpression As %String)
   return ##class(Frontier.SQL.Provider).%New(SQLExpression)
 }
 
-ClassMethod InlineQueryBuilder() As Frontier.SQL.InlineQueryBuilder
+ClassMethod InlineQueryBuilder(className As %String) As Frontier.SQL.InlineQueryBuilder
 {
-  return ##class(Frontier.SQL.InlineQueryBuilder).%New()
+  return ##class(Frontier.SQL.InlineQueryBuilder).%New(className)
 }
 
 }

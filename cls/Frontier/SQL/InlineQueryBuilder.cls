@@ -1,5 +1,53 @@
 Include frontier
 
+/// This class can be used to query and return a set of SQL results.
+/// You'll probably never have to call it outside the context created by Frontier.
+/// 
+/// The filter format can be divided into two formats:
+/// 
+/// Simple: fieldnameA_operation:value;fieldnameB_operation:value
+/// Composited: _or:[fieldnameA_operation:value;fieldNameA_operation:value]
+/// 
+/// Supported operations:
+/// 
+/// field_eq:value field = value
+/// field_neq:value field <> value
+/// field_gt:value field > value
+/// field_gte:value field >= value
+/// field_lt:value field < value
+/// field_lte:value field <= value
+/// field_sw:value field %STARTSWITH value
+/// field_nsw:value field NOT %STARTSWITH value
+/// field_ct:value field [ value
+/// field_nct:value field '[ value
+/// field_lk:%value% field LIKE '%value%'
+/// field_nlk:%value% field NOT LIKE '%value%'
+/// field_il:v,a,l,u,e  field %INLIST($lfs('v,a,l,u,e'))
+/// field_nil:v,a,l,u,e field NOT %INLIST($lfs('v,a,l,u,e'))
+/// field_is:null field IS NULL
+/// field_isn:null field IS NOT NULL
+/// field_bt:0,5 field BETWEEN 0 and 5
+/// field_nbt:0,5 field NOT BETWEEN 0 and 5
+/// field_in:v,a,l,u,e field IN('v','a','l','u','e')
+/// field_nin:v,a,l,u,e field NOT IN('v','a','l','u','e')
+/// field:value is translated to field_eq:value
+/// 
+/// The method "OrderBy" can be used to sort the fields, the syntax is the same as you would use with SQL.
+/// The method "Fields" can be used to select the fields you want include in the results.
+/// 
+/// Note: Both methods will not allow the usage of dubious characters that could into a destructive command.
+/// Only alphanumeric inputs are allowed with a few symbols, they are: underscore, dot, asterisk and comma.
+/// 
+/// Example of usage:
+/// 
+/// set builder = %frontier.SQL.InlineQueryBuilder("Frontier.UnitTest.Fixtures.Student")
+/// 
+/// if page '= "" && (limit '= "") do builder.Pagination(page, limit)
+/// if orderBy '= "" do builder.OrderBy(orderBy)
+/// if groupBy '= "" do builder.GroupBy(groupBy)
+/// if filter '= "" do builder.Filter(filter)
+/// 
+/// return builder.Build().Provide()
 Class Frontier.SQL.InlineQueryBuilder Extends %RegisteredObject
 {
 
@@ -13,7 +61,7 @@ Property PaginationParameters As %List [ Private ];
 
 Property SelectedFields As %String [ InitialExpression = "*", Private ];
 
-Property Status As %Status [ InitialExpression = 1, Private ];
+Property BuildStatus As %Status [ InitialExpression = 1, Private ];
 
 Property For As %String [ Private ];
 
@@ -21,9 +69,10 @@ Property Result As %String;
 
 Property GroupBy As %String [ Private ];
 
-Method %OnNew() As %Status
+Method %OnNew(className As %String) As %Status
 {
   set i%Parameters = 0
+  set ..For = className
   return $$$OK
 }
 
@@ -33,16 +82,10 @@ Method Filter(filter) As Frontier.SQL.InlineQueryBuilder
   return $this
 }
 
-Method For(className As %String) As Frontier.SQL.InlineQueryBuilder
-{
-  set ..For = className
-  return $this
-}
-
 Method Pagination(page As %Integer, limit As %String) As Frontier.SQL.InlineQueryBuilder
 {
   
-  if $$$ISOK(..Status) set ..PaginationParameters = $lb(page, limit)
+  set ..PaginationParameters = $lb(page, limit)
   return $this
 }
 
@@ -101,11 +144,11 @@ Method CheckPaginationParameters() [ Private ]
   set limit = $lg(..PaginationParameters, 2)
   
   if '$isvalidnum(page) $$$AppendStatus("Page must be a number.")
-  if page = 0 $$$AppendStatus("Page must be start from 1")
+  if page = 0 $$$AppendStatus("Page must page must start from 1.")
   if page < 0 $$$AppendStatus("Page must be a positive number.")
   
   if '$isvalidnum(page) $$$AppendStatus("Limit must be a number.")
-  if page = 0 $$$AppendStatus("Limit must be start from 1")
+  if page = 0 $$$AppendStatus("Limit must start from 1.")
   if page < 0 $$$AppendStatus("Limit must be a positive number.")
   
   if $$$ISERR(sc) return $$$EMBEDSC($$$ERROR($$$GeneralError, "Invalid pagination parameters."), sc)
@@ -159,9 +202,13 @@ HandleCompositeCondition(condition, conditionType)
   return ..CreateWHEREStatement(composition, conditionType, "")
 }
 
-Method Build() As %Status
+Method Build(Output sc As %Status = {$$$OK}, Output expression As %String = "", Output parameters As %String = "") As Frontier.SQL.InlineQueryBuilder
 {
   set sc = $$$OK
+  
+  merge parameters = i%Parameters
+  
+  set ..BuildStatus = sc
   
   try {
     if ..PaginationParameters '= "" $$$ThrowOnError(..CheckPaginationParameters())
@@ -171,23 +218,22 @@ Method Build() As %Status
     if cclass = "" $$$ThrowStatus($$$ERROR($$$GeneralError, $$$FormatText("Class '%1' does not exist.", ..For)))
     set tableName = cclass.SqlQualifiedNameQ
   
-    if tableName = "" $$$ThrowStatus($$$ERROR($$$GeneralError, "Class does is not a persistent representation."))  
+    if tableName = "" $$$ThrowStatus($$$ERROR($$$GeneralError, "Class cannot be projected to SQL."))
     
     set where = ..CreateWHEREStatement()
     set paginatedQuery = ..WithPagination(where, tableName)
-    set statement = paginatedQuery
+    set expression = paginatedQuery
     
-    if statement = "" {
-      set statement = $$$FormatText("SELECT %1 FROM %2 %3 %4 %5", ..SelectedFields, tableName, where, ..GroupBy, ..OrderBy)
+    if expression = "" {
+      set expression = $$$FormatText("SELECT %1 FROM %2 %3 %4 %5", ..SelectedFields, tableName, where, ..GroupBy, ..OrderBy)
     }
     
-    set ..Result = statement
-    return $this
+    set ..Result = expression    
   } catch ex {
-    if $data(%frontier) throw ex
-    set sc = ex.AsStatus()
+    set ..BuildStatus = ex.AsStatus()
+    set sc = ..BuildStatus
   }
-  return sc
+  return $this
 }
 
 Method TransformFilter(filter As %String, value, op As %String) As %String [ Private ]
@@ -243,6 +289,9 @@ AddParameter(newparam)
 
 Method Provide() As Frontier.SQL.Provider
 {
+  
+  // Must check if the building phase had any errors.
+  $$$ThrowOnError(..BuildStatus)
   
   set params = ""
   merge params = i%Parameters
