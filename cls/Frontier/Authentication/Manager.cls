@@ -127,6 +127,25 @@ Method VerifyUsing(namedStrategy As %String, Output user, resourceScope As %Stri
 /// in the Route element's Scope property.
 Method CheckResourceScope(resourceScope As %String = "", authenticationScope As %DynamicObject = {{}}) As %Boolean [ Internal ]
 {
+  if resourceScope [ " " {    
+    set resourceScope = $lfs(resourceScope, " ")
+    set isMatch = 0    
+    
+    for i=1:1:$ll(resourceScope) {      
+      set oneScope = $zstrip($lg(resourceScope, i), "<>W")
+      set modifier = $extract(oneScope, 1)
+      if $extract(modifier)?1AN = 1 set modifier = "+"
+      
+      if modifier = "-" set mustMatch = 0
+      else  set mustMatch = 1
+      
+      set oneScope = $translate(oneScope, "+-", "")
+      set isMatch = ..CheckResourceScope(oneScope, authenticationScope)
+      if mustMatch && 'isMatch { return 0 }
+      elseif 'mustMatch && isMatch { return 0 }
+    }
+    return 1
+  }
   if resourceScope '= "" return $lf($lfs(authenticationScope, ..ScopeSeparator), resourceScope) > 0
   return 1
 }
@@ -146,3 +165,4 @@ Method HasStrategies() As %Boolean
 }
 
 }
+
