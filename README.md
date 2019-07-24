@@ -228,7 +228,7 @@ Since reporters provides more freedom on how to implement them, there is only tw
 * `Setup (method)`: This receives `context`: an object representing the `%frontier`. Use this method to prepare or configure the custom reporter.
 *  `Report (method)`: This also receives `context`, however `Report` is called only when an abnormal error happens and the request has already finished. This is where the custom reporter should take an action.
 
-Check out the class [Frontier.Reporter.Email](https://github.com/rfns/frontier/blob/feature/files/cls/Frontier/Reporter/Email.cls) to see how to implement those entry points.
+Check out the class [Frontier.Reporter.Log](https://github.com/rfns/frontier/blob/feature/files/cls/Frontier/Reporter/Log.cls) to see how to implement those entry points.
 
 ### Property Formatters
 
