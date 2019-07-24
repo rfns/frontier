@@ -66,7 +66,7 @@ Method ServeFrom(root As %String) As %Stream.Object
 {
   return ..Serve({
     "root": (root),
-    "etag": "weak",
+    "etag": "weak",    
     "index": "index.html index.htm",
     "extensions": {
       "md": {
@@ -126,13 +126,18 @@ Method Serve(config As %DynamicObject) As %Status
 
     for i=1:1:$length(virtualPath, " ") {
       set virtualFileName = $piece(virtualPath, " ", i)
-      set requestDirectory = ##class(%File).NormalizeFilename(virtualFileName, directory)
+      set requestDirectory = ##class(%File).NormalizeFilename(virtualFileName, directory)      
       if ##class(%File).Exists(requestDirectory) set fileExists = 1 quit
     }
-  }
+  }   
 
   if 'fileExists {
-    return ..Context.ThrowException("File does not exist.", "404 Not Found")
+    if 'config.%IsDefined("redirect404To") {
+      return ..Context.ThrowException("File does not exist.", "404 Not Found")
+    } elseif config.root '= "" {
+      set requestDirectory = ##class(%File).NormalizeFilename(config.root_"/"_config.redirect404To)
+      if ##class(%File).Exists(requestDirectory) return ..Context.ThrowException("File does not exist.", "404 Not Found")
+    }
   }
 
   $$$ThrowOnError(..GetFileServerConfig(.appConfig))
@@ -246,3 +251,4 @@ Method GetFileServerConfig(Output config As %DynamicObject = {{}}) As %Status [ 
 }
 
 }
+
