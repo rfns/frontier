@@ -1,12 +1,18 @@
 Class Frontier.UnitTest.Authentication.DummyStrategy Extends Frontier.Authentication.Strategy
 {
 
-Property ShouldPass As %Boolean [ InitialExpression = 1 ];
+Property Behavior As %String [ InitialExpression = "fail" ];
+
+Method %OnNew(config As %DynamicObject = {{}}) As %Status
+{
+  return $$$OK
+}
 
 Method Verify(session As %CSP.Session, request As %CSP.Request, response As %CSP.Response, Output user As %DynamicObject = {{}}, resourceScope As %String = "") As %Status
 {
- 
-  if ..ShouldPass = 1 || (..Next = 1) return $$$OK
+    
+  if ..Behavior = "bypass" return $$$OK
+  if ..Behavior = "pass" set ..Verified = 1 return $$$OK
   set response.Status = "401 Unauthorized"
   return $$$ERROR($$$GeneralError, "Requested to fail")
 }

@@ -13,45 +13,61 @@ Property Student As Frontier.UnitTest.Fixtures.Student;
 
 Property WebApplicationName As %String [ InitialExpression = {$e(##class(Frontier.UnitTest.WebApplicationInstaller).#NAME, 2, *)} ];
 
-Property Agent As Frontier.DevTools.FakeAgent;
+Property Agent As Forgery.Agent;
 
 Method OnBeforeAllTests() As %Status [ PublicList = %session ]
 {
-  
+  do ##class(Frontier.UnitTest.Fixtures.Student).%DeleteExtent()
+  do ##class(Frontier.UnitTest.Fixtures.Class).%DeleteExtent()
+
+  do ##class(Frontier.UnitTest.Fixtures.Student).Populate()
+  do ##class(Frontier.UnitTest.Fixtures.Class).Populate()
+
   &sql(SELECT TOP 1 ID INTO :classId FROM FRONTIER_UNITTEST_FIXTURES.CLASS)
   &sql(SELECT TOP 1 ID INTO :studentId FROM FRONTIER_UNITTEST_FIXTURES.STUDENT)
-  
+
   set ..Class = ##class(Frontier.UnitTest.Fixtures.Class).%OpenId(classId)
   set ..Student = ##class(Frontier.UnitTest.Fixtures.Student).%OpenId(studentId)
-  set ..Agent = ##class(Frontier.DevTools.FakeAgent).%New()
-    
+  set ..Agent = ##class(Forgery.Agent).%New()
+
   set %session = ##class(%CSP.Session).%New("t3st1ng")
-  
+
   return $$$OK
 }
 
 Method OnAfterAllTests() As %Status [ PublicList = %session ]
 {
   kill %session
+  do ##class(%File).RemoveDirectoryTree(..GetTestDirectory("../fixtures"))
   return $$$OK
 }
 
-Method AssertRequest(resource As %String, expected As %DynamicAbstractObject = "", method As %String = "GET", payload As %DynamicAbstractObject = "", authHeader As %String = "Basic Zm9vOmJhcg==") As %Status
+Method AssertRequest(resource As %String, expected As %DynamicAbstractObject = "", method As %String = "GET", payload As %DynamicAbstractObject = "", authHeader As %String = "Basic Zm9vOmJhcg==", contentType As %String = "text/plain") As %Status
 {
-  
+
   // Default authHeader is Basic foo:bar. Refer to the ValidateCredentials method defined in the Frontier.UnitTest.Router class.
-  // There's also an admin:admin account that is used to simulate scope usage.  
-  set response = ..Agent.ForgeRequest(resource, method, payload, authHeader)
-    
+  // There's also an admin:admin account that is used to simulate scope usage.
+  set sc = ..Agent.Request({
+    "url": (resource),
+    "method": (method),
+    "data": (payload),
+    "headers": {
+      "Authorization": (authHeader),
+      "Content-Type": (contentType)
+    }
+  }, .response)
+
+  $$$QuitOnError(sc)
+
   set responseText = response.Read()
   set expectedText = expected
-  
+
   set firstByte = $extract(responseText)
-  
+
   if $extract(firstByte)?1(1"{",1"[") {
-    set response = ##class(%DynamicObject).%FromJSON(responseText)    
+    set response = ##class(%DynamicObject).%FromJSON(responseText)
     if $isobject(response) {
-      if ##class(Frontier.Types).IsDynamicObject(response) && (response.errors '= ""){        
+      if ##class(Frontier.Types).IsDynamicObject(response) && (response.errors '= ""){
         return ##class(Frontier.UnitTest.Util).MergeErrors(response.errors)
       } elseif ##class(Frontier.Types).IsDynamic($classname(expected)) {
         $$$QuitOnError(##class(Frontier.Dynamic.Serializer).SerializeToStream(.str, expected))
@@ -61,21 +77,28 @@ Method AssertRequest(resource As %String, expected As %DynamicAbstractObject = "
   }
   if responseText '= expectedText {
     return $$$ERROR($$$GeneralError, $$$FormatText("The received content mismatches with the expected one: %1%2 '= %3%4", $c(10,13), responseText, $c(10,13), expectedText))
-  }  
-  
+  }
+
   return $$$OK
 }
 
 Method TestGETRouteParams()
 {
   set resource = $$$FormatText("%1route-params/%2", ..WebApplicationName, ..Class.%Id())
-  do ##class(Frontier.Dynamic.Marshaller).Marshall(..Class, .expected)
+  do ##class(Frontier.Dynamic.Marshaller).MarshalDirect(..Class, .expected)
+  return $$$AssertStatusOK(..AssertRequest(resource, expected), $$$FormatText("can retrieve the expected data from the resource %1", resource))
+}
+
+Method TestGETRouteParamsWhereId()
+{
+  set resource = $$$FormatText("%1route-params/%2/students/%3", ..WebApplicationName, ..Class.%Id(), ..Student.%Id())
+  do ##class(Frontier.Dynamic.Marshaller).MarshalDirect(..Student, .expected)
   return $$$AssertStatusOK(..AssertRequest(resource, expected), $$$FormatText("can retrieve the expected data from the resource %1", resource))
 }
 
 Method TestGETOneQueryParameter()
 {
-  set expected = { "result": "hello" }  
+  set expected = { "result": "hello" }
   set resource = $$$FormatText("%1query-params?msg=%2", ..WebApplicationName, "hello")
   return $$$AssertStatusOK(..AssertRequest(resource, expected), $$$FormatText("can retrieve the expected data from the resource %1", resource))
 }
@@ -93,6 +116,19 @@ Method TestPOSTMixedRestParametersSum()
   set payload = {"username":"xyz","password":"xyz"}
   set expected = {"sum":30,"data":{"username":"xyz","password":"xyz"},"params":["10","20"],"msg":"hello"}
   return $$$AssertStatusOK(..AssertRequest(resource, expected, "POST", payload), $$$FormatText("can retrieve the expected data from the resource %1", resource))
+}
+
+Method TestPOSTUnmarshalToClass()
+{
+
+  &sql(SELECT TOP 1 CAST(ID + 1 as VARCHAR) INTO :classId FROM FRONTIER_UNITTEST_FIXTURES.CLASS ORDER BY ID DESC)
+
+  set resource = $$$FormatText("%1unmarshal", ..WebApplicationName)
+  set payload = {"Plate": "R-101-3", "Students": [(..Student.%Id())]}
+  set expected = {"ok": 1, "__id__": (classId)}
+  set result = ..AssertRequest(resource, expected, "POST", payload)
+
+  return $$$AssertStatusOK(result, $$$FormatText("can unmarshal the payload data to the expected result when POST'ing to %1", resource))
 }
 
 Method TestPOSTObjectPayloadSingle()
@@ -149,7 +185,7 @@ Method TestGETUnspecifiedArgument()
 Method TestGETMixedDynamicObject()
 {
   set resource = $$$FormatText("%1mixed/object?class=1", ..WebApplicationName)
-  do ##class(Frontier.Dynamic.Marshaller).Marshall(..Class, .class)
+  do ##class(Frontier.Dynamic.Marshaller).MarshalDirect(..Class, .class)
   set expected = {"class":(class)}
   return $$$AssertStatusOK(..AssertRequest(resource, expected), $$$FormatText("can retrieve the expected data from the resource %1", resource))
 }
@@ -157,7 +193,7 @@ Method TestGETMixedDynamicObject()
 Method TestGETMixedDynamicArray()
 {
   set resource = $$$FormatText("%1mixed/array?class=1", ..WebApplicationName)
-  do ##class(Frontier.Dynamic.Marshaller).Marshall(..Class, .class)
+  set sc =  ##class(Frontier.Dynamic.Marshaller).MarshalDirect(..Class, .class)
   set expected = [ (class) ]
   return $$$AssertStatusOK(..AssertRequest(resource, expected), $$$FormatText("can retrieve the expected data from the resource %1", resource))
 }
@@ -186,27 +222,32 @@ Method TestGETAliasedQueryParameter()
 Method TestGETDynamicSQLResult()
 {
   set resource = $$$FormatText("%1sql/dynamic", ..WebApplicationName)
-  
+
   set sd = ##class(%SQL.Statement).%New()
   set sd.%SelectMode = 2
   do sd.%Prepare("SELECT *, %VID as Index FROM (SELECT * FROM FRONTIER_UNITTEST_FIXTURES.STUDENT) WHERE %VID BETWEEN ? AND ?")
+  set mt = sd.%Metadata
   set rd = sd.%Execute(1, 5)
-  
-  do $$$AssertStatusOK(##class(Frontier.UnitTest.Util).MarshallSQLResult(rd, .array), "can read SQL result")
+
+  set sc = ##class(Frontier.SQL.Serializer).SerializeToStream(.s, rd, mt)
+  set array =  {}.%FromJSON(.s)
   set expected = {"results":(array)}
+
   return $$$AssertStatusOK(..AssertRequest(resource, expected.%ToJSON()), $$$FormatText("can retrieve the expected data from the resource %1", resource))
 }
 
 Method TestGETQuerySQLResult()
 {
   set resource = $$$FormatText("%1sql/query", ..WebApplicationName)
-  
+
   set sd = ##class(%SQL.Statement).%New()
   set sd.%SelectMode = 2
   do sd.%PrepareClassQuery("Frontier.UnitTest.Fixtures.Student", "PaginatedStudents")
+  set mt = sd.%Metadata
   set rd = sd.%Execute(1, 5)
-  
-  do $$$AssertStatusOK(##class(Frontier.UnitTest.Util).MarshallSQLResult(rd, .array), "can read SQL result")
+
+  set sc = ##class(Frontier.SQL.Serializer).SerializeToStream(.s, rd, mt)
+  set array =  {}.%FromJSON(.s)
   set expected = {"results":(array)}
   return $$$AssertStatusOK(..AssertRequest(resource, expected.%ToJSON()), $$$FormatText("can retrieve the expected data from the resource %1", resource))
 }
@@ -271,22 +312,78 @@ Method TestGETParentSparseParams()
 Method TestGETParentRegexParameter()
 {
   set resource = $$$FormatText("%1map/E/match/get-parent-and-this-group", ..WebApplicationName)
-  set expected = ["match", "this", "group" ]
+  set expected = ["match", "this", "group"]
   return $$$AssertStatusOK(..AssertRequest(resource, expected), $$$FormatText("can retrieve the expected data from the resource %1", resource))
 }
 
-Method TestGETNoWeaklyTypedArgs()
+Method TestGETNoWeakTypedArgs()
 {
-  set resource = $$$FormatText("%1arguments/no-weakly-typed", ..WebApplicationName)
-  set expected = {"error":{"internalCode":5001,"message":"The following arguments must be strongly typed: b, c."},"responseCode":500}
-  return $$$AssertStatusOK(..AssertRequest(resource, expected), $$$FormatText("blocks attempts to call methods with weakly typed args", resource))
+  set resource = $$$FormatText("%1arguments/no-weak-typed", ..WebApplicationName)
+  set expected = {"error":{"internalCode":5001,"message":"The following arguments are missing the type definition: b, c."},"responseCode":500}
+  return $$$AssertStatusOK(..AssertRequest(resource, expected), $$$FormatText("blocks attempts to call methods with weak typed args", resource))
 }
 
-Method TestGETNoWeaklyTypedMethods()
+Method TestGETNoWeakTypedMethods()
 {
-  set resource = $$$FormatText("%1methods/no-weakly-typed", ..WebApplicationName)  
-  set expected = {"error":{"internalCode":5001,"message":"Expected a return type for method TestGETNoWeaklyTypedMethods."},"responseCode":500}
+  set resource = $$$FormatText("%1methods/no-weak-typed", ..WebApplicationName)
+  set expected = {"error":{"internalCode":5001,"message":"Expected a return type for method TestGETNoWeakTypedMethods."},"responseCode":500}
   return $$$AssertStatusOK(..AssertRequest(resource, expected), $$$FormatText("blocks attempts to call methods without return types.", resource))
+}
+
+Method TestPOSTFileUpload()
+{
+  set filePath = ##class(%File).NormalizeFilename(
+    ##class(Port.Configuration).GetWorkspace("frontier")_"/"_
+    "cls/Frontier/Router.cls"
+  )
+  set file = ##class(%File).%New(filePath)
+  do file.Open("RS")
+
+  set stream = ##class(%CSP.CharacterStream).%New()
+  do stream.CopyFrom(file)
+  set stream.FileName = file.Name
+
+  set resource = $$$FormatText("%1upload/multi", ..WebApplicationName)
+  set expected = ""
+
+  set payload = {
+    "file_a": (stream),
+    "file_b": (stream)
+  }
+
+  return $$$AssertStatusOK(..AssertRequest(resource, expected, "POST", .payload,, "multipart/form-data"), $$$FormatText("can handle multipart uploads", resource))
+}
+
+Method TestPOSTSingleFileUpload()
+{
+  set filePath = ##class(%File).NormalizeFilename(
+    ##class(Port.Configuration).GetWorkspace("frontier")_"/"_
+    "cls/Frontier/Router.cls"
+  )
+
+  set file = ##class(%File).%New(filePath)
+  do file.Open("RS")
+
+  set resource = $$$FormatText("%1upload", ..WebApplicationName)
+  set expected = ""
+
+  set submmitted = file.Name
+  set expectation = ..GetTestDirectory("../fixtures/uploads/single/file.txt")
+
+  return $$$AssertStatusOK(..AssertRequest(resource, "", "POST", file,,"text/plain"), $$$FormatText("can upload a single file %1", resource))
+}
+
+Method TestGETStaticFile()
+{
+  for i = "README.md", "LICENSE.md", "CONTRIBUTING.md" {
+    set filePath = ##class(%File).NormalizeFilename(##class(Port.Configuration).GetWorkspace("frontier")_"/"_i)
+    set file = ##class(%Stream.FileCharacter).%New()
+    set file.TranslateTable = "UTF8"
+    do file.LinkToFile(filePath)
+    set resource = $$$FormatText("%1public/%2", ..WebApplicationName, i)
+    do $$$AssertStatusOK(..AssertRequest(resource, file.Read(), "GET"), "can fetch file from "_resource)
+    set file = ""
+  }
 }
 
 }

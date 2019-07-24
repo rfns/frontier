@@ -1,0 +1,143 @@
+Class UnitTest.Frontier.Dynamic.Unmarshaller Extends Port.UnitTest.TestCase
+{
+
+Method TestUnmarshalErrors() As %Status
+{
+  
+  set sc = ##class(Frontier.Dynamic.Unmarshaller).Unmarshal("Missing.Class", ({ "__id__": 1 }), .i)
+  do $$$AssertStatusNotOK(sc, "returns an error if the class doesn't exists")
+  do $$$AssertEquals(i, "", "returns null on error")
+  
+  set sc = ##class(Frontier.Dynamic.Unmarshaller).Unmarshal("Frontier.UnitTest.Fixtures.Class", ({ "__id__": "invalid_id" }), .i)
+  do $$$AssertStatusNotOK(sc, "imposes the provision of a valid id when __id__ is used")
+  
+  set o = { 
+    "Plate": "TST-002", 
+    "Students": [
+      { "Name": "Juan", "Enrollment": "2-10-01T12::10.000Z" }
+    ]    
+  }  
+  set sc = ##class(Frontier.Dynamic.Unmarshaller).Unmarshal("Frontier.UnitTest.Fixtures.Class", o, .i)
+  do $$$AssertStatusNotOK(sc, "throws a validation error when the property fails to validate")
+  do $$$AssertTrue(($System.Status.GetErrorText(sc) [ "Path: <root>.Students.0.Enrollment"), "indicates the failing path")
+}
+
+Method CheckStudentsMatch(list As %ListOfObjects) As %Boolean
+{
+  set allMatch = 0
+  
+  for i=1:1:list.Count() {
+    set instance = ##class(Frontier.UnitTest.Fixtures.Student).%OpenId(list.GetAt(i).%Id())
+    if instance '= list.GetAt(i) set allMatch = 0 quit
+    else  set allMatch = 1
+  }
+  return allMatch
+}
+
+Method TestUnmarshalPropertyIgnore()
+{
+  set payload = {
+    "ignoreme": true
+  }
+  
+  set sc = ##class(Frontier.Dynamic.Unmarshaller).Unmarshal("Frontier.UnitTest.Fixtures.Student", payload, .student)
+  do $$$AssertStatusOK(sc, "doesn't output any error when an unknown property is provided")
+  do $$$AssertTrue(($isobject(student) && (student.%Id() = "")), "simply creates a new instance")
+  
+  set sc = ##class(Frontier.Dynamic.Unmarshaller).Unmarshal("Frontier.UnitTest.Fixtures.Student", payload, .student,,1)
+  do $$$AssertStatusNotOK(sc, "outputs an error if strict mode enabled")
+}
+
+Method TestUnmarshalSpecialId()
+{
+  set payload = { "__id__": 1, "Plate": "RS-101" }
+  set sc = ##class(Frontier.Dynamic.Unmarshaller).Unmarshal("Frontier.UnitTest.Fixtures.Class", payload, .class)
+  do $$$AssertTrue(($isobject(class) && class.%Id() = 1), "uses the property __id__ to identify to open the instance.")
+  do $$$AssertEquals(class.Plate, "RS-101", "edits remaining provided properties allowing updates")
+}
+
+Method TestUnmarshalMultiple()
+{
+  &sql(SELECT JSON_ARRAYAGG(JSON_OBJECT('__id__':ID)) into :p FROM FRONTIER_UNITTEST_FIXTURES.STUDENT)
+  set payload = {}.%FromJSON(p)
+  
+  set sc = ##class(Frontier.Dynamic.Unmarshaller).Unmarshal("Frontier.UnitTest.Fixtures.Student", payload, .students)
+  do $$$AssertTrue(##class(Frontier.Types).IsCollection($classname(students)), "returns a collection")
+  do $$$AssertTrue($isobject(students.GetAt(1)) && students.GetAt(1).%IsA("Frontier.UnitTest.Fixtures.Student"), "where each is a student")  
+  
+  do $$$AssertTrue(..CheckStudentsMatch(students), "and are instance equivalent")
+}
+
+Method TestUnmarshalChildrenCollectionIds()
+{
+  &sql(SELECT JSON_ARRAYAGG(JSON_OBJECT('__id__':ID)) into :p FROM FRONTIER_UNITTEST_FIXTURES.STUDENT)
+  set payload = {}.%FromJSON(p)
+  
+  set payload = {
+    "Plate": "EG-402",
+    "Students": (payload)
+  }
+  
+  set sc = ##class(Frontier.Dynamic.Unmarshaller).Unmarshal("Frontier.UnitTest.Fixtures.Class", payload, .class)
+  do $$$AssertTrue(..CheckStudentsMatch(class.Students), "can assign items by their existing ids using __id__")
+  
+  &sql(SELECT JSON_ARRAYAGG(ID) into :p FROM FRONTIER_UNITTEST_FIXTURES.STUDENT)
+  set payload = {}.%FromJSON(p)
+  
+  set payload = {
+    "Plate": "EG-402",
+    "Students": (payload)
+  }
+  
+  set sc = ##class(Frontier.Dynamic.Unmarshaller).Unmarshal("Frontier.UnitTest.Fixtures.Class", payload, .class)
+  do $$$AssertTrue(..CheckStudentsMatch(class.Students), "can assign items by their existing ids using their value")
+}
+
+Method TestUnmarshallStreamProperty()
+{
+  set payload = {
+    "Plate": "CS-101",
+    "Note": "Computer Science class"
+  }
+  
+  set sc = ##class(Frontier.Dynamic.Unmarshaller).Unmarshal("Frontier.UnitTest.Fixtures.Class", payload, .class)
+  do $$$AssertTrue(##class(Frontier.Types).IsStream($classname(class.Note)), "convert string to stream if property is typed from %Stream.Object")
+}
+
+Method TestDatePropertiesNormalization()
+{
+  set payload = {
+    "PeriodStart": "08:00",
+    "PeriodEnd": "16:00:00",
+    "Enrollment": "2001-10-01T14:00:12.345Z",
+    "LastPresentDate": "12/04/2006"
+  }
+  
+  set sc = ##class(Frontier.Dynamic.Unmarshaller).Unmarshal("Frontier.UnitTest.Fixtures.Student", payload, .student)
+  do $$$AssertEquals($zt(student.PeriodStart), "08:00:00", "can normalize using property normalization")
+  do $$$AssertEquals(student.PeriodEnd, $zth("16:00:00"), "convert to internal value")
+  do $$$AssertEquals(student.Enrollment, "2001-10-01 14:00:12.345", "can also normalize timestamps")
+  do $$$AssertEquals($zd(student.LastPresentDate, 4), "12/04/2006", "respects FORMAT property")
+}
+
+Method TestUnmarshalAndBoolean()
+{
+  set payload = {
+    "Class": null,
+    "Active": true
+  }
+  
+  set sc = ##class(Frontier.Dynamic.Unmarshaller).Unmarshal("Frontier.UnitTest.Fixtures.Student", payload, .student)
+  do $$$AssertEquals(student.Class, "", "null is treated as empty")
+  do $$$AssertEquals(student.Active, 1, "true is treated as 1")
+  
+  set payload = {
+    "Active": false
+  }
+  
+  set sc = ##class(Frontier.Dynamic.Unmarshaller).Unmarshal("Frontier.UnitTest.Fixtures.Student", payload, .student)
+  do $$$AssertEquals(student.Active, 0, "false is treated as 0")
+}
+
+}
+

@@ -11,7 +11,7 @@ Property SQL As %String [ Private ];
 
 Property QueryParameters As %String [ MultiDimensional, Private ];
 
-Property Mode As %Integer [ InitialExpression = 1, Private ];
+Property Mode As %Integer [ InitialExpression = 0, Private ];
 
 Property Error As %Status [ InitialExpression = {$$$OK}, Internal ];
 
@@ -21,10 +21,9 @@ Property Results As %SQL.StatementResult [ Internal, ReadOnly ];
 
 Property Metadata As %SQL.StatementMetadata [ Internal, ReadOnly ];
 
-Method %OnNew(statement As %String) As %Status
+Method %OnNew(statement As %String = "") As %Status
 {
-  
-  $$$ThrowOnError(..HandleSQLExpression(statement))
+  if statement '= "" do ..ResolveStatement(statement)
   return $$$OK
 }
 
@@ -34,7 +33,7 @@ Method Parameters(params... As %String) As Frontier.SQL.Provider
   return $this
 }
 
-Method Mode(selectMode As %Integer = 1) As Frontier.SQL.Provider
+Method Mode(selectMode As %Integer = 0) As Frontier.SQL.Provider
 {
   set ..Mode = selectMode
   return $this
@@ -46,7 +45,7 @@ Method Execute() As %Status
   return ..CreateAndExecute()
 }
 
-Method HandleSQLExpression(SQLExpression As %String) As %Status [ Private ]
+Method ResolveStatement(SQLExpression As %String) As %Status [ Private ]
 {
    
   if $length(SQLExpression, ":") = 2 {   

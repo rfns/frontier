@@ -1,24 +1,22 @@
 Include (%occErrors, %occStatus, frontier)
 
 /// This strategy provides the implementation for handling clients requests whose authentication
-/// follows the format: Authorization: Basic b64(user:password). This class can be used to demonstrate
-/// how a strategy can be implemented and even augmented. This strategy works as the following:
-/// * If the user doesn't provide an Authorization header, we assume that the client isn't using the Basic
-/// specification and let the request be handle by the next strategy.
-/// * If the user provided an Authorization header, but the value doesn't start with 'Basic', we consider
-/// it as malformed and reply it back to the client as an error.
-/// * If the client didn't provided any authentication, we challenge it using the implemented GetChallenge.
-Class Frontier.Authentication.BasicStrategy Extends Frontier.Authentication.Strategy
+/// follows the format: Authorization: Bearer <bearer_token>. There's not much difference with
+/// the Basic version, only that it won't decode the token since a Bearer token is implementation specific.
+/// Which means that the implementer must use the method specified in the 'validator' to decode and validate it.
+Class Frontier.Authentication.BearerStrategy Extends Frontier.Authentication.Strategy
 {
 
 /// This is the name the of the strategy. Can be used to determine that this strategy should be used for a Route exclusively.
-Property Name As %String [ InitialExpression = "Basic" ];
+Property Name As %String [ InitialExpression = "Bearer" ];
 
 /// This is used by the challenge. Represents the "realm=<value>" from the WWW-Authenticate challenge header.
 Property Realm As %String [ Private ];
 
 /// A string whose format should be classname:classmethod, which is used to validate the value from the Authorization header.
 Property Validator As %String [ Private ];
+
+Property ChallengeScope As %String [ Private ];
 
 Method %OnNew(config As %DynamicObject) As %Status
 {
@@ -40,15 +38,14 @@ Method Verify(session As %CSP.Session, request As %CSP.Request, response As %CSP
     // Let the manager call the next strategy, if that's the last one than the error is
     // fired by the router class.
     return $$$OK
-  } elseif authHeader '= "" && ($$$ucase($extract(authHeader, 1, 5)) '= "BASIC") {
+  } elseif authHeader '= "" && ($$$ucase($extract(authHeader, 1, 6)) '= "BEARER") {
     // Specific errors can overwrite the return with something other than $$$OK.
     set sc = $$$ERROR($$$GeneralError, "Malformed authentication header.")
     set response.Status = "400 Bad Request"
   } else {
-    set credentials = $System.Encryption.Base64Decode($$$trim($piece(authHeader, " ", 2)))
-    set userName = $piece(credentials, ":")
-    set password = $piece(credentials, ":", 2)
-    set sc = ##class(Frontier.Shared.Utilities).SafeClassMethodCall(..Validator, userName, password, .found, .httpStatus, .user)
+    set token = $$$trim($extract(authHeader, 7, *))
+    set sc = ##class(Frontier.Shared.Utilities).SafeClassMethodCall(..Validator, token, .found, .httpStatus, .user)
+    if 'found  set ..ChallengeScope = $replace(resourceScope, ",", " ")
     set ..Verified = found
     if $$$ISERR(sc) {
       if httpStatus '= "" set response.Status = httpStatus
@@ -60,7 +57,7 @@ Method Verify(session As %CSP.Session, request As %CSP.Request, response As %CSP
     set sc = $$$ERROR($$$InvalidUsernameOrPassword)
     set response.Status = "403 Forbidden"
   }
-
+  
   return sc
 }
 
@@ -68,6 +65,7 @@ Method Verify(session As %CSP.Session, request As %CSP.Request, response As %CSP
 Method GetChallenge(session As %CSP.Session, request As %CSP.Request, response As %CSP.Response, challenge As %String = "") As %Status
 {
   set challenge = "Basic realm="""_..Realm_""""
+  if ..ChallengeScope '= "" set challenge = challenge_" scope="_..ChallengeScope
   return $$$OK
 }
 

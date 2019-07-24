@@ -4,13 +4,19 @@ Class Frontier.UnitTest.Router.Map.E Extends Frontier.Router
 XData UrlMap [ XMLNamespace = "http://github.com/rfns/frontier" ]
 {
 <Routes>
-<Route Url="/get-parent-and-(this)-(group)" Strict="false" Method="GET" Call="TestGETMultipleRegexMatches" />
+<Route Url="/get-parent-and-(\w+)-(\w+)" Strict="false" Method="GET" Call="TestGETMultipleRegexMatches" />
 </Routes>
 }
 
-ClassMethod TestGETMultipleRegexMatches(matches... As %String) As %Status
+ClassMethod TestGETMultipleRegexMatches(namedParam As %String) As %Status
 {
-  return [ (matches(1)), (matches(2)), (matches(3)) ]
+  set matches = [ (namedParam) ]
+  
+  for i=1:1:%frontier.Matches {
+    do matches.%Push(%frontier.Matches(i))
+  }
+  
+  return matches
 }
 
 }
