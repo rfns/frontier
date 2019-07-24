@@ -46,9 +46,14 @@ ClassMethod Serialize(results As %SQL.Statement, metadata As %SQL.StatementMetad
           set isString = columnMetadata(c, "list_string")
           do ListToJSONArray(value, delimiter, isString)
         } elseif value = "" && (jsonDataFormat = "null") {
-          write jsonDataFormat
+          if jsonDataFormat = "null" write jsonDataFormat
+          else  write """"
         } elseif jsonDataFormat = "boolean" {
-          write $$$FormatBoolean(value)
+          set value = $$$FormatBoolean(value)
+          // Must be set to empty and not assume false because some applications might be checking the value like: value '= "".
+          // That could generate a breaking change.
+          if value = "" write """"""
+          else  write value
         } else {
           write $$$ZENJSONVALUE(value, "s")
         }                               
