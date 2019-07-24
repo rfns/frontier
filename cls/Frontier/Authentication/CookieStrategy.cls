@@ -17,12 +17,16 @@ Property Secret As %String [ Private ];
 /// This method is only called when the token has a valid signature.
 Property Validator As %String;
 
+/// The path used to find to which location the cookie should be applied.
+Property Path As %String [ InitialExpression = "/" ];
+
 Method %OnNew(config As %DynamicObject) As %Status
 {
   set ..Secret = config.secret
   if config.%IsDefined("name") set ..Name = config.name
   if config.%IsDefined("key") set ..Key = config.key
   if config.%IsDefined("validator") set ..Validator = config.validator
+  if config.%IsDefined("path") set ..Path = config.path
   return $$$OK
 }
 
@@ -31,7 +35,7 @@ Method %OnNew(config As %DynamicObject) As %Status
 Method Verify(session As %CSP.Session, request As %CSP.Request, response As %CSP.Response, Output user As %DynamicObject = {{}}, resourceScope As %String = "") As %Status
 {
   set failed = 0
-  #define ExpireCookie  do response.SetCookie(..Key,"",$zdt("0,0", 2)_" GMT")
+  #define ExpireCookie  do response.SetCookie(..Key,"",$zdt("0,0", 2)_" GMT", ..Path)
   #define AssertPropertyDefined(%jp,%ip) if $p($this, %ip) = "" $$$ExpireCookie return $$$ERROR($$$GeneralError, $$$FormatText("Strategy '%1' requires '%1' property to be specified.", ..Name, %jp))
 
   $$$AssertPropertyDefined("validator", "Validator")
@@ -47,10 +51,21 @@ Method Verify(session As %CSP.Session, request As %CSP.Request, response As %CSP
     set response.Status = "401 Forbidden"
     return $$$ERROR($$$InvalidUsernameOrPassword)
   }
-
-  $$$QuitOnError(##class(Frontier.Shared.Utilities).SafeClassMethodCall(..Validator, payload, .found, .httpStatus, .user))
-  if found = 1 set ..Verified = 1
+  
+  set found = 0
+  set httpStatus = "200 OK"
+  set sc = ##class(Frontier.Shared.Utilities).SafeClassMethodCall(..Validator, payload, .found, .httpStatus, .user)
+  
+  if found = 1 { 
+    set ..Verified = 1
+  } else{
+    if httpStatus '= "" set response.Status = httpStatus
+    else  set httpStatus = "401 Forbidden"
+  }  
+  
+  $$$QuitOnError(sc)
   return $$$OK
 }
 
 }
+
