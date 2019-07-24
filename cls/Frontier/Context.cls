@@ -6,6 +6,8 @@ Include (%occErrors, %occStatus)
 Class Frontier.Context Extends %RegisteredObject
 {
 
+Parameter VERSION = "5.0.0";
+
 /// This holds the reference for the %session object.
 Property Session As %CSP.Session [ Private ];
 
@@ -33,8 +35,8 @@ Property Stack As %Stream.GlobalCharacter [ Internal ];
 /// An internal flag that signals when to include stack info with the error.
 Property IncludeStack As %Boolean [ InitialExpression = 0 ];
 
-/// The Status code representing the captured error.
-Property Error As %Status [ InitialExpression = {$$$OK}, Internal ];
+/// The exception data that will be passed to the reporter.
+Property Exception As Frontier.Exception [ Internal ];
 
 /// This Frontier SQL API, a minimalist API used to quickly retrieve SQL results.
 Property SQL As Frontier.SQL [ ReadOnly ];
@@ -51,9 +53,7 @@ Property Files As Frontier.Files [ ReadOnly ];
 /// The object populated by the method OnDataSet which is called before each request.
 Property Data As %DynamicObject;
 
-/// An internal flag used to bypass the Reporter API, this way custom errors are not logged.
-Property ThrownByApplication As %Boolean [ Internal, ReadOnly ];
-
+/// DEPRECATED: use %frontier.Modifiers.DIRECTWRITE instead.
 /// This flag indicates if the response should be rewritten to the response stream buffer or write directly.
 /// Keep this flag set to 0 to prevent errors from corrupting the output, set it to 1 if you need performance
 /// and your code is secure enough to not error while writing to the device.
@@ -65,7 +65,7 @@ Property User As %DynamicObject [ InitialExpression = 1 ];
 /// This allows to provide a custom property formatter for JSON.
 Property PropertyFormatter As Frontier.PropertyFormatter;
 
-/// By default Frontier won't allow the usage of query paramters that aren't arguments from the classmethod that will be called.
+/// By default Frontier won't allow the usage of query parameters that aren't arguments from the classmethod that will be called.
 /// Setting this flag to 0 will disable this check.
 Property StrictQueryParameters As %Boolean [ InitialExpression = 1 ];
 
@@ -84,6 +84,9 @@ Property Encoding As %String [ InitialExpression = "utf-8" ];
 
 /// The CORS API, which handles the access from extraneous servers.
 Property CORS As Frontier.CORS [ ReadOnly ];
+
+/// A string that holds the Route element's Url expression. Can be used to identified which route as been called.
+Property Route As %String;
 
 Method %OnNew(session As %CSP.Session, request As %CSP.Request, response As %CSP.Response) As %Status
 {
@@ -162,8 +165,8 @@ Method ThrowException(message As %String, httpStatus As %String = "500 Internal 
   set ..Response.Status = httpStatus
 
   for i=1:1:parameters set args(2+i) = parameters(i)
-  set i%ThrownByApplication = 1
   throw ##class(%Exception.StatusException).CreateFromStatus($$$ERROR(args...))
 }
 
 }
+

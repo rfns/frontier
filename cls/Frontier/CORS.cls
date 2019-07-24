@@ -31,9 +31,6 @@ Property AllowedAge As %String [ Private ];
 /// What the response can expose.
 Property ExposedHeaders As %String [ Private ];
 
-/// An internal flag indicated that the preflight request is received and should abort any other operation.
-Property PreflightReceived As %Boolean [ InitialExpression = 0, Private ];
-
 /// A string containing the class:method which is used to filter which origins should be allowed.
 Property OriginVerifier As %String [ InitialExpression = "Frontier.CORS:IsOriginAllowed" ];
 
@@ -41,6 +38,18 @@ Method %OnNew(context As Frontier.Context) As %Status
 {
   set ..Context = context
   return $$$OK
+}
+
+Method IsActive() As %Boolean
+{
+  if i%VaryHeaders '= "" return 1
+  if i%AllowedOrigin '= "" return 1
+  if i%AllowedMethods '= "" return 1
+  if i%AllowedCredentials '= "" return 1
+  if i%AllowedHeaders '= "" return 1
+  if i%AllowedAge '= "" return 1
+  if i%ExposedHeaders '= "" return 1
+  return 0
 }
 
 /// Defines a set of origins allowed to access this protected resource.
@@ -123,6 +132,7 @@ Method Vary(varyHeaders... As %String)
 
 Method CheckPreflight() [ Internal ]
 {
+  if '..IsActive() quit
   do ..SetHeaderIfProvided("Vary", "Origin")
   do ..SetHeaderIfProvided("Vary", "Access-Control-Request-Headers")
   do ..SetHeaderIfProvided("Access-Control-Allow-Origin", ..AllowedOrigin)
@@ -132,11 +142,13 @@ Method CheckPreflight() [ Internal ]
   do ..SetHeaderIfProvided("Access-Control-Expose-Headers", ..ExposedHeaders)
   do ..SetHeaderIfProvided("Access-Control-Max-Age", ..AllowedAge)
   do ..Context.Response.DeleteHeader("Content-Type")
+  set ..Context.Response.ContentLength = 0
   set ..Context.Response.ContentType = ""
 }
 
 Method Set() [ Internal ]
 {
+  if '..IsActive() quit
   do ..SetHeaderIfProvided("Vary", "Origin")
   do ..SetHeaderIfProvided("Access-Control-Allow-Origin", ..AllowedOrigin)
   do ..SetHeaderIfProvided("Access-Control-Allow-Credentials", ..AllowedCredentials)
@@ -177,3 +189,4 @@ Method TestOrigin(origin As %String) As %Boolean [ Private ]
 }
 
 }
+

@@ -85,14 +85,14 @@ Method AssertRequest(resource As %String, expected As %DynamicAbstractObject = "
 Method TestGETRouteParams()
 {
   set resource = $$$FormatText("%1route-params/%2", ..WebApplicationName, ..Class.%Id())
-  do ##class(Frontier.Dynamic.Marshaller).Marshal(..Class, .expected)
+  do ##class(Frontier.Dynamic.Marshaller).MarshalDirect(..Class, .expected)
   return $$$AssertStatusOK(..AssertRequest(resource, expected), $$$FormatText("can retrieve the expected data from the resource %1", resource))
 }
 
-Method TestGETRouteParamsIdWhere()
+Method TestGETRouteParamsWhereId()
 {
   set resource = $$$FormatText("%1route-params/%2/students/%3", ..WebApplicationName, ..Class.%Id(), ..Student.%Id())
-  do ##class(Frontier.Dynamic.Marshaller).Marshal(..Student, .expected)
+  do ##class(Frontier.Dynamic.Marshaller).MarshalDirect(..Student, .expected)
   return $$$AssertStatusOK(..AssertRequest(resource, expected), $$$FormatText("can retrieve the expected data from the resource %1", resource))
 }
 
@@ -185,7 +185,7 @@ Method TestGETUnspecifiedArgument()
 Method TestGETMixedDynamicObject()
 {
   set resource = $$$FormatText("%1mixed/object?class=1", ..WebApplicationName)
-  do ##class(Frontier.Dynamic.Marshaller).Marshal(..Class, .class)
+  do ##class(Frontier.Dynamic.Marshaller).MarshalDirect(..Class, .class)
   set expected = {"class":(class)}
   return $$$AssertStatusOK(..AssertRequest(resource, expected), $$$FormatText("can retrieve the expected data from the resource %1", resource))
 }
@@ -193,7 +193,7 @@ Method TestGETMixedDynamicObject()
 Method TestGETMixedDynamicArray()
 {
   set resource = $$$FormatText("%1mixed/array?class=1", ..WebApplicationName)
-  set sc =  ##class(Frontier.Dynamic.Marshaller).Marshal(..Class, .class)
+  set sc =  ##class(Frontier.Dynamic.Marshaller).MarshalDirect(..Class, .class)
   set expected = [ (class) ]
   return $$$AssertStatusOK(..AssertRequest(resource, expected), $$$FormatText("can retrieve the expected data from the resource %1", resource))
 }
@@ -387,3 +387,4 @@ Method TestGETStaticFile()
 }
 
 }
+

@@ -151,37 +151,42 @@ ClassMethod DispatchRequest(url As %String, httpMethod As %String, forwarded As 
   $$$QuitOnError($$ValidateRouteOrigin)
   
   try {       
-    set resolvedUrl = $$ResolveUrl(url)
+    set resolvedUrl = $$ResolveUrl(url)      
     
     while $$NextDispatchMap(.index, .mapEntry) {
       set matchType = $list(mapEntry, 1)
       set urlExpression = $list(mapEntry, 2)      
-      set matcher = ##class(%Regex.Matcher).%New(urlExpression)      
+      set matcher = ##class(%Regex.Matcher).%New(urlExpression)              
       
       // If there's no match, skip to the next candidate.
-      if matcher.Match(resolvedUrl) {      
+      if matcher.Match(resolvedUrl) {
         set isResourceMatch = 1
         set resourceScope = $lg(mapEntry, 7)        
-        set strictRouteParameters = $lg(mapEntry, 9, 1)
+        set strictRouteParameters = $lg(mapEntry, 9, 1)              
         
-        // Now check if http method is corresponding with the expected one.
-        // Bails out if not to save resources, unless it's a OPTIONS request.
-        if httpMethod '= "OPTIONS" && (httpMethod '= $list(mapEntry, 3)) && (matchType = "R") continue
-                
-        set %frontier.RequestURL = %request.URL
-        set %frontier.ClassName = $classname() 
+        // Method is not an OPTIONS, neither one that should match the schema.
+        if httpMethod '= "OPTIONS" && (httpMethod '= $list(mapEntry, 3) && (matchType = "R")) continue
         
-        do %frontier.CORS.Unset()
-        
-        // OPTIONS and matching methods must run the Setup.
+        // OnSetup must be run even if the Router forwards to another one.
         set %frontier.Method = "OnSetup"
         $$$ThrowOnError(..OnSetup())
         
-        // When OPTIONS, then assume the request is a preflight.        
-        if httpMethod = "OPTIONS" {
-          do %frontier.CORS.CheckPreflight()
-          return $$$OK                    
-        }        
+        set %frontier.RequestURL = %request.URL
+        set %frontier.Route = urlExpression
+        set %frontier.ClassName = $classname()                                      
+        
+        // Does this router have CORS configured?
+        if %frontier.CORS.IsActive() {
+          if httpMethod = "OPTIONS" {          
+            do %frontier.CORS.CheckPreflight()
+            return $$$OK
+          } else {
+            // Clears any configuration set by another router.
+            do %frontier.CORS.Unset()
+            // Applies the configuration defined by the current router.
+            do %frontier.CORS.Set()
+          }
+        }                        
         
         if matcher.GroupCount && strictRouteParameters {
           do FetchRouteParameters(.routeParameters)
@@ -192,11 +197,9 @@ ClassMethod DispatchRequest(url As %String, httpMethod As %String, forwarded As 
         }       
         
         // Found the router that should handle the request.
-        if matchType = "R" {         
+        if matchType = "R" {           
           set useAuth = $lg(mapEntry, 8)
-          set authStrategy = $lg(mapEntry, 11)      
-          
-          do %frontier.CORS.Set()         
+          set authStrategy = $lg(mapEntry, 11)                                         
                    
           if useAuth && %frontier.AuthenticationManager.HasStrategies() {
             // Run pending authentication strategies. If one passes, then the implementation
@@ -256,7 +259,7 @@ ClassMethod DispatchRequest(url As %String, httpMethod As %String, forwarded As 
           $$$ThrowOnError(sc)
           
           // Now we serialize and output the result back to the agent.
-          $$$ThrowOnError(..DispatchResponse(methodReturn, .tReturnParameters))
+          $$$ThrowOnError(..DispatchResponse(methodReturn))
           
           // Finishes the request.
           return $$$OK
@@ -269,7 +272,7 @@ ClassMethod DispatchRequest(url As %String, httpMethod As %String, forwarded As 
             $$$ThrowOnError($$$ERROR($$$GeneralError, $$$FormatText("Dispatcher class %1 is attempting to forward %2 to itself.", forwardingClass, resolvedUrl)))
           }                    
           
-          set resolvedUrl = "/"_matcher.Group(matcher.GroupCount)             
+          set resolvedUrl = "/"_matcher.Group(matcher.GroupCount)
                     
           // Re-invoke this method using the class that this map forwards the request to. 
           $$$ThrowOnError($classmethod(forwardingClass, "DispatchRequest", resolvedUrl, httpMethod, 1, .routeParameters, .matches))
@@ -353,7 +356,7 @@ ValidateRouteOrigin()
 
 ClassMethod HandleException(exception As %Exception.AbstractException) As %DynamicObject [ Private ]
 {
-  set responseCode = $piece(%response.Status, " ")
+  set responseCode = +$piece(%response.Status, " ")
     
   // There might have cases where we get a success HTTP status, we need to normalize forcing it to be a 500 error.
   if responseCode < 300 {
@@ -362,23 +365,15 @@ ClassMethod HandleException(exception As %Exception.AbstractException) As %Dynam
   }
     
   set exceptionJSON = ##class(Exception).ToDynamicObject(exception)
-  set exceptionJSON.responseCode = responseCode
-  set sc = exception.AsStatus()
-  set stack = %frontier.Stack  
+  set exceptionJSON.responseCode = responseCode  
     
-  if '%frontier.ThrownByApplication && ($$$GETERRORCODE(sc) '= $$$GeneralError) {
-    set %frontier.Error = sc
-  }  
-  
-  if stack '= "" && (%frontier.IncludeStack = 1) {    
-    set exceptionJSON.stack = %frontier.Stack
-  }
-    
+  set %frontier.Exception = exception  
   set %response.OutputSessionToken = 0
+  
   return exceptionJSON
 }
 
-ClassMethod DispatchResponse(returnedData As %CacheString, method As Frontier.Router, warnings As %DynamicObject = "", ByRef returnTypeParams = "") As %Status [ Private ]
+ClassMethod DispatchResponse(returnedData As %CacheString) As %Status [ Private ]
 {
   
   set sc = $$$OK
@@ -390,7 +385,7 @@ ClassMethod DispatchResponse(returnedData As %CacheString, method As Frontier.Ro
     
     if ##class(Frontier.Types).IsStream(type) && %frontier.IsRaw() {
       return returnedData.OutputToDevice()
-    }
+    }    
     
     set isCollection = ##class(Types).IsCollection(type)
     set isSQLProvider = ##class(Types).IsSQLProvider(type)
@@ -405,9 +400,11 @@ ClassMethod DispatchResponse(returnedData As %CacheString, method As Frontier.Ro
       } elseif isSQLProvider {
         set provider = returnedData
         set response.results = provider
-      } else {      
-        $$$QuitOnError(##class(Frontier.Dynamic.Marshaller).Marshal(returnedData, .response))
+      } else {
+        $$$QuitOnError(##class(Frontier.Dynamic.Marshaller).MarshalDirect(returnedData, .response))
       }
+    } elseif returnedData.%IsA("Frontier.Dynamic.Marshaller") {
+      $$$QuitOnError(returnedData.Marshal(.response))
     } else {
       return $$$ERROR($$$GeneralError, "Cannot serialize system class instances.")
     }
