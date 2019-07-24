@@ -170,7 +170,7 @@ Method Sequentialize(ByRef mergedArguments = 0, propertyFormatter As Frontier.Pr
   if $$$ISERR(sc) return sc
 
   set maxLength = methodArgumentsLength
-  if maxLength < mergedArguments set maxLength = mergedArguments
+  if maxLength < mergedArguments set maxLength = mergedArguments 
 
   if methodArgumentsLength > 0 {
     for argsProcessed=1:1:maxLength {
@@ -192,7 +192,7 @@ Method Sequentialize(ByRef mergedArguments = 0, propertyFormatter As Frontier.Pr
       set isDynamic = ##class(Frontier.Types).IsDynamic(methodArgument.Type)
       set isPersistable = ##class(Frontier.Types).IsPersistent(methodArgument.Type)
 
-      if whereId {
+      if whereId '= "" {
         set sc = ..ResolveWhereId(whereId, methodArgument.Name,  methodArgument.Type, .resolvedId)
       }
 
@@ -278,7 +278,7 @@ Method MergeArguments(ByRef routeArguments As %String = 0, ByRef requestArgument
   set key = ""
   set preArguments = 0
   set methodArgumentsLength = ..MethodArguments.Count()
-  set keysFound = ""
+  set keysFound = ""  
   
   if $data(requestArguments("Error:ErrorCode", 1)) {
     return $$$EMBEDSC($$$ERROR($$$GeneralError, "A fatal error happened while trying to dispatch the result. Check this web application's configuration."), requestArguments("Error:ErrorCode", 1))
@@ -288,7 +288,6 @@ Method MergeArguments(ByRef routeArguments As %String = 0, ByRef requestArgument
     set key = $order(requestArguments(key))
     quit:key=""
     
-
     set keyGroup = $$$KeyGroup(key)
     set $list(keysFound, *+1) = keyGroup
     set methodArgument = ..FindArgumentByAliasOrName(key)
@@ -343,8 +342,8 @@ Method MergeArguments(ByRef routeArguments As %String = 0, ByRef requestArgument
       set methodArgument = ..MethodArguments.GetAt(m)
       set isDynamic = ##class(Frontier.Types).IsDynamic(methodArgument.Type)
       set isPersistent = ##class(Frontier.Types).IsPersistent(methodArgument.Type)
-      set shouldUnmarshall = (methodArgument.Parameters.GetAt("UNMARSHAL") = 1)
-      set isPayloadArgument = isDynamic || (isPersistent && shouldUnmarshall)
+      set shouldUnmarshal = (methodArgument.Parameters.GetAt("UNMARSHAL") = 1)
+      set isPayloadArgument = isDynamic || (isPersistent && shouldUnmarshal)
       if methodArgument.Type = "" set $list(weakTypedArgs, *+1) = methodArgument.Name
 
       if 'methodArgument.HasDefaultValue && 'isPayloadArgument {
@@ -389,49 +388,46 @@ Method MergeArguments(ByRef routeArguments As %String = 0, ByRef requestArgument
   return $$$OK
 }
 
-Method ResolveWhereId(whereId As %String, argumentName As %String, argumentType As %String, resolvedId As %String = "") As %Status [ Internal, Private ]
+Method ResolveWhereId(expression As %String, argumentName As %String, argumentType As %String, resolvedId As %String = "") As %Status [ Internal, Private ]
 {
-  #define NameFromPlaceholder  $e(where, $f(where, ":"), $f(where, ":"_%e))
+  #define NextPlaceholder  $e(expression, $f(expression, ":") - 1, $f(expression, " ", $f(expression, ":")) - 2)
 
+  set expression = expression_ " "
   set value = resolvedId
   set matchesWherePlaceholder = 0
   set sqlTemplate = "SELECT TOP 1 ID FROM %1 WHERE %2"
 
   set sqlParams = ""
 
-  while whereId [ ":" {
-    set name = $$$NameFromPlaceholder
-    if '(name?1":".AN) {
+  while expression [ ":" {
+    set placeholder = $$$NextPlaceholder
+    if '(placeholder?1":".AN) {
       return $$$ERROR($$$GeneralError, "Invalid where format. Expected 'field = :placeholder")
     }
 
-    set parameterValue = ..RouteParameters($e(name, 2, $l(name)))
-    if parameterValue = "" set parameterValue = $property(..Context.User, name)
-    if parameterValue = "" set parameterValue = $property(..Context.Data, name)    
-
-    // Checks if the argument is being used by the WHEREID.
-    set matchesWherePlaceholder = 'matchesWherePlaceholder && (name = argumentName)
+    set parameterValue = ..RouteParameters($e(placeholder, 2, $l(placeholder)))
+    if parameterValue = "" set parameterValue = $property(..Context.User, placeholder)
+    if parameterValue = "" set parameterValue = $property(..Context.Data, placeholder)       
 
     if parameterValue = "" {
       return $$$ERROR($$$GeneralError, $$$FormatText("No id could be resolved source because '%1' could not be found or is empty.", name))
     }
 
     set sqlParams($i(i)) = parameterValue
-    set where = $replace(whereId, ":"_name, "?", 1)
+    set sqlParams = i
+    set expression = $replace(expression, placeholder, "?", 1)
   }
 
-  if 'matchesWherePlaceholder {
-    return $$$ERROR($$$GeneralError, $$$FormatText("WHEREID did not contain a placeholder for '%1', which is required.", argumentName))
-  }
-
-  set rows = ##class(%SQL.Statement).%ExecDirect(, $$$FormatText(sqlTemplate, argumentType, where), sqlParams...)
+  set tableName = ##class(%Dictionary.CompiledClass).%OpenId(argumentType).SqlQualifiedNameQ
+  set rows = ##class(%SQL.Statement).%ExecDirect(, $$$FormatText(sqlTemplate, tableName, expression), sqlParams...)
   do rows.%Next()
 
   if rows.%SQLCODE '= 0 {
     set sc = ##class(%Exception.SQL).CreateFromSQLCODE(rows.%SQLCODE, rows.%Message).AsStatus()
+  } else {
+    set resolvedId = rows.%Get("ID")  
   }
-
-  set resolvedId = rows.%Get("ID")
+  
   return $$$OK
 }
 
