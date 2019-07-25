@@ -1,6 +1,6 @@
 Include (%occErrors, %occStatus, frontier)
 
-Class Frontier.Router Extends %CSP.REST [ CompileAfter = Frontier.Schema.Util ]
+Class Frontier.Router Extends %CSP.REST [ DependsOn = Frontier.Schema.Util ]
 {
 
 Parameter CHARSET = "utf-8";

@@ -4163,10 +4163,10 @@ Iterates over the queue calling the Report method for each. Each call is impleme
 
 
 <Class name="Frontier.Router">
-<CompileAfter>Frontier.Schema.Util</CompileAfter>
 <IncludeCode>%occErrors,%occStatus,frontier</IncludeCode>
 <Super>%CSP.REST</Super>
 <TimeCreated>64492,32085.189445</TimeCreated>
+<DependsOn>Frontier.Schema.Util</DependsOn>
 
 <Parameter name="CHARSET">
 <Default>utf-8</Default>
