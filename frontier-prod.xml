@@ -6243,28 +6243,6 @@ rchr(time) Quit ""
 </Class>
 
 
-<Class name="Frontier.UnitTest.Reporter.Email">
-<Super>Frontier.Reporter.Email</Super>
-<TimeCreated>64538,36222.588241</TimeCreated>
-
-<Method name="SetupAccount">
-<ReturnType>%Status</ReturnType>
-<Implementation><![CDATA[
-  // If you want to test this reporter you need to configure the following properties.
-  set ..SMTPServerLocation = "smtp.youremailhost.com" 
-  set ..SMTPServerPort = 25 // Your SMTP server port
-  set ..SenderEmail = "sender_email@email.com"
-  set ..SenderPassword = "sender_password"
-  set ..DestinationEmail = "destination@email.com"
-  set ..TemplateLocation = "/InterSystems/Cache/CSP/user/email-template.html"
-  set ..SSLConfiguration = "SSL Configuration name"
-  set ..UseSTARTTLS = 1 // 1, "" or 0
-  return $$$OK
-]]></Implementation>
-</Method>
-</Class>
-
-
 <Class name="Frontier.UnitTest.Router">
 <Super>Frontier.Router</Super>
 <TimeCreated>64503,35090.481271</TimeCreated>
@@ -7341,25 +7319,4 @@ The purpose is to show that custom authentication strategies can be used exclusi
 ]]></Implementation>
 </Method>
 </Class>
-
-
-<Routine name="frontier" type="INC"><![CDATA[
-#include %ZEN.Utils
-#include %occErrors
-
-#define ltrim(%str)       $zstrip(%str, "<W")
-#define rtrim(%str)       $zstrip(%str, ">W")
-#define trim(%str)        $zstrip(%str, "<>W")
-#define trimQuote(%str)   $zstrip(%str, "<>", $c(34))
-#define IsSQLQuery(%str)  ($$$ucase($extract($$$trim(%str), 6)) = "SELECT")
-#define KeyGroup(%requestKey)  $zstrip($zstrip(%requestKey, "<=N"), "=>N")
-#define KeyIndex(%requestKey)  $zstrip($zstrip(%requestKey, "<=N"), "<=A")
-#define FormatBoolean(%value) $case(%value, 1: "true", 0: "false", : %value)
-#define BooleanToBinary(%value) $case(%value, "true": 1, "false": 0, : %value)
-#define NormalizeClassName(%cn) if $l(%cn, ".") = 1 && ($e(%cn) = "%") set %cn = "%Library."_$e(%cn, 2, *)
-#define OSSlash $case($$$isWINDOWS, 1: "\", : "/")
-#define AssertClassExists(%o) return:'$isobject(%o) $$$ERROR($$$ClassDoesNotExist, %o)
-#define NULL $s($$$isWINDOWS : "//./nul", 1: "/dev/null")
-#define ObjectOrNull(%obj) $select($isobject(%obj) : %obj, 1: "null")
-]]></Routine>
 </Export>
