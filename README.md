@@ -81,7 +81,7 @@ ClassMethod SayHelloTo(who As %String = "John Doe") As %String
 ```
 ClassMethod TestGETRestParametersSum(n... As %String) As %Integer
 {
-  // curl -H "Content-Type: application/json" 'localhost:57772/api/frontier/test/rest_params?n1=10&n2=20&n3=30'
+  // curl -H "Content-Type: application/json" 'localhost:57772/api/frontier/test/rest-params?n1=10&n2=20&n3=30'
   // {"result":60}
   set sum = 0
   for i=1:1:n  set sum = sum + n(i)
@@ -201,7 +201,7 @@ If you want to use your own strategy, you need to consider a few entry points:
 * `GetChallenge (Method)`: This should return a valid `WWW-Authenticate` whenever adequate.
 * `Verify (Method):` This method takes four arguments: `session`, `request`, `response`, and `user`. The implementation use the three first arguments to resolve the `user` which is represented by a %DynamicObject. When `user` is populated with a `scope`  property, then this `scope` will be used to validate against the Route's `Scope` attribute if present.
 
-To have a better idea on how to implement a custom strategy check out the class [Frontier.Authentication.BasicStrategy](https://github.com/rfns/frontier/blob/feature/files/cls/Frontier/Authentication/BasicStrategy.cls). It implements all the entry points described here.
+To have a better idea on how to implement a custom strategy check out the class [Frontier.Authentication.BasicStrategy](https://github.com/rfns/frontier/blob/master/cls/Frontier/Authentication/BasicStrategy.cls). It implements all the entry points described here.
 
 ## Reporters
 
@@ -228,7 +228,7 @@ Since reporters provides more freedom on how to implement them, there is only tw
 * `Setup (method)`: This receives `context`: an object representing the `%frontier`. Use this method to prepare or configure the custom reporter.
 *  `Report (method)`: This also receives `context`, however `Report` is called only when an abnormal error happens and the request has already finished. This is where the custom reporter should take an action.
 
-Check out the class [Frontier.Reporter.Log](https://github.com/rfns/frontier/blob/feature/files/cls/Frontier/Reporter/Log.cls) to see how to implement those entry points.
+Check out the class [Frontier.Reporter.Log](https://github.com/rfns/frontier/blob/master/cls/Frontier/Reporter/Log.cls) to see how to implement those entry points.
 
 ### Property Formatters
 
@@ -314,7 +314,7 @@ ClassMethod TestGETStaticFile() As %Stream.Object
 
 This is the most basic format to start serving files from a directory.
 
-Check out the class [Frontier.UnitTest.Router](https://github.com/rfns/frontier/blob/feature/files/cls/Frontier/UnitTest/Router.cls), method `TestGETStaticFileWithCustomConfig` to learn how to use advanced configurations.
+Check out the class [Frontier.UnitTest.Router](https://github.com/rfns/frontier/blob/master/cls/Frontier/UnitTest/Router.cls), method `TestGETStaticFileWithCustomConfig` to learn how to use advanced configurations.
 
 ### Serving a file
 
