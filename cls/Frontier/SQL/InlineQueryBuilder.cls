@@ -6,7 +6,7 @@ Include frontier
 /// The filter format can be divided into two formats:
 /// 
 /// Simple: fieldnameA_operation:value;fieldnameB_operation:value
-/// Composited: _or:[fieldnameA_operation:value;fieldNameA_operation:value]
+/// Composited: _or:[fieldnameA_operation:value,fieldNameA_operation:value]
 /// 
 /// Supported operations:
 /// 
@@ -249,7 +249,7 @@ Method TransformFilter(filter As %String, value, op As %String) As %String [ Pri
     if op = "lt" set expression = filter_" < ?"
     if op = "lte" set expression = filter_" <= ?"
     if op = "sw" set expression = filter_" %STARTSWITH ? "
-    if op = "nsw" set expression = filter_" NOT %STARTSWITH ?"
+    if op = "nsw" set expression = "NOT "_filter_" %STARTSWITH ?"
     if op = "ct" set expression = filter_" [ ?"
     if op = "nct" set expression = filter_" '[ ?"
     if op = "lk" set expression = filter_" LIKE ?"
