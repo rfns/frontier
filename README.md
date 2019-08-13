@@ -39,7 +39,7 @@ Have you ever found yourself dealing with repetitive tasks like mounting objects
 
 * __Automatic exception handling:__ Handles the exception feedback accordingly when it's thrown. Recommended to be used along with status to notify the consumer application about errors.
 
-```
+```objectscript
 ClassMethod SayHello() As %String
 {
   // This will return { "result": "hello" }
@@ -60,7 +60,8 @@ ClassMethod SayHello() As %String
 ```
 * __Typed argument:__ Set the argument type as something that extends from %Persistent and it'll be
 replaced with the instance resulting from an implicit %OpenId call right before the dispatcher method is invoked. This works for both: query parameters and route parameters.
-```
+
+```objectscript
 ClassMethod TestGETRouteParams(class As Frontier.UnitTest.Fixtures.Class) As %Status
 {
   // curl -H "Content-Type: application/json" 'localhost:57772/api/frontier/test/route-params/6'
@@ -68,8 +69,10 @@ ClassMethod TestGETRouteParams(class As Frontier.UnitTest.Fixtures.Class) As %St
   return class
 }
 ```
+
 * __Query parameters:__ Unhandled arguments (not explicitly set on Route/Map) are considered as query parameters. By default they are required, however it's possible to make them optional simply by providing a default value.
-```
+
+```objectscript
 ClassMethod SayHelloTo(who As %String = "John Doe") As %String
 {
   // curl -H "Content-Type: application/json" 'localhost:57772/api/frontier/test/query-params?who=Francis'
@@ -78,10 +81,11 @@ ClassMethod SayHelloTo(who As %String = "John Doe") As %String
 }
 ```
 * __Variable number of arguments:__ Multiple query parameters with the same name but different indexes. To enable it, use the three dot notation.
-```
+
+```objectscript
 ClassMethod TestGETRestParametersSum(n... As %String) As %Integer
 {
-  // curl -H "Content-Type: application/json" 'localhost:57772/api/frontier/test/rest_params?n1=10&n2=20&n3=30'
+  // curl -H "Content-Type: application/json" 'localhost:57772/api/frontier/test/rest-params?n1=10&n2=20&n3=30'
   // {"result":60}
   set sum = 0
   for i=1:1:n  set sum = sum + n(i)
@@ -89,7 +93,8 @@ ClassMethod TestGETRestParametersSum(n... As %String) As %Integer
 }
 ```
 * __Payload handling:__ Client applications requiring to send payload data (normally JSON), can be handled by the server with methods whose parameters are typed from %DynamicAbstractObject instances.
-```
+
+```objectscript
 ClassMethod EchoUserPayload(payload As %DynamicObject) As %DynamicObject
 {
   // curl -H "Content-Type: application/json" -X POST -d '{"username":"xyz","password":"xyz"}' 'http://localhost:57772/api/frontier/test/payload/single-object'
@@ -98,7 +103,8 @@ ClassMethod EchoUserPayload(payload As %DynamicObject) As %DynamicObject
 }
 ```
 * __Unmarshaling:__ Set `UNMARSHAL=1` while typing the payload to a persistent class so that the payload will be parsed and unmarshalled to it.
-```
+
+```objectscript
 ClassMethod CreateClass(class As Frontier.UnitTest.Fixtures.Class(UNMARSHAL=1)) As Frontier.UnitTest.Fixtures.Student
 {
   // curl -H "Content-Type: application/json" -X POST\
@@ -113,7 +119,8 @@ ClassMethod CreateClass(class As Frontier.UnitTest.Fixtures.Class(UNMARSHAL=1)) 
 }
 ```
 * __SQL results:__ Return a serializable SQL result using the Frontier SQL API.
-```
+
+```objectscript
 ClassMethod GetPaginatedSQLResult(
   page As %Integer = 1,
   rows As %Integer = 5) As Frontier.SQL.Provider
@@ -131,7 +138,7 @@ ClassMethod GetPaginatedSQLResult(
 }
 ```
 * __Streams:__ Return a stream instance to deliver a content that exceeds the maximum string length.
-```
+```objectscript
 ClassMethod TestGETStream() As %Stream.Object
 {
   set stream = ##class(%Stream.GlobalCharacter).%New()
@@ -141,7 +148,7 @@ ClassMethod TestGETStream() As %Stream.Object
 }
 ```
 *  __Seamless object serialization:__ Mix multiple object types into a single returning `%DynamicObject/%DynamicArray` instance and all its composition will be mutated to dynamic instances as well.
-```
+```objectscript
 ClassMethod TestGETMixedDynamicObject(class As Frontier.UnitTest.Fixtures.Class) As %DynamicObject
 {
   // Class is a instance of a %Persistent derived type.
@@ -151,7 +158,7 @@ ClassMethod TestGETMixedDynamicObject(class As Frontier.UnitTest.Fixtures.Class)
 }
 ```
 * __Shareable object__: Allows the context to share a set of objects that can be retrived on each dispatcher method.
-```
+```objectscript
 ClassMethod OnDataSet(data As %DynamicObject) As %Status
 {
   /// This 'data' object is shared between all methods. Accessible using %frontier.Data.
@@ -177,7 +184,7 @@ The helper `AuthenticationManager` allows the declaration of a chain of strategi
 Below is an example on how to configure a strategy in the chain.
 
 Implementation:
-```
+```objectscript
 ClassMethod OnSetup() As %Status
 {
   // Asks the user for a Basic + Base64(username:password) encoded Authorization header.
@@ -201,7 +208,7 @@ If you want to use your own strategy, you need to consider a few entry points:
 * `GetChallenge (Method)`: This should return a valid `WWW-Authenticate` whenever adequate.
 * `Verify (Method):` This method takes four arguments: `session`, `request`, `response`, and `user`. The implementation use the three first arguments to resolve the `user` which is represented by a %DynamicObject. When `user` is populated with a `scope`  property, then this `scope` will be used to validate against the Route's `Scope` attribute if present.
 
-To have a better idea on how to implement a custom strategy check out the class [Frontier.Authentication.BasicStrategy](https://github.com/rfns/frontier/blob/feature/files/cls/Frontier/Authentication/BasicStrategy.cls). It implements all the entry points described here.
+To have a better idea on how to implement a custom strategy check out the class [Frontier.Authentication.BasicStrategy](https://github.com/rfns/frontier/blob/master/cls/Frontier/Authentication/BasicStrategy.cls). It implements all the entry points described here.
 
 ## Reporters
 
@@ -211,7 +218,7 @@ Reporters can be used to take an informative action on unhandled errors. just li
 
 Reporters should be set using the method `OnSetup` and its syntax is very similar to the Authentication.
 
-```
+```objectscript
 ClassMethod OnSetup() As %Status
 {
   // Reporters should be used to signal the developer about request errors.
@@ -228,13 +235,15 @@ Since reporters provides more freedom on how to implement them, there is only tw
 * `Setup (method)`: This receives `context`: an object representing the `%frontier`. Use this method to prepare or configure the custom reporter.
 *  `Report (method)`: This also receives `context`, however `Report` is called only when an abnormal error happens and the request has already finished. This is where the custom reporter should take an action.
 
-Check out the class [Frontier.Reporter.Log](https://github.com/rfns/frontier/blob/feature/files/cls/Frontier/Reporter/Log.cls) to see how to implement those entry points.
+Check out the class [Frontier.Reporter.Log](https://github.com/rfns/frontier/blob/master/cls/Frontier/Reporter/Log.cls) to see how to implement those entry points.
 
 ### Property Formatters
 
 They're used for modifying the writing style for each property. The usage is pretty straightforward:
 
-`set %frontier.PropertyFormatter = ##class(Frontier.PropertyFormatter.SnakeCase).%New()`
+```objectscript
+set %frontier.PropertyFormatter = ##class(Frontier.PropertyFormatter.SnakeCase).%New()
+```
 
 This will make all the properties to be written using `snake_case` format. If you don't define a property formatter, then the original format is used.
 
@@ -243,7 +252,7 @@ This will make all the properties to be written using `snake_case` format. If yo
 If you want to output directly from SQL results, you need to return a provider.
 A provider can be created by using the Frontier SQL API, its syntax is:
 
-```
+```objectscript
   %frontier
     SQL
       .Prepare(SQL or named query) // This returns the provider
@@ -261,7 +270,7 @@ Returning the provider will output `{ "results": [{...}, {...} ...]}`. If you wa
 
 You can also allow the client to provide you the query, this can be useful for creating in-app advanced filters. You can setup the query builder by making it respond in place of the default API. E.g.
 
-```
+```objectscript
 ClassMethod InlineQuery(filter As %String = "", page As %String = "", fields As %String = "id, name, ssn", orderBy As %String = "id asc, dob desc", limit As %Integer = 50) As Frontier.SQL.Provider
 {
   set builder = %frontier.SQL.InlineQueryBuilder()
@@ -305,7 +314,7 @@ In order to serve files inside a directory, you must make sure that you have con
 
 * For step 3:
 
-```
+```objectscript
 ClassMethod TestGETStaticFile() As %Stream.Object
 {
   return %frontier.Files.ServeFrom("/var/lib/app/public")
@@ -314,17 +323,17 @@ ClassMethod TestGETStaticFile() As %Stream.Object
 
 This is the most basic format to start serving files from a directory.
 
-Check out the class [Frontier.UnitTest.Router](https://github.com/rfns/frontier/blob/feature/files/cls/Frontier/UnitTest/Router.cls), method `TestGETStaticFileWithCustomConfig` to learn how to use advanced configurations.
+Check out the class [Frontier.UnitTest.Router](https://github.com/rfns/frontier/blob/master/cls/Frontier/UnitTest/Router.cls), method `TestGETStaticFileWithCustomConfig` to learn how to use advanced configurations.
 
 ### Serving a file
 
 One of the cons on serving a directory is that the path inside the directory gets exposed. Serving a file however, allows the application to mask that path using the route url instead with the limitation of serving a file exclusively.
 
-```
+```xml
 <Route Url="/static/documents/:id" Strict="false" Method="GET" Call="GetUserDocument"/>
 ```
 
-```
+```objectscript
 ClassMethod GeUserDocument(id As %String) As %Status
 {
   set path = ##class(%File).NormalizeFilename(id_".pdf", "/uploads/files/pdf")
@@ -342,7 +351,7 @@ And now, you're ready to set up the upload handler.
 
 > NOTE: You need a `Route` that accepts a POST request, anything else won't work.
 
-```
+```objectscript
 ClassMethod HandleUpload() As %Status
 {
   set location = "/var/lib/my/app/uploads"
