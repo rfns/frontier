@@ -20,8 +20,8 @@ ClassMethod SanitizeFilename(fileName) As %String
   if fileName [ "/" set fileName = $piece(fileName, "/", *)
   if fileName [ "\" set fileName = $piece(fileName, "\", *)
   
-  set fileName = $translate(fileName, "àáÁÀÂâÃÁÂÃãèéÉÈêÊÉìíÍÌÎîòóÓÒÔôÕÓÔõùúÚÙÛûÇçÖöÜüÑ", "aaAAAaAAAAaeeEEeEEiiIIIiooOOOOOoOouuUUUuCcOoUuN")
-  return $zstrip(fileName, "*E'N'A", "", "_-@. ")
+  set fileName = $translate(fileName, "àáÁÀÂâÃÁÂÃãèéÉÈêÊÉìíÍÌÎîòóÓÒÔôÕÓÔõùúÚÙÛûÇçÖöÜüÑ ", "aaAAAaAAAAaeeEEeEEiiIIIiooOOOOOoOouuUUUuCcOoUuN-")
+  return $zstrip(fileName, "*E'N'A", "", "_-@.")
 }
 
 ClassMethod ReplacePlaceholders(definitions As %DynamicObject) As %String
