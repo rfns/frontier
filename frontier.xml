@@ -2857,15 +2857,15 @@ to see a complete example on how to configure it.</Description>
 </Parameter>
 
 <Parameter name="MAXFILENAMELENGTHMSG">
-<Default>File name :FILE_NAME cannot exceed :SIZE characters.</Default>
+<Default>File name ':FILE_NAME' cannot exceed :SIZE characters.</Default>
 </Parameter>
 
 <Parameter name="MAXFILESIZEMSG">
-<Default>File :FILE_NAME (:SIZE bytes) exceeded the max allowed size of :VALUE bytes.</Default>
+<Default>File ':FILE_NAME' (:SIZE bytes) exceeded the max allowed size of :VALUE bytes.</Default>
 </Parameter>
 
 <Parameter name="EXTENSIONNOTALLOWEDMSG">
-<Default>File extension :EXTENSION is not allowed.</Default>
+<Default>File ':FILE_NAME' has an extension ':EXTENSION' which is not allowed.</Default>
 </Parameter>
 
 <Property name="Context">
@@ -2902,7 +2902,7 @@ to see a complete example on how to configure it.</Description>
 <FormalSpec>settings:%DynamicObject</FormalSpec>
 <ReturnType>%Status</ReturnType>
 <Implementation><![CDATA[
-
+  
   #define DestinationAsObject(%d) if '$isobject(%d) set %d = { "path": (%d) }
   set sc = $$$OK
   set validMethods = $lb("POST", "PUT")
@@ -3018,7 +3018,8 @@ AssertContentTypeMatch(multi)
  set extension = $piece(fileName, ".", *)
 
  set filePath = ..MakeFilePath("", fileName, "", destination, extension)
-
+ 
+ set ^mtempFrontier = $lb(extension, fileName, destination)
  if '..MatchFilters(filters, fileName, extension, stream, .sc) return sc
 
  return ..StoreToFS("", "", destination, filePath, stream)
@@ -3030,7 +3031,8 @@ AssertContentTypeMatch(multi)
 <Private>1</Private>
 <ReturnType>%Status</ReturnType>
 <Implementation><![CDATA[
-
+  
+  set fileName = ##class(Frontier.Shared.Utilities).SanitizeFilename(fileName)
   set filePath = ##class(Frontier.Shared.Utilities).ReplacePlaceholders({
     "text": (destination),
     "placeholders": {
@@ -4739,7 +4741,7 @@ You'll probably never have to call it outside the context created by Frontier.
 The filter format can be divided into two formats:
 
 Simple: fieldnameA_operation:value;fieldnameB_operation:value
-Composited: _or:[fieldnameA_operation:value,fieldNameA_operation:value]
+Composited: _or:[fieldnameA_operation:value;fieldNameA_operation:value]
 
 Supported operations:
 
@@ -5697,8 +5699,8 @@ Called when we have finished processing this request</Description>
   if fileName [ "/" set fileName = $piece(fileName, "/", *)
   if fileName [ "\" set fileName = $piece(fileName, "\", *)
   
-  set fileName = $translate(fileName, "àáÁÀÂâÃÁÂÃãèéÉÈêÊÉìíÍÌÎîòóÓÒÔôÕÓÔõùúÚÙÛûÇçÖöÜüÑ", "aaAAAaAAAAaeeEEeEEiiIIIiooOOOOOoOouuUUUuCcOoUuN")
-  return $zstrip(fileName, "*E'N'A", "", "_-@. ")
+  set fileName = $translate(fileName, "àáÁÀÂâÃÁÂÃãèéÉÈêÊÉìíÍÌÎîòóÓÒÔôÕÓÔõùúÚÙÛûÇçÖöÜüÑ ", "aaAAAaAAAAaeeEEeEEiiIIIiooOOOOOoOouuUUUuCcOoUuN-")
+  return $zstrip(fileName, "*E'N'A", "", "_-@.")
 ]]></Implementation>
 </Method>
 
@@ -6087,7 +6089,7 @@ rchr(time) Quit ""
 </Property>
 <Property name="Plate">
 <Selectivity>10.0000%</Selectivity>
-<AverageFieldSize>5</AverageFieldSize>
+<AverageFieldSize>4.9</AverageFieldSize>
 </Property>
 <SQLMap name="IDKEY">
 <BlockCount>-4</BlockCount>
@@ -6197,12 +6199,13 @@ rchr(time) Quit ""
 <AverageFieldSize>1.1</AverageFieldSize>
 </Property>
 <Property name="Active">
-<Selectivity>50.0000%</Selectivity>
+<Selectivity>10.0000%</Selectivity>
+<OutlierSelectivity>.9:1</OutlierSelectivity>
 <AverageFieldSize>1</AverageFieldSize>
 </Property>
 <Property name="Adress">
 <Selectivity>10.0000%</Selectivity>
-<AverageFieldSize>17</AverageFieldSize>
+<AverageFieldSize>16.2</AverageFieldSize>
 </Property>
 <Property name="BirthDate">
 <Selectivity>10.0000%</Selectivity>
@@ -6222,15 +6225,15 @@ rchr(time) Quit ""
 </Property>
 <Property name="Name">
 <Selectivity>10.0000%</Selectivity>
-<AverageFieldSize>16</AverageFieldSize>
+<AverageFieldSize>16.8</AverageFieldSize>
 </Property>
 <Property name="PeriodEnd">
 <Selectivity>10.0000%</Selectivity>
-<AverageFieldSize>5</AverageFieldSize>
+<AverageFieldSize>4.6</AverageFieldSize>
 </Property>
 <Property name="PeriodStart">
 <Selectivity>10.0000%</Selectivity>
-<AverageFieldSize>4.9</AverageFieldSize>
+<AverageFieldSize>5</AverageFieldSize>
 </Property>
 <Property name="SomeValue">
 <Selectivity>100.0000%</Selectivity>
@@ -6847,7 +6850,6 @@ file name, which means that its name should defined by the implementation.</Desc
       "extensions": ["txt"]
     },
     "hooks": {
-      "onItemUploadError": "Frontier.UnitTest.Router:WriteErrorToProcessGlobal",
       "onComplete": "Frontier.UnitTest.Router:WriteResultSummaryToProcessGlobal"
     },
     "destination": (%frontier.Data.Workspace_"/fixtures/uploads/single/file.txt")
@@ -8146,7 +8148,7 @@ The purpose is to show that custom authentication strategies can be used exclusi
 ]]></Routine>
 
 
-<Project name="frontier" LastModified="2019-08-13 09:27:09.866402" Target="##class(Frontier.UnitTest.Router).T()" TargetType="2" HttpServer="http://localhost:57772">
+<Project name="frontier" LastModified="2019-08-21 09:29:55.439464" TargetType="2" HttpServer="http://localhost:57772">
   <Items>
     <ProjectItem name="Frontier.AbstractSerializer" type="CLS"></ProjectItem>
     <ProjectItem name="Frontier.ArgumentDescription" type="CLS"></ProjectItem>
@@ -8200,13 +8202,5 @@ The purpose is to show that custom authentication strategies can be used exclusi
     <ProjectItem name="UnitTest.Frontier.Types" type="CLS"></ProjectItem>
     <ProjectItem name="frontier.INC" type="MAC"></ProjectItem>
   </Items>
-  <BreakPoints>
-    <BreakPoint Routine="Frontier.Router.CLS" Offset="DispatchRequest+24"></BreakPoint>
-    <BreakPoint Routine="Frontier.SQL.InlineQueryBuilder.CLS" Offset="CreateWHEREStatement+2"></BreakPoint>
-    <BreakPoint Routine="Frontier.SQL.InlineQueryBuilder.CLS" Offset="TransformFilter+4"></BreakPoint>
-  </BreakPoints>
-  <WatchVariables>
-    <WatchVariable Variable="urlExpression" Pane="1"></WatchVariable>
-  </WatchVariables>
 </Project>
 </Export>
