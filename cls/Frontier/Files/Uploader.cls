@@ -41,11 +41,11 @@ Class Frontier.Files.Uploader Extends %RegisteredObject
 
 Parameter MINFILENAMELENGTHMSG = "File name :FILE_NAME must have at least :SIZE characters.";
 
-Parameter MAXFILENAMELENGTHMSG = "File name :FILE_NAME cannot exceed :SIZE characters.";
+Parameter MAXFILENAMELENGTHMSG = "File name ':FILE_NAME' cannot exceed :SIZE characters.";
 
-Parameter MAXFILESIZEMSG = "File :FILE_NAME (:SIZE bytes) exceeded the max allowed size of :VALUE bytes.";
+Parameter MAXFILESIZEMSG = "File ':FILE_NAME' (:SIZE bytes) exceeded the max allowed size of :VALUE bytes.";
 
-Parameter EXTENSIONNOTALLOWEDMSG = "File extension :EXTENSION is not allowed.";
+Parameter EXTENSIONNOTALLOWEDMSG = "File ':FILE_NAME' has an extension ':EXTENSION' which is not allowed.";
 
 Property Context As Frontier.Context [ Private ];
 
@@ -63,7 +63,7 @@ Method %OnNew(context As Frontier.Context) As %Status
 
 Method HandleRequest(settings As %DynamicObject) As %Status [ Internal ]
 {
-
+  
   #define DestinationAsObject(%d) if '$isobject(%d) set %d = { "path": (%d) }
   set sc = $$$OK
   set validMethods = $lb("POST", "PUT")
@@ -171,7 +171,8 @@ Method HandleSingleFile(destination As %String, filters As %DynamicObject, Outpu
  set extension = $piece(fileName, ".", *)
 
  set filePath = ..MakeFilePath("", fileName, "", destination, extension)
-
+ 
+ set ^mtempFrontier = $lb(extension, fileName, destination)
  if '..MatchFilters(filters, fileName, extension, stream, .sc) return sc
 
  return ..StoreToFS("", "", destination, filePath, stream)
@@ -179,7 +180,8 @@ Method HandleSingleFile(destination As %String, filters As %DynamicObject, Outpu
 
 Method MakeFilePath(key As %String, index As %String, fileName As %String, destination As %String, extension As %String = "") As %Status [ Private ]
 {
-
+  
+  set fileName = ##class(Frontier.Shared.Utilities).SanitizeFilename(fileName)
   set filePath = ##class(Frontier.Shared.Utilities).ReplacePlaceholders({
     "text": (destination),
     "placeholders": {
@@ -315,3 +317,4 @@ BuildFilter(filter, templateMsg, normalizedFilter)
 }
 
 }
+
