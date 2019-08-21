@@ -478,7 +478,6 @@ ClassMethod TestPOSTSingleFileUpload() As %Status
       "extensions": ["txt"]
     },
     "hooks": {
-      "onItemUploadError": "Frontier.UnitTest.Router:WriteErrorToProcessGlobal",
       "onComplete": "Frontier.UnitTest.Router:WriteResultSummaryToProcessGlobal"
     },
     "destination": (%frontier.Data.Workspace_"/fixtures/uploads/single/file.txt")
