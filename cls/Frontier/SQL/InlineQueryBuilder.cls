@@ -6,7 +6,7 @@ Include frontier
 /// The filter format can be divided into two formats:
 /// 
 /// Simple: fieldnameA_operation:value;fieldnameB_operation:value
-/// Composited: _or:[fieldnameA_operation:value,fieldNameA_operation:value]
+/// Composited: _or:[fieldnameA_operation:value;fieldNameA_operation:value]
 /// 
 /// Supported operations:
 /// 
