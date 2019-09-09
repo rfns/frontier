@@ -6,8 +6,6 @@ Include (%occErrors, %occStatus)
 Class Frontier.Context Extends %RegisteredObject
 {
 
-Parameter VERSION = "5.0.0";
-
 /// This holds the reference for the %session object.
 Property Session As %CSP.Session [ Private ];
 
@@ -88,6 +86,9 @@ Property CORS As Frontier.CORS [ ReadOnly ];
 /// A string that holds the Route element's Url expression. Can be used to identified which route as been called.
 Property Route As %String;
 
+/// An object containing a list of properties related to how Frontier behaves.
+Property Parameters As Frontier.Parameters [ ReadOnly ];
+
 Method %OnNew(session As %CSP.Session, request As %CSP.Request, response As %CSP.Response) As %Status
 {
   set ..Session = session
@@ -98,6 +99,7 @@ Method %OnNew(session As %CSP.Session, request As %CSP.Request, response As %CSP
   set i%AuthenticationManager = ##class(Frontier.Authentication.Manager).%New(..Session, ..Request, ..Response)
   set i%Files = ##class(Frontier.Files).%New($this)
   set i%CORS = ##class(Frontier.CORS).%New($this)
+  set i%Parameters = ##class(Frontier.Parameters).%New()
   set i%ArgumentValues = 0
   set ..Data = {}
   set ..Response.ContentType = "application/json"
@@ -166,6 +168,12 @@ Method ThrowException(message As %String, httpStatus As %String = "500 Internal 
 
   for i=1:1:parameters set args(2+i) = parameters(i)
   throw ##class(%Exception.StatusException).CreateFromStatus($$$ERROR(args...))
+}
+
+Method DirectWriteSet(value As %Boolean) As %Status
+{
+  set ..Parameters.DIRECTWRITE = 1
+  return $$$OK
 }
 
 }

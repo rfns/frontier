@@ -70,7 +70,7 @@ Method AssertRequest(resource As %String, expected As %DynamicAbstractObject = "
       if ##class(Frontier.Types).IsDynamicObject(response) && (response.errors '= ""){
         return ##class(Frontier.UnitTest.Util).MergeErrors(response.errors)
       } elseif ##class(Frontier.Types).IsDynamic($classname(expected)) {
-        $$$QuitOnError(##class(Frontier.Dynamic.Serializer).SerializeToStream(.str, expected))
+        $$$QuitOnError(##class(Frontier.Dynamic.Serializer).SerializeToStream(.str, expected,,,,2))
         set expectedText = str.Read()
       }
     }
@@ -229,11 +229,11 @@ Method TestGETDynamicSQLResult()
   set mt = sd.%Metadata
   set rd = sd.%Execute(1, 5)
 
-  set sc = ##class(Frontier.SQL.Serializer).SerializeToStream(.s, rd, mt)
+  set sc = ##class(Frontier.SQL.Serializer).SerializeToStream(.s, rd, mt,,,2)
   set array =  {}.%FromJSON(.s)
   set expected = {"results":(array)}
 
-  return $$$AssertStatusOK(..AssertRequest(resource, expected.%ToJSON()), $$$FormatText("can retrieve the expected data from the resource %1", resource))
+  return $$$AssertStatusOK(..AssertRequest(resource, expected), $$$FormatText("can retrieve the expected data from the resource %1", resource))
 }
 
 Method TestGETQuerySQLResult()
@@ -246,10 +246,10 @@ Method TestGETQuerySQLResult()
   set mt = sd.%Metadata
   set rd = sd.%Execute(1, 5)
 
-  set sc = ##class(Frontier.SQL.Serializer).SerializeToStream(.s, rd, mt)
+  set sc = ##class(Frontier.SQL.Serializer).SerializeToStream(.s, rd, mt,,,2)
   set array =  {}.%FromJSON(.s)
   set expected = {"results":(array)}
-  return $$$AssertStatusOK(..AssertRequest(resource, expected.%ToJSON()), $$$FormatText("can retrieve the expected data from the resource %1", resource))
+  return $$$AssertStatusOK(..AssertRequest(resource, expected), $$$FormatText("can retrieve the expected data from the resource %1", resource))
 }
 
 Method TestGETSessionUserInfo()

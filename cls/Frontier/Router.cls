@@ -209,7 +209,7 @@ ClassMethod DispatchRequest(url As %String, httpMethod As %String, forwarded As 
             } else {
               // Auth is enabled AND the route requests for a specific strategy to be used.              
               $$$ThrowOnError(%frontier.AuthenticationManager.VerifyUsing(authStrategy, .user, resourceScope))
-            }
+            }            
             
             if '%frontier.AuthenticationManager.Verified {
               set %response.Status = ..#HTTP401UNAUTHORIZED
@@ -289,9 +289,9 @@ ClassMethod DispatchRequest(url As %String, httpMethod As %String, forwarded As 
     }
     
     return $$$OK       
-  } catch ex {    
+  } catch ex {       
     set exceptionPayload = ..HandleException(ex)
-    do ##class(Frontier.Dynamic.Serializer).Serialize(exceptionPayload, 1, %frontier.PropertyFormatter)
+    do ##class(Frontier.Dynamic.Serializer).Serialize(exceptionPayload,, %frontier.PropertyFormatter, %frontier.Parameters.MAXIMUMDEPTH, %frontier.Parameters.INDENTSIZE)
   }
   return $$$OK
   
@@ -383,10 +383,6 @@ ClassMethod DispatchResponse(returnedData As %CacheString) As %Status [ Private 
     set type = $classname(returnedData)    
     $$$QuitOnError($$AssertClassNamespaceAvailability(type))    
     
-    if ##class(Frontier.Types).IsStream(type) && %frontier.IsRaw() {
-      return returnedData.OutputToDevice()
-    }    
-    
     set isCollection = ##class(Types).IsCollection(type)
     set isSQLProvider = ##class(Types).IsSQLProvider(type)
     set isStream = ##class(Types).IsStream(type)
@@ -395,16 +391,17 @@ ClassMethod DispatchResponse(returnedData As %CacheString) As %Status [ Private 
     set isMarshallable = isCollection || isDynamic || isStream || isSQLProvider || ('isSystemType && ##class(Types).IsInstantiable(type))
     if isMarshallable {
       if isStream {
+        if %frontier.IsRaw() return returnedData.OutputToDevice()
         set stream = returnedData set returnedData = response
         set response.content = stream
       } elseif isSQLProvider {
         set provider = returnedData
-        set response.results = provider
+        set response.results = provider      
+      } elseif isDynamic {
+        set response = returnedData
       } else {
         $$$QuitOnError(##class(Frontier.Dynamic.Marshaller).MarshalDirect(returnedData, .response))
       }
-    } elseif returnedData.%IsA("Frontier.Dynamic.Marshaller") {
-      $$$QuitOnError(returnedData.Marshal(.response))
     } else {
       return $$$ERROR($$$GeneralError, "Cannot serialize system class instances.")
     }
@@ -417,10 +414,10 @@ ClassMethod DispatchResponse(returnedData As %CacheString) As %Status [ Private 
   
   // We must use a custom serializer because the current %ToJSON implementation cannot serialize
   // mixed instances.
-  if %frontier.DirectWrite = 1 {
-    return ##class(Frontier.Dynamic.Serializer).Serialize(response, 1, %frontier.PropertyFormatter)
+  if %frontier.Parameters.DIRECTWRITE = 1 {
+    return ##class(Frontier.Dynamic.Serializer).Serialize(response,, %frontier.PropertyFormatter, %frontier.Parameters.MAXIMUMDEPTH, %frontier.Parameters.INDENTSIZE)
   } else {
-    $$$QuitOnError(##class(Frontier.Dynamic.Serializer).SerializeToStream(.stream, response, 1, %frontier.PropertyFormatter))
+    $$$QuitOnError(##class(Frontier.Dynamic.Serializer).SerializeToStream(.stream, response,, %frontier.PropertyFormatter, %frontier.Parameters.MAXIMUMDEPTH, %frontier.Parameters.INDENTSIZE))
     do stream.OutputToDevice()
   }
   return $$$OK

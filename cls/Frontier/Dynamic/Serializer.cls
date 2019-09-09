@@ -7,34 +7,46 @@ Class Frontier.Dynamic.Serializer Extends Frontier.AbstractSerializer
 
 /// Takes an %DynamicAbstractObject and serializes it while writing back to the current device.
 /// This method is not supposed to be used manually.
-ClassMethod Serialize(dynamic As %DynamicAbstractObject, depth As %String = 1, propertyFormatter As Frontier.PropertyFormatter = "") As %Status [ Internal ]
+ClassMethod Serialize(dynamic As %DynamicAbstractObject, depth As %String = 0, propertyFormatter As Frontier.PropertyFormatter = "", maxDepth As %Integer = 7, indentBy As %Integer = 0, fromKey As %Boolean = 0) As %Status [ Internal ]
 {
+  #define NewLineIf if indentBy > 0 write $c(10)
+  #define SpaceIf  $select(indentBy > 0 : " ", 1: "")
+  
   set sc = $$$OK
   set results = ""
-  set isArray = ##class(Frontier.Types).IsDynamicArray($classname(dynamic))
+  
+  set isArray = ##class(Frontier.Types).IsDynamicArray($classname(dynamic))  
 
   if isArray {
     write "["
   } else {
     write "{"
   }
-
+        
   set iterator = dynamic.%GetIterator()
   set comma = ""
+  
+  set depth = depth + 1
+  
+  if dynamic.%Size() > 0 $$$NewLineIf  
 
-  while iterator.%GetNext(.key, .value) {
+  while iterator.%GetNext(.key, .value) {    
     write comma
-    set comma = ","
+    if comma = "," $$$NewLineIf
+    
+    set comma = ","        
     set propertyName = key
     set type = dynamic.%GetTypeOf(key)
 
     if $isobject(propertyFormatter) {
       set propertyName = propertyFormatter.Format(propertyName, depth)
     }
+    
+    do ..SetIndentation(depth * indentBy)
 
-    if 'isArray {
-      write $$$ZENJSONPROP(propertyName, "s")_":"
-    }
+    if 'isArray {      
+      write $$$ZENJSONPROP(propertyName, "s")_":"_$$$SpaceIf
+    }    
 
     if value = "null" || (type = "null" && (value = "")) {
       write "null"
@@ -43,7 +55,7 @@ ClassMethod Serialize(dynamic As %DynamicAbstractObject, depth As %String = 1, p
     } elseif $isobject(value) {
       set type = $classname(value)
       if ##class(Frontier.Types).IsDynamic(type) {
-        set sc = $$$ADDSC(sc, ..Serialize(value, depth, propertyFormatter))
+        set sc = ..Serialize(value, depth, propertyFormatter, maxDepth, indentBy, 1)
       } elseif ##class(Frontier.Types).IsStream(type) {
         write $c(34)
         do WriteEscaped(value)
@@ -51,21 +63,25 @@ ClassMethod Serialize(dynamic As %DynamicAbstractObject, depth As %String = 1, p
       } elseif ##class(Frontier.Types).IsSQLProvider(type) {
         if 'value.StatementExecuted set sc = value.Execute()
         if $$$ISERR(sc) quit
-        $$$ThrowOnError(##class(Frontier.SQL.Serializer).Serialize(value.Results, value.Metadata, depth, propertyFormatter))
+        $$$ThrowOnError(##class(Frontier.SQL.Serializer).Serialize(value.Results, value.Metadata, depth, propertyFormatter, indentBy))
+      } elseif ##class(Frontier.Types).IsInstantiable(type) {
+        set child = value
+        set value = ""
+        set sc = ##class(Frontier.Dynamic.Marshaller).MarshalDirect(child, .value, maxDepth - depth)
+        if $$$ISOK(sc) set sc = ..Serialize(value, depth, propertyFormatter, maxDepth, indentBy)
       }
-    } elseif type = "string" {
-      write $$$ZENJSONSTR(value, "s")
-    } elseif type = "number" {
-      write $$$ZENJSNUM(value)
     } else {
-      write $$$ZENJSONVALUE(value, "s")
-    }
+      if type = "string" { write $$$ZENJSONSTR(value, "s") }
+      elseif type = "number" { write $$$ZENJSNUM(value) }
+      else { write $$$ZENJSONVALUE(value, "s") } 
+       
+    }    
+    if $$$ISERR(sc) quit                 
   }
-
-  $$$QuitOnError(sc)
-
+  set depth = depth - 1
+  if dynamic.%Size() > 0 $$$NewLineIf do ..SetIndentation(depth * indentBy)
   if isArray write "]"
-  else  write "}"
+  else  write "}"  
 
   return sc
 
@@ -84,3 +100,4 @@ WriteEscaped(v)
 }
 
 }
+

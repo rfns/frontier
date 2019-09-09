@@ -1,33 +1,47 @@
 Class Frontier.SQL.Serializer Extends Frontier.AbstractSerializer
 {
 
-ClassMethod Serialize(results As %SQL.Statement, metadata As %SQL.StatementMetadata, depth As %Integer = 1, propertyFormatter As Frontier.PropertyFormatter = "") As %Status
+ClassMethod Serialize(results As %SQL.Statement, metadata As %SQL.StatementMetadata, depth As %Integer = 0, propertyFormatter As Frontier.PropertyFormatter = "", indentBy As %Integer = 0) As %Status
 {
      
+  #define NewLineIf write $select(indentBy > 0 : $char(10), 1: "")
+  #define SpaceIf $select(indentBy > 0: " ", 1: "")
+  
   set sc = $$$OK
   $$$QuitOnError(..FetchColumnMetadatas(metadata, .columnMetadata))  
   
   set data = ##class(%Stream.GlobalCharacter).%New()
   
+  if depth > 1 do ..SetIndentation(depth * indentBy)
   write "["
+  set depth = depth + 1
   
   set itemComma = ""
-  set propertyComma = ""
+  set propertyComma = ""   
   
   try {               
     while results.%Next(.sc) {
       $$$ThrowOnError(sc)
       
-      write itemComma
-      
+      write itemComma      
+            
       set itemComma = ","
       set propertyComma = ""
       
-      write "{"         
+      if itemComma = "," $$$NewLineIf
+      
+      do ..SetIndentation(depth * indentBy)
+      write "{"
+      set depth = depth + 1
+      $$$NewLineIf
       
       for c=1:1:columnMetadata {
         write propertyComma
+        
+        if propertyComma = "," $$$NewLineIf
         set propertyComma = ","
+                        
+        do ..SetIndentation(depth * indentBy)
         
         set columnName = columnMetadata(c)
         set columnType = columnMetadata(c, "type")
@@ -39,7 +53,7 @@ ClassMethod Serialize(results As %SQL.Statement, metadata As %SQL.StatementMetad
           set columnName = propertyFormatter.Format(columnName, depth)
         }
         
-        write $$$ZENJSONPROP(columnName, "s")_":"
+        write $$$ZENJSONPROP(columnName, "s")_":"_$$$SpaceIf
         
         if isList = 1 {
           set delimiter = columnMetadata(c, "list_delimiter")
@@ -56,11 +70,20 @@ ClassMethod Serialize(results As %SQL.Statement, metadata As %SQL.StatementMetad
           else  write value
         } else {
           write $$$ZENJSONVALUE(value, "s")
-        }                               
+        }                                      
       }
+      
+      $$$NewLineIf
+      set depth = depth - 1
+      if depth > 1 do ..SetIndentation(depth * indentBy)
       write "}"
-    }   
-    write "]"
+    }
+    
+    set depth = depth - 1    
+    $$$NewLineIf
+    do ..SetIndentation(depth * indentBy)
+    write "]"    
+    
   } catch ex {
     set sc = ex.AsStatus()
   }
@@ -68,6 +91,8 @@ ClassMethod Serialize(results As %SQL.Statement, metadata As %SQL.StatementMetad
   
 ListToJSONArray(value, delimiter, string)
   write "["
+  
+  set depth = depth + 1
   
   set comma = ""  
   set length = $length(value, delimiter)
@@ -77,8 +102,11 @@ ListToJSONArray(value, delimiter, string)
     if string write $$$ZENJSONSTR($piece(value, delimiter, i), "s")
     else  write $$$ZENJSNUM($piece(value, delimiter, i))
     set comma = ","
+    $$$NewLineIf
+    do ..SetIndentation(depth * indentBy)
   }
   
+  set depth = depth - 1
   write "]"
 }
 

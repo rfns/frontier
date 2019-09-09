@@ -48,4 +48,11 @@ rstr(len,time) Quit ""
 rchr(time) Quit ""
 }
 
+ClassMethod SetIndentation(by As %Integer = 0)
+{
+  if by <= 0 quit
+  for i=1:1:by write " "
 }
+
+}
+
