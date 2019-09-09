@@ -90,17 +90,24 @@ ClassMethod Serialize(results As %SQL.Statement, metadata As %SQL.StatementMetad
   return sc
   
 ListToJSONArray(value, delimiter, string)
+  #define IsList(%value) $lv(%value) && $ll(%value)
   write "["
   
   set depth = depth + 1
   
-  set comma = ""  
-  set length = $length(value, delimiter)
+  set comma = ""
+  set isList = $select($lv(value) && $ll(value) : 1, 1: 0)
+  set length = $select(isList : $ll(value), 1: $length(value, ","))
   
   for i=1:1:length {
     write comma
-    if string write $$$ZENJSONSTR($piece(value, delimiter, i), "s")
-    else  write $$$ZENJSNUM($piece(value, delimiter, i))
+    if isList {
+      if string write $$$ZENJSONSTR($lg(value, i), "s")
+      else  write $$$ZENJSNUM($lg(value, i))
+    } else {
+      if string write $$$ZENJSONSTR($piece(value, delimiter, i), "s")
+      else  write $$$ZENJSNUM($piece(value, delimiter, i))      
+    }
     set comma = ","
     $$$NewLineIf
     do ..SetIndentation(depth * indentBy)
