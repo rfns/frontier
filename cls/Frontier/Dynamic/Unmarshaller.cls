@@ -263,8 +263,8 @@ Method GetPersistedObject(type As %String, name As %String, value, Output result
 {
   set result = $System.OBJ.OpenId(type, value)
 
-  if '$isobject(result) && (result '= "") {
-    return $$$ERROR($$$GeneralError, $$$FormatText("Invalid id for property '%1', typed as '%2'.", name, type))
+  if '$isobject(result) && (value '= "") {
+    return $$$ERROR($$$GeneralError, $$$FormatText("Invalid id for property '%1' from '%2'.", name, type))
   }
 
   return $$$OK
@@ -406,3 +406,4 @@ Method GetAndCacheDefinition(id As %String) As %Persistent [ Private ]
 }
 
 }
+
