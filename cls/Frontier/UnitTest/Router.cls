@@ -36,7 +36,6 @@ XData UrlMap [ XMLNamespace = "http://github.com/rfns/frontier" ]
 <Route Url="/arguments/no-weak-typed" Method="GET" Call="TestGETNoWeakTypedArgs"/>
 <Route Url="/methods/no-weak-typed" Method="GET" Call="TestGETNoWeakTypedMethods" />
 <Route Url="/custom-auth" Method="GET" AuthStrategy="BasicSystemLogin" Call="TestGETCustomAuth" />
-<Route Url="/x-www-urlencoded" Method="POST" Call="TestXWWWUrlEncoded" />
 <Map Prefix="/map/A/:param1" Forward="Frontier.UnitTest.Router.Map.A" />
 <Map Prefix="/map/B/:param1/:param2" Forward="Frontier.UnitTest.Router.Map.B" />
 <Map Prefix="/map/C" Forward="Frontier.UnitTest.Router.Map.C" />
@@ -58,16 +57,24 @@ ClassMethod OnDataSet(data As %DynamicObject) As %Status
 ClassMethod OnSetup() As %Status
 {
   
+  //set %frontier.Parameters.DIRECTWRITE = 1
+  
   // Add reporters to notify the developers about ongoing errors.
   // This one creates a new entry into the Frontier.Reporter.Log table.
   set logReporter = ##class(Frontier.Reporter.Log).%New({
     // We want to log any abnormal error.
-    "include": [($$$CacheError), ($$$InvalidUsernameOrPassword)],
-    /// But we don't want to log custom errors.
-    "exclude": [($$$GeneralError)]
+    "include": [($$$CacheError), ($$$InvalidUsernameOrPassword)]
   })  
   
-  $$$QuitOnError(%frontier.ReporterManager.AddReporter(logReporter)) 
+  $$$QuitOnError(%frontier.ReporterManager.AddReporter(logReporter))
+  
+  // Prettifies JSON by indenting it based on two spaces.
+  // Leave it as 0 for inline output.
+  set %frontier.Parameters.INDENTSIZE = 2
+  
+  // Defines how deep should the object be serialized.
+  // WARNING: The higher the value the longer will be the wait, which could cause a Gateway Timeout.
+  set %frontier.Parameters.MAXIMUMDEPTH = 7
 
   set cookieStrategy = ##class(Frontier.Authentication.CookieStrategy).%New({
     "secret": "shhh",
@@ -92,7 +99,7 @@ ClassMethod OnSetup() As %Status
   // This provides a way to check if the current user is authenticated using Basic scheme.
   $$$QuitOnError(%frontier.AuthenticationManager.AddStrategy(basicStrategy))
   $$$QuitOnError(%frontier.AuthenticationManager.AddStrategy(systemBasicStrategy))
-
+   
   set %frontier.Response.GzipOutput = 1
   do %frontier.CORS.Default()
    
@@ -105,12 +112,13 @@ ClassMethod OnSetup() As %Status
 /// {"Plate":"O5397","Students":[{"Name":"Drabek,Peter T.","__id__":"20"}],"__id__":"6"}
 ClassMethod TestGETRouteParams(class As Frontier.UnitTest.Fixtures.Class) As %Status
 {
+ 
   return class
 }
 
-/// This follows the same principle as the TestGETRouteParams example, however IDWHERE allows the developer to search
+/// This follows the same principle as the TestGETRouteParams example, however WHEREID allows the developer to search
 /// for the id using alternative sources other than relying straight to route parameters.
-/// ID WHERE is useful for avoiding the object id from being exposed to the world by masking it with contextual data.
+/// It is useful for avoiding the object id from being exposed.
 /// The format is close to a SQL where, however supporting :placeholders.
 /// Placeholders are checked using the following order:
 /// :name -> %frontier.RouteParameters("name") (obligatory)
@@ -300,7 +308,7 @@ ClassMethod TestGETMixedDynamicObject(class As Frontier.UnitTest.Fixtures.Class)
 /// curl -H "Content-Type: application/json" http://localhost:57772/api/frontier/test/mixed/array?class=1
 ClassMethod TestGETMixedDynamicArray(class As Frontier.UnitTest.Fixtures.Class) As %DynamicArray
 {
-  return [ (class) ]
+  return [(class)]
 }
 
 /// It's possible to mix multiple parameter types as you could when calling a method.
@@ -346,7 +354,7 @@ ClassMethod TestPOSTUnmarshalToClass(class As Frontier.UnitTest.Fixtures.Class(U
 /// found, the id will be searched inside the payload. Note that when the id is not found, an exception will be thrown regarding  the
 /// incorrect PUT usage.
 /// curl -H "Content-Type: application/json" -X POST -d '{"Plate": "R-2948","Students": [{"Name": "Rubens","BirthDate": "04/21/1970","SomeValue": 0}]}' 'http://localhost:57772/api/frontier/unmarshall/15'
-ClassMethod TestPUTUnmarshalToClass(class As Frontier.UnitTest.Fixtures.Class) As Frontier.UnitTest.Fixtures.Student
+ClassMethod TestPUTUnmarshalToClass(classId As %String, class As Frontier.UnitTest.Fixtures.Class(UNMARSHAL=1,WHEREID="ID = :classId")) As Frontier.UnitTest.Fixtures.Student
 {
   $$$ThrowOnError(class.%Save())
   return {
@@ -592,11 +600,6 @@ ClassMethod SignIn() As %String
   set expires = ##class(%CSP.StreamServer).ToHTTPDate(exp)
   do %frontier.Response.SetCookie("__fc", ##class(Frontier.Security.CookieSignature).Sign(credential, "shhh"), expires, %frontier.Request.Application,,,1)
   return ""
-}
-
-ClassMethod TestXWWWUrlEncoded(name As %String, birthDate As %String) As %String
-{
-  return { "name": (name), "birthDate": (birthDate) }
 }
 
 }
