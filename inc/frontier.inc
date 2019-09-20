@@ -15,3 +15,4 @@
 #define AssertClassExists(%o) return:'$isobject(%o) $$$ERROR($$$ClassDoesNotExist, %o)
 #define NULL $s($$$isWINDOWS : "//./nul", 1: "/dev/null")
 #define ObjectOrNull(%obj) $select($isobject(%obj) : %obj, 1: "null")
+#define ReturnOnError(%sc) s sc = %sc return:$$$ISERR(sc) sc
