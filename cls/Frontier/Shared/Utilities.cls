@@ -112,13 +112,12 @@ ClassMethod CallAndCapture(object, method As %String, Output str As %Stream.Glob
   
   set str = ##class(%Stream.GlobalCharacter).%New()
   set alreadyRedirected = ##class(%Device).ReDirectIO()
-  set oldMnemonic = "^"_##class(%Device).GetMnemonicRoutine()
+  set oldMnemonic = ##class(%Device).GetMnemonicRoutine()
   set initIO = $io  
   
   try {   
     use $io::("^"_$zname)    
     do ##class(%Device).ReDirectIO(1)
-    set isRedirected = 1    
     if $isobject(object) set sc = $method(object, method, args...)
     else  set class = object set sc = $classmethod(class, method, args...)
     do str.Rewind()
@@ -128,7 +127,7 @@ ClassMethod CallAndCapture(object, method As %String, Output str As %Stream.Glob
   }     
   
   if oldMnemonic '= "" {
-    use initIO::(oldMnemonic)
+    use initIO::("^"_oldMnemonic)
   } else {
     use oldMnemonic
   }
@@ -144,6 +143,34 @@ wff Do str.Write($char(13,10,13,10)) Quit
 wtab(n) Do str.Write($c(9)) Quit
 rstr(len,time) Quit ""
 rchr(time) Quit ""
+}
+
+ClassMethod CreateSSLConfigurationIfNoneExists(name As %String) [ Private ]
+{
+   new $namespace
+   set $namespace = "%SYS"
+      
+   do ##class(Security.SSLConfigs).Get("Discord Webhook SSL", .p)
+   if $data(p) quit   
+   
+   set p("CipherList")="ALL:!aNULL:!eNULL:!EXP:!SSLv2"
+   set p("CAFile")=""
+   set p("CAPath")=""
+   set p("CRLFile")=""
+   set p("CertificateFile")=""
+   set p("CipherList")="ALL:!aNULL:!eNULL:!EXP:!SSLv2"
+   set p("Description")=""
+   set p("Enabled")=1
+   set p("PrivateKeyFile")=""
+   set p("PrivateKeyPassword")=""
+   set p("PrivateKeyType")=2
+   set p("Protocols")=24
+   set p("SNIName")=""
+   set p("Type")=0
+   set p("VerifyDepth")=9
+   set p("VerifyPeer")=0
+   
+   do ##class(Security.SSLConfigs).Create(name, .p)
 }
 
 }
