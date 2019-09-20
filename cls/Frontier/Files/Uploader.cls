@@ -172,7 +172,6 @@ Method HandleSingleFile(destination As %String, filters As %DynamicObject, Outpu
 
  set filePath = ..MakeFilePath("", fileName, "", destination, extension)
  
- set ^mtempFrontier = $lb(extension, fileName, destination)
  if '..MatchFilters(filters, fileName, extension, stream, .sc) return sc
 
  return ..StoreToFS("", "", destination, filePath, stream)
@@ -275,7 +274,7 @@ ClassMethod MatchFilters(filters As %DynamicObject, fileName As %String, extensi
     do BuildFilter(filters.extensions, ..#EXTENSIONNOTALLOWEDMSG, .extensions)
     set match = 0
     for i=0:1:extensions.value.%Size() - 1 {
-      if extensions.value.%Get(i) = extension {
+      if $$$ucase(extensions.value.%Get(i)) = $$$ucase(extension) {
         set match = 1
         quit
       }
