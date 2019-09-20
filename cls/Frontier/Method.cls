@@ -438,10 +438,10 @@ Method Invoke(Output methodReturn = "", Output stack As %Stream.Object = "") As 
   set io = $io
   merge methodArguments = ..Arguments
   set returnType = ..MethodDescriptor.ReturnType
-  
+    
   use $$$NULL
   
-  new $estack   
+  new $estack
 
   try {
     if methodArguments > 0 {
