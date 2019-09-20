@@ -5,9 +5,6 @@
 Class Frontier.Dynamic.Marshaller Extends %RegisteredObject
 {
 
-/// Contains a list of properties that should be contained in the marshalled object.
-Property Properties As %List [ Private ];
-
 /// This is a internal counter indicating the current object depth.
 Property Depth As %Integer [ Private ];
 
@@ -26,16 +23,9 @@ Property MaxDepth As %Integer [ InitialExpression = 7, Private ];
 /// A string that represents the path from concatenated property names, used to filter which properties to include.
 Property Path As %String [ Private ];
 
-Property Object As %RegisteredObject [ Private ];
-
-Method %OnNew(maxDepth As %Integer = 7, properties As %String = "", object As %RegisteredObject = "") As %Status
+Method %OnNew(maxDepth As %Integer = 7) As %Status
 {
-  
-  if maxDepth < 0 set maxDepth = 7
-  set ..Properties = ..SpreadProperties(properties)  
   set ..MaxDepth = maxDepth
-  set ..Object = object
-  
   return $$$OK
 }
 
@@ -43,15 +33,15 @@ Method %OnNew(maxDepth As %Integer = 7, properties As %String = "", object As %R
 /// This method returns an error if it fails, otherwise the 'dynamicObject' is populated.
 /// The parameter 'properties' can be used to define which properties the instance should contain.
 /// The parameter 'maxDepth' if specified will be used in the place of the default cyclic references check.
-ClassMethod MarshalDirect(object As %RegisteredObject, Output dynamicObject As %DynamicAbstractObject, properties As %String = "", maxDepth As %Integer = 7) As %Status
+ClassMethod MarshalDirect(object As %RegisteredObject, Output dynamicObject As %DynamicAbstractObject, maxDepth As %Integer = 7) As %Status
 {
-  set marshaller = ..%New(maxDepth, properties, object)
-  return marshaller.Marshal(.dynamicObject)
+  set marshaller = ..%New(maxDepth)
+  return marshaller.Marshal(object, .dynamicObject)
 }
 
 /// Marshals the current object into a Dynamic qualified instance.
 /// This method uses the configuration provided from %New which includes an optional object overwrite to be marshalled.
-Method Marshal(Output dynamicObject As %DynamicAbstractObject, object As %RegisteredObject = {..Object}) As %Status [ Internal ]
+Method Marshal(object As %RegisteredObject, Output dynamicObject As %DynamicAbstractObject) As %Status [ Internal ]
 {
   
   if '$isobject(object) {
@@ -60,34 +50,24 @@ Method Marshal(Output dynamicObject As %DynamicAbstractObject, object As %Regist
   
   set i%DescriptorsCache = ""
   set i%PropertiesCache = ""
-  set i%JSONDataFormatsCache = ""  
+  set i%JSONDataFormatsCache = ""
+  
+  set sc = $$$OK  
   
   set type = $classname(object)      
-  if ##class(Frontier.Types).IsCollection(type) return ..MakeDynamicCollection(object, .dynamicObject)
-  if ##class(Frontier.Types).IsDynamic(type) return ..Traverse(object, .dynamicObject)
-  if ##class(Frontier.Types).IsInstantiable(type) return ..MakeDynamicObject(object, .dynamicObject) 
+  if ##class(Frontier.Types).IsCollection(type) set sc = ..MakeDynamicCollection(object, .dynamicObject)
+  if ##class(Frontier.Types).IsDynamic(type) set sc = ..Traverse(object, .dynamicObject)
+  if ##class(Frontier.Types).IsPersistent(type) set sc = ..MakeDynamicObject(object, .dynamicObject) 
   
-  return $$$ERROR($$$GeneralError, "Invalid object type to marshal: class must extend from %RegisteredObject.")
-}
-
-ClassMethod SpreadProperties(value As %String = "") As %Status [ Internal, Private ]
-{
-  set props = ""
-  set value = $lfs(value)
+  set parentSc = $$$ERROR($$$GeneralError, $$$FormatText("Failed to marshal instance of '%1'. Path: %2", $classname(object), ..Path))
   
-  for i=1:1:$ll(value) {
-    set property = $lg(value, i)
-    if '$lf(props, property) set $list(props, *+1) = property
-    if property [ "." {
-      for ii=$length(property, "."):-1:1 {
-        set part = $piece(property, ".", 1, ii)
-        if $lf(props, part) || (part = "*") continue
-        set $list(props, *+1) = part 
-      }
-    }
+  if $$$ISERR(sc) { 
+    set sc = $$$EMBEDSC(parentSc, sc) 
+  } elseif '$isobject(dynamicObject) {
+    set sc = $$$EMBEDSC(parentSc, $$$ERROR($$$GeneralError, "Object to unmarshall is not dynamic, neither a collection nor persistable."))
   }
   
-  return props
+  return sc
 }
 
 Method SetValue(target, key, value, type = "") [ Internal, Private ]
@@ -152,31 +132,10 @@ Method Traverse(dynamicInstance As %DynamicAbstractObject, marshalledObject As %
   return sc
 }
 
-ClassMethod MarshalCollection(collection As %RegisteredObject, Output dynamicCollection As %DynamicObject, properties As %String = "") As %Status [ Internal, Private ]
+ClassMethod MarshalCollection(collection As %RegisteredObject, Output dynamicCollection As %DynamicObject) As %Status [ Internal, Private ]
 {
   set marshaller = ..%New()
-  set marshaller.Properties = properties
   return marshaller.MakeDynamicCollection(collection, .dynamicCollection)
-}
-
-Method BuildPropertiesList(classDescriptor As %Dictionary.CompiledClass, Output properties As %AbstractList = "") As %Status [ Internal, Private ]
-{
-  if $lv(..Properties) && (..Properties '= "") {
-    set properties = ##class(%ListOfObjects).%New()
-    
-    while ..NextSerializableProperty(classDescriptor.Properties, .property, .index) {
-      set path = property.Name
-      if ..Path '= "" set path = ..Path_"."_property.Name
-      
-      if $lf(..Properties, path) || $lf(..Properties, ..Path_".*") {
-        set sc = properties.Insert(property)
-        if $$$ISERR(sc) return sc
-      }    
-    } 
-  } else {
-    set properties = classDescriptor.Properties
-  }
-  return $$$OK
 }
 
 Method NextSerializableProperty(properties As %ListOfObjects, ByRef property As %Dictionary.CompiledProperty = "", ByRef index As %Integer = 1) As %Boolean [ Internal, Private ]
@@ -195,9 +154,8 @@ Method NextSerializableProperty(properties As %ListOfObjects, ByRef property As 
   }
 }
 
-Method MakeChildObject(object As %RegisteredObject, child As %RegisteredObject, Output bailOut As %Boolean = 0) [ Internal, Private ]
+Method MakeChildObject(object As %RegisteredObject, child As %RegisteredObject, fromCollection As %Boolean = 0, Output bailOut As %Boolean = 0, ByRef visitedCache As %String) [ Internal, Private ]
 {
-
   set sc = $$$OK
   
   if object.%Extends("%Stream.Object") {
@@ -205,9 +163,9 @@ Method MakeChildObject(object As %RegisteredObject, child As %RegisteredObject, 
     set sc = child.CopyFrom(object)
     if $$$ISERR(sc) quit
   } elseif object.%Extends("%Collection.AbstractIterator") {    
-    set sc = ..MakeDynamicCollection(object, .child, .bailOut)
+    set sc = ..MakeDynamicCollection(object, .child, .bailOut, .visitedCache)
   } else {
-    set sc = ..MakeDynamicObject(object, .child,  .bailOut)
+    set sc = ..MakeDynamicObject(object, .child,  .bailOut, fromCollection, .visitedCache)
   }  
   return sc
 }
@@ -220,19 +178,21 @@ Method GetExternalValue(object As %RegisteredObject, propertyName As %String, pr
   return ""
 }
 
-Method MakeDynamicObject(object As %RegisteredObject, Output dynamicObject As %DynamicObject = "", Output bailOut As %Boolean = 0) As %Status [ Private ]
+Method MakeDynamicObject(object As %RegisteredObject, Output dynamicObject As %DynamicObject = "", Output bailOut As %Boolean = 0, fromCollection As %Boolean = 0, ByRef visitedCache As %String = "") As %Status [ Private ]
 {
   set sc = $$$OK
 
   if ..IsTooDeep(..Depth + 1) set bailOut = 1 return $$$OK
   set dynamicObject = {}
+  
+  if ..IsVisited(.visitedCache, object) set bailOut = 1 return $$$OK
+  if 'fromCollection set visitedCache(object) = ""
 
   set ..Depth = ..Depth + 1
 
   set classname = $classname(object)
-  set skip = 0
   
-  $$$QuitOnError(..GetProperties(classname, .properties))
+  set properties = ..GetProperties(classname)
 
   while ..NextSerializableProperty(properties, .property, .index) {
     do ..UpdatePath(property.Name)
@@ -244,7 +204,7 @@ Method MakeDynamicObject(object As %RegisteredObject, Output dynamicObject As %D
     if isCollection || ##class(Frontier.Types).IsInstantiable(property.Type) {
       set child = ""
       if '$isobject(value) do dynamicObject.%Set(property.Name, "", "null") continue
-      else  set sc = ..MakeChildObject(value, .child, .skip)
+      else  set sc = ..MakeChildObject(value, .child, fromCollection, .skip, .visitedCache)
       if skip = 1 continue
       if $$$ISERR(sc) {
         quit
@@ -270,13 +230,12 @@ Method MakeDynamicObject(object As %RegisteredObject, Output dynamicObject As %D
   }
 
   if object.%Extends("%Persistent") && 'skip {
-    if $lf(..Properties, "__id__") || (..Properties = "") {
-      set id = object.%Id()
-      if id '= "" set $property(dynamicObject, "__id__") = object.%Id()
-    }
+    set id = object.%Id()
+    if id '= "" set $property(dynamicObject, "__id__") = id
   }  
   
   set ..Depth = ..Depth - 1 
+  
   if dynamicObject.%Size() = 0 {
     set bailOut = 1
     set dynamicObject = ""
@@ -284,7 +243,7 @@ Method MakeDynamicObject(object As %RegisteredObject, Output dynamicObject As %D
   quit sc
 }
 
-Method MakeDynamicCollection(collection As %Collection.Super, Output dynamicCollection As %String, Output bailOut As %Boolean = 0) As %Status [ Private ]
+Method MakeDynamicCollection(collection As %Collection.Super, Output dynamicCollection As %String, Output bailOut As %Boolean = 0, ByRef visitedCache As %String = "") As %Status [ Private ]
 {
 
   set sc = $$$OK
@@ -315,9 +274,9 @@ Method MakeDynamicCollection(collection As %Collection.Super, Output dynamicColl
     set skip = 0
     if $isobject(item) {
       if item.%IsA("%Collection.AbstractIterator") {
-        set sc = ..MakeDynamicCollection(item, .value, .skip)
+        set sc = ..MakeDynamicCollection(item, .value, .skip, .visitedCache)        
       } else {
-        set sc = ..MakeDynamicObject(item, .value, .skip)
+        set sc = ..MakeDynamicObject(item, .value, .skip, 1, .visitedCache)
       }
     } else {      
       if expectingObject set item = "null"
@@ -351,22 +310,19 @@ Method GetDescriptor(classname As %String) As %Status [ Internal, Private ]
   return descriptor
 }
 
-Method GetProperties(classname As %String, Output properties As %Collection.AbstractList = "") As %Status [ Internal, Private ]
+Method GetProperties(classname As %String) As %ListOfObjects [ Internal, Private ]
 {
   set properties = ..GetPropertiesListFromCache(classname)
-  if $isobject(properties) return $$$OK  
+  if $isobject(properties) return properties
 
-  set descriptor = ..GetDescriptor(classname)
-
-  $$$QuitOnError(..BuildPropertiesList(descriptor, .properties))
+  set properties = ..GetDescriptor(classname).Properties 
+  
   do ..CachePropertiesList(classname, properties)
-
-  return $$$OK
+  return properties
 }
 
 Method GetPropertiesListFromCache(className As %String) As %Dictionary.CompiledProperty [ Internal, Private ]
 {
-  if ..Properties '= "" return ""
   set properties = $get(i%PropertiesCache(className))
   
   if properties '= "" return properties
@@ -375,7 +331,6 @@ Method GetPropertiesListFromCache(className As %String) As %Dictionary.CompiledP
 
 Method CachePropertiesList(classname As %String, properties As %ListOfObjects) [ Internal, Private ]
 {
-  if ..Properties '= "" quit
   set i%PropertiesCache(classname) = properties
 }
 
@@ -388,6 +343,11 @@ Method GetJSONDataFormat(propertyType As %String) As %String [ Internal, Private
   }
 
   return format
+}
+
+Method IsVisited(ByRef vistedCache As %String = "", object As %RegisteredObject) As %Boolean
+{
+  return $data(vistedCache(object))
 }
 
 }
