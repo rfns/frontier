@@ -27,32 +27,14 @@ Property Browser As %String(MAXLEN = 500);
 
 Property TS As %DateTime;
 
-Property IncludedCodes As %List [ Internal, Private, Transient ];
-
-Property ExcludedCodes As %List [ Internal, Private, Transient ];
-
 Property Limit As %Integer [ InitialExpression = {..#DEFAULTLIMIT}, Internal, Private, Transient ];
 
 Method %OnNew(configuration As %DynamicObject = {{ "include": [($$$CacheError)] }}) As %Status
 {
+  $$$QuitOnError(##super(configuration))  
   if 'configuration.%IsDefined("limit") set ..Limit = ..#DEFAULTLIMIT
   else  set ..Limit = configuration.limit
-  
-  do ..PopulateList(configuration, "include")
-  do ..PopulateList(configuration, "exclude")
-  return $$$OK
-}
-
-Method PopulateList(configuration As %DynamicArray, key As %String) As %Status [ Private ]
-{
-  if 'configuration.%IsDefined(key) return $$$OK
-  set iterator = configuration.%Get(key).%GetIterator()
-  
-  while iterator.%GetNext(,.value) { 
-    if key = "include" set $list(i%IncludedCodes, *+1) = value 
-    else  set $list(i%ExcludedCodes, +1) = value
-  }
-  
+ 
   return $$$OK
 }
 
@@ -114,7 +96,6 @@ Query LogCount() As %SQLQuery [ SqlProc ]
 
 Method Report(context As Frontier.Context) As %Status
 {
-  if '$lf(i%IncludedCodes, context.Exception.Code) || $lf(i%ExcludedCodes, context.Exception.Code) return $$$OK
   return ..CreateLog(context)
 }
 
