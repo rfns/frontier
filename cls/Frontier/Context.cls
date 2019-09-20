@@ -89,6 +89,8 @@ Property Route As %String;
 /// An object containing a list of properties related to how Frontier behaves.
 Property Parameters As Frontier.Parameters [ ReadOnly ];
 
+Property OutputDevice As %String [ Internal, ReadOnly ];
+
 Method %OnNew(session As %CSP.Session, request As %CSP.Request, response As %CSP.Response) As %Status
 {
   set ..Session = session
@@ -101,6 +103,7 @@ Method %OnNew(session As %CSP.Session, request As %CSP.Request, response As %CSP
   set i%CORS = ##class(Frontier.CORS).%New($this)
   set i%Parameters = ##class(Frontier.Parameters).%New()
   set i%ArgumentValues = 0
+  set i%OutputDevice = $io
   set ..Data = {}
   set ..Response.ContentType = "application/json"
   return $$$OK
