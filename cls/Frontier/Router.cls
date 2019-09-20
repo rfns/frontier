@@ -356,6 +356,14 @@ ValidateRouteOrigin()
 
 ClassMethod HandleException(exception As %Exception.AbstractException) As %DynamicObject [ Private ]
 {
+ 
+  set %frontier.Exception = exception
+  set maybeException = ..OnExceptionCaught(exception)
+  
+  if $isobject(maybeException) && maybeException.%IsA("Frontier.Exception") {
+     set exception = maybeException
+  }
+  
   set responseCode = +$piece(%response.Status, " ")
     
   // There might have cases where we get a success HTTP status, we need to normalize forcing it to be a 500 error.
@@ -366,8 +374,7 @@ ClassMethod HandleException(exception As %Exception.AbstractException) As %Dynam
     
   set exceptionJSON = ##class(Exception).ToDynamicObject(exception)
   set exceptionJSON.responseCode = responseCode  
-    
-  set %frontier.Exception = exception  
+      
   set %response.OutputSessionToken = 0
   
   return exceptionJSON
@@ -400,7 +407,7 @@ ClassMethod DispatchResponse(returnedData As %CacheString) As %Status [ Private 
       } elseif isDynamic {
         set response = returnedData
       } else {
-        $$$QuitOnError(##class(Frontier.Dynamic.Marshaller).MarshalDirect(returnedData, .response))
+        $$$QuitOnError(##class(Frontier.Dynamic.Marshaller).MarshalDirect(returnedData, .response, %frontier.Parameters.MAXIMUMDEPTH))
       }
     } else {
       return $$$ERROR($$$GeneralError, "Cannot serialize system class instances.")
@@ -437,6 +444,11 @@ ClassMethod OnSetup() As %Status
 ClassMethod OnDataSet(data As %DynamicObject) As %Status
 {
   return $$$OK
+}
+
+ClassMethod OnExceptionCaught(exception As %Exception.AbstractException) As Frontier.Exception
+{
+  return $$$ERROR($$$MethodNotImplemented, "OnExceptionCaught")
 }
 
 /// This is the Schema which defines the form of the dispatch map
