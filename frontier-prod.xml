@@ -55,6 +55,15 @@ rstr(len,time) Quit ""
 rchr(time) Quit ""
 ]]></Implementation>
 </Method>
+
+<Method name="SetIndentation">
+<ClassMethod>1</ClassMethod>
+<FormalSpec>by:%Integer=0</FormalSpec>
+<Implementation><![CDATA[
+  if by <= 0 quit
+  for i=1:1:by write " "
+]]></Implementation>
+</Method>
 </Class>
 
 
@@ -386,9 +395,9 @@ Otherwise attempts to unsign the token to obtain the value and pass it down to t
   set httpStatus = "200 OK"
   set sc = ##class(Frontier.Shared.Utilities).SafeClassMethodCall(..Validator, payload, .found, .httpStatus, .user)
   
-  if found = 1 { 
+  if found = 1 {
     set ..Verified = 1
-  } else{
+  } else {
     if httpStatus '= "" set response.Status = httpStatus
     else  set httpStatus = "401 Forbidden"
   }  
@@ -614,7 +623,8 @@ An internal method that will be used to set the client challenge.</Description>
 <FormalSpec>strategy:Frontier.Authentication.Strategy</FormalSpec>
 <Private>1</Private>
 <Implementation><![CDATA[
-  set sc = strategy.GetChallenge(..Session, ..Request, ..Response, .challenge)
+  set sc = strategy.GetChallenge(..Session, ..Request, ..Response, .challenge)  
+  
   if challenge '= "" do ..Response.SetHeader("WWW-Authenticate", challenge)
   $$$ThrowOnError(sc)
 ]]></Implementation>
@@ -975,10 +985,6 @@ by the public %frontier variable, which is always available inside a router clas
 <Super>%RegisteredObject</Super>
 <TimeCreated>64502,31617.993909</TimeCreated>
 
-<Parameter name="VERSION">
-<Default>5.0.0</Default>
-</Parameter>
-
 <Property name="Session">
 <Description>
 This holds the reference for the %session object.</Description>
@@ -1154,6 +1160,19 @@ A string that holds the Route element's Url expression. Can be used to identifie
 <Type>%String</Type>
 </Property>
 
+<Property name="Parameters">
+<Description>
+An object containing a list of properties related to how Frontier behaves.</Description>
+<Type>Frontier.Parameters</Type>
+<ReadOnly>1</ReadOnly>
+</Property>
+
+<Property name="OutputDevice">
+<Type>%String</Type>
+<Internal>1</Internal>
+<ReadOnly>1</ReadOnly>
+</Property>
+
 <Method name="%OnNew">
 <FormalSpec>session:%CSP.Session,request:%CSP.Request,response:%CSP.Response</FormalSpec>
 <ReturnType>%Status</ReturnType>
@@ -1166,7 +1185,9 @@ A string that holds the Route element's Url expression. Can be used to identifie
   set i%AuthenticationManager = ##class(Frontier.Authentication.Manager).%New(..Session, ..Request, ..Response)
   set i%Files = ##class(Frontier.Files).%New($this)
   set i%CORS = ##class(Frontier.CORS).%New($this)
+  set i%Parameters = ##class(Frontier.Parameters).%New()
   set i%ArgumentValues = 0
+  set i%OutputDevice = $io
   set ..Data = {}
   set ..Response.ContentType = "application/json"
   return $$$OK
@@ -1258,6 +1279,15 @@ Throws an application controlled error, such errors won't cause the Reporter API
   throw ##class(%Exception.StatusException).CreateFromStatus($$$ERROR(args...))
 ]]></Implementation>
 </Method>
+
+<Method name="DirectWriteSet">
+<FormalSpec>value:%Boolean</FormalSpec>
+<ReturnType>%Status</ReturnType>
+<Implementation><![CDATA[
+  set ..Parameters.DIRECTWRITE = 1
+  return $$$OK
+]]></Implementation>
+</Method>
 </Class>
 
 
@@ -1269,13 +1299,6 @@ By default while marshalling an object, this engine will attempt to build a dyna
 However since this can be ineffective for most of the cases. So if you want more control, you can also define until which depth the marshalling should be made.</Description>
 <Super>%RegisteredObject</Super>
 <TimeCreated>64502,32993.705412</TimeCreated>
-
-<Property name="Properties">
-<Description>
-Contains a list of properties that should be contained in the marshalled object.</Description>
-<Type>%List</Type>
-<Private>1</Private>
-</Property>
 
 <Property name="Depth">
 <Description>
@@ -1326,21 +1349,11 @@ A string that represents the path from concatenated property names, used to filt
 <Private>1</Private>
 </Property>
 
-<Property name="Object">
-<Type>%RegisteredObject</Type>
-<Private>1</Private>
-</Property>
-
 <Method name="%OnNew">
-<FormalSpec>maxDepth:%Integer=7,properties:%String="",object:%RegisteredObject=""</FormalSpec>
+<FormalSpec>maxDepth:%Integer=7</FormalSpec>
 <ReturnType>%Status</ReturnType>
 <Implementation><![CDATA[
-  
-  if maxDepth < 0 set maxDepth = 7
-  set ..Properties = ..SpreadProperties(properties)  
   set ..MaxDepth = maxDepth
-  set ..Object = object
-  
   return $$$OK
 ]]></Implementation>
 </Method>
@@ -1352,11 +1365,11 @@ This method returns an error if it fails, otherwise the 'dynamicObject' is popul
 The parameter 'properties' can be used to define which properties the instance should contain.
 The parameter 'maxDepth' if specified will be used in the place of the default cyclic references check.</Description>
 <ClassMethod>1</ClassMethod>
-<FormalSpec>object:%RegisteredObject,*dynamicObject:%DynamicAbstractObject,properties:%String="",maxDepth:%Integer=7</FormalSpec>
+<FormalSpec>object:%RegisteredObject,*dynamicObject:%DynamicAbstractObject,maxDepth:%Integer=7</FormalSpec>
 <ReturnType>%Status</ReturnType>
 <Implementation><![CDATA[
-  set marshaller = ..%New(maxDepth, properties, object)
-  return marshaller.Marshal(.dynamicObject)
+  set marshaller = ..%New(maxDepth)
+  return marshaller.Marshal(object, .dynamicObject)
 ]]></Implementation>
 </Method>
 
@@ -1365,7 +1378,7 @@ The parameter 'maxDepth' if specified will be used in the place of the default c
 Marshals the current object into a Dynamic qualified instance.
 This method uses the configuration provided from %New which includes an optional object overwrite to be marshalled.</Description>
 <Internal>1</Internal>
-<FormalSpec>*dynamicObject:%DynamicAbstractObject,object:%RegisteredObject=..Object</FormalSpec>
+<FormalSpec>object:%RegisteredObject,*dynamicObject:%DynamicAbstractObject</FormalSpec>
 <ReturnType>%Status</ReturnType>
 <Implementation><![CDATA[
   
@@ -1375,40 +1388,24 @@ This method uses the configuration provided from %New which includes an optional
   
   set i%DescriptorsCache = ""
   set i%PropertiesCache = ""
-  set i%JSONDataFormatsCache = ""  
+  set i%JSONDataFormatsCache = ""
+  
+  set sc = $$$OK  
   
   set type = $classname(object)      
-  if ##class(Frontier.Types).IsCollection(type) return ..MakeDynamicCollection(object, .dynamicObject)
-  if ##class(Frontier.Types).IsDynamic(type) return ..Traverse(object, .dynamicObject)
-  if ##class(Frontier.Types).IsInstantiable(type) return ..MakeDynamicObject(object, .dynamicObject) 
+  if ##class(Frontier.Types).IsCollection(type) set sc = ..MakeDynamicCollection(object, .dynamicObject)
+  if ##class(Frontier.Types).IsDynamic(type) set sc = ..Traverse(object, .dynamicObject)
+  if ##class(Frontier.Types).IsPersistent(type) set sc = ..MakeDynamicObject(object, .dynamicObject) 
   
-  return $$$ERROR($$$GeneralError, "Invalid object type to marshal: class must extend from %RegisteredObject.")
-]]></Implementation>
-</Method>
-
-<Method name="SpreadProperties">
-<Internal>1</Internal>
-<ClassMethod>1</ClassMethod>
-<FormalSpec>value:%String=""</FormalSpec>
-<Private>1</Private>
-<ReturnType>%Status</ReturnType>
-<Implementation><![CDATA[
-  set props = ""
-  set value = $lfs(value)
+  set parentSc = $$$ERROR($$$GeneralError, $$$FormatText("Failed to marshal instance of '%1'. Path: %2", $classname(object), ..Path))
   
-  for i=1:1:$ll(value) {
-    set property = $lg(value, i)
-    if '$lf(props, property) set $list(props, *+1) = property
-    if property [ "." {
-      for ii=$length(property, "."):-1:1 {
-        set part = $piece(property, ".", 1, ii)
-        if $lf(props, part) || (part = "*") continue
-        set $list(props, *+1) = part 
-      }
-    }
+  if $$$ISERR(sc) { 
+    set sc = $$$EMBEDSC(parentSc, sc) 
+  } elseif '$isobject(dynamicObject) {
+    set sc = $$$EMBEDSC(parentSc, $$$ERROR($$$GeneralError, "Object to unmarshall is not dynamic, neither a collection nor persistable."))
   }
   
-  return props
+  return sc
 ]]></Implementation>
 </Method>
 
@@ -1495,38 +1492,12 @@ This method uses the configuration provided from %New which includes an optional
 <Method name="MarshalCollection">
 <Internal>1</Internal>
 <ClassMethod>1</ClassMethod>
-<FormalSpec>collection:%RegisteredObject,*dynamicCollection:%DynamicObject,properties:%String=""</FormalSpec>
+<FormalSpec>collection:%RegisteredObject,*dynamicCollection:%DynamicObject</FormalSpec>
 <Private>1</Private>
 <ReturnType>%Status</ReturnType>
 <Implementation><![CDATA[
   set marshaller = ..%New()
-  set marshaller.Properties = properties
   return marshaller.MakeDynamicCollection(collection, .dynamicCollection)
-]]></Implementation>
-</Method>
-
-<Method name="BuildPropertiesList">
-<Internal>1</Internal>
-<FormalSpec>classDescriptor:%Dictionary.CompiledClass,*properties:%AbstractList=""</FormalSpec>
-<Private>1</Private>
-<ReturnType>%Status</ReturnType>
-<Implementation><![CDATA[
-  if $lv(..Properties) && (..Properties '= "") {
-    set properties = ##class(%ListOfObjects).%New()
-    
-    while ..NextSerializableProperty(classDescriptor.Properties, .property, .index) {
-      set path = property.Name
-      if ..Path '= "" set path = ..Path_"."_property.Name
-      
-      if $lf(..Properties, path) || $lf(..Properties, ..Path_".*") {
-        set sc = properties.Insert(property)
-        if $$$ISERR(sc) return sc
-      }    
-    } 
-  } else {
-    set properties = classDescriptor.Properties
-  }
-  return $$$OK
 ]]></Implementation>
 </Method>
 
@@ -1553,10 +1524,9 @@ This method uses the configuration provided from %New which includes an optional
 
 <Method name="MakeChildObject">
 <Internal>1</Internal>
-<FormalSpec>object:%RegisteredObject,child:%RegisteredObject,*bailOut:%Boolean=0</FormalSpec>
+<FormalSpec><![CDATA[object:%RegisteredObject,child:%RegisteredObject,fromCollection:%Boolean=0,*bailOut:%Boolean=0,&visitedCache:%String]]></FormalSpec>
 <Private>1</Private>
 <Implementation><![CDATA[
-
   set sc = $$$OK
   
   if object.%Extends("%Stream.Object") {
@@ -1564,9 +1534,9 @@ This method uses the configuration provided from %New which includes an optional
     set sc = child.CopyFrom(object)
     if $$$ISERR(sc) quit
   } elseif object.%Extends("%Collection.AbstractIterator") {    
-    set sc = ..MakeDynamicCollection(object, .child, .bailOut)
+    set sc = ..MakeDynamicCollection(object, .child, .bailOut, .visitedCache)
   } else {
-    set sc = ..MakeDynamicObject(object, .child,  .bailOut)
+    set sc = ..MakeDynamicObject(object, .child,  .bailOut, fromCollection, .visitedCache)
   }  
   return sc
 ]]></Implementation>
@@ -1586,7 +1556,7 @@ This method uses the configuration provided from %New which includes an optional
 </Method>
 
 <Method name="MakeDynamicObject">
-<FormalSpec>object:%RegisteredObject,*dynamicObject:%DynamicObject="",*bailOut:%Boolean=0</FormalSpec>
+<FormalSpec><![CDATA[object:%RegisteredObject,*dynamicObject:%DynamicObject="",*bailOut:%Boolean=0,fromCollection:%Boolean=0,&visitedCache:%String=""]]></FormalSpec>
 <Private>1</Private>
 <ReturnType>%Status</ReturnType>
 <Implementation><![CDATA[
@@ -1594,13 +1564,15 @@ This method uses the configuration provided from %New which includes an optional
 
   if ..IsTooDeep(..Depth + 1) set bailOut = 1 return $$$OK
   set dynamicObject = {}
+  
+  if ..IsVisited(.visitedCache, object) set bailOut = 1 return $$$OK
+  if 'fromCollection set visitedCache(object) = ""
 
   set ..Depth = ..Depth + 1
 
   set classname = $classname(object)
-  set skip = 0
   
-  $$$QuitOnError(..GetProperties(classname, .properties))
+  set properties = ..GetProperties(classname)
 
   while ..NextSerializableProperty(properties, .property, .index) {
     do ..UpdatePath(property.Name)
@@ -1612,7 +1584,7 @@ This method uses the configuration provided from %New which includes an optional
     if isCollection || ##class(Frontier.Types).IsInstantiable(property.Type) {
       set child = ""
       if '$isobject(value) do dynamicObject.%Set(property.Name, "", "null") continue
-      else  set sc = ..MakeChildObject(value, .child, .skip)
+      else  set sc = ..MakeChildObject(value, .child, fromCollection, .skip, .visitedCache)
       if skip = 1 continue
       if $$$ISERR(sc) {
         quit
@@ -1638,13 +1610,12 @@ This method uses the configuration provided from %New which includes an optional
   }
 
   if object.%Extends("%Persistent") && 'skip {
-    if $lf(..Properties, "__id__") || (..Properties = "") {
-      set id = object.%Id()
-      if id '= "" set $property(dynamicObject, "__id__") = object.%Id()
-    }
+    set id = object.%Id()
+    if id '= "" set $property(dynamicObject, "__id__") = id
   }  
   
   set ..Depth = ..Depth - 1 
+  
   if dynamicObject.%Size() = 0 {
     set bailOut = 1
     set dynamicObject = ""
@@ -1654,7 +1625,7 @@ This method uses the configuration provided from %New which includes an optional
 </Method>
 
 <Method name="MakeDynamicCollection">
-<FormalSpec>collection:%Collection.Super,*dynamicCollection:%String,*bailOut:%Boolean=0</FormalSpec>
+<FormalSpec><![CDATA[collection:%Collection.Super,*dynamicCollection:%String,*bailOut:%Boolean=0,&visitedCache:%String=""]]></FormalSpec>
 <Private>1</Private>
 <ReturnType>%Status</ReturnType>
 <Implementation><![CDATA[
@@ -1687,9 +1658,9 @@ This method uses the configuration provided from %New which includes an optional
     set skip = 0
     if $isobject(item) {
       if item.%IsA("%Collection.AbstractIterator") {
-        set sc = ..MakeDynamicCollection(item, .value, .skip)
+        set sc = ..MakeDynamicCollection(item, .value, .skip, .visitedCache)        
       } else {
-        set sc = ..MakeDynamicObject(item, .value, .skip)
+        set sc = ..MakeDynamicObject(item, .value, .skip, 1, .visitedCache)
       }
     } else {      
       if expectingObject set item = "null"
@@ -1731,19 +1702,17 @@ This method uses the configuration provided from %New which includes an optional
 
 <Method name="GetProperties">
 <Internal>1</Internal>
-<FormalSpec>classname:%String,*properties:%Collection.AbstractList=""</FormalSpec>
+<FormalSpec>classname:%String</FormalSpec>
 <Private>1</Private>
-<ReturnType>%Status</ReturnType>
+<ReturnType>%ListOfObjects</ReturnType>
 <Implementation><![CDATA[
   set properties = ..GetPropertiesListFromCache(classname)
-  if $isobject(properties) return $$$OK  
+  if $isobject(properties) return properties
 
-  set descriptor = ..GetDescriptor(classname)
-
-  $$$QuitOnError(..BuildPropertiesList(descriptor, .properties))
+  set properties = ..GetDescriptor(classname).Properties 
+  
   do ..CachePropertiesList(classname, properties)
-
-  return $$$OK
+  return properties
 ]]></Implementation>
 </Method>
 
@@ -1753,7 +1722,6 @@ This method uses the configuration provided from %New which includes an optional
 <Private>1</Private>
 <ReturnType>%Dictionary.CompiledProperty</ReturnType>
 <Implementation><![CDATA[
-  if ..Properties '= "" return ""
   set properties = $get(i%PropertiesCache(className))
   
   if properties '= "" return properties
@@ -1765,9 +1733,7 @@ This method uses the configuration provided from %New which includes an optional
 <Internal>1</Internal>
 <FormalSpec>classname:%String,properties:%ListOfObjects</FormalSpec>
 <Private>1</Private>
-<Implementation><![CDATA[
-  if ..Properties '= "" quit
-  set i%PropertiesCache(classname) = properties
+<Implementation><![CDATA[  set i%PropertiesCache(classname) = properties
 ]]></Implementation>
 </Method>
 
@@ -1784,6 +1750,13 @@ This method uses the configuration provided from %New which includes an optional
   }
 
   return format
+]]></Implementation>
+</Method>
+
+<Method name="IsVisited">
+<FormalSpec><![CDATA[&vistedCache:%String="",object:%RegisteredObject]]></FormalSpec>
+<ReturnType>%Boolean</ReturnType>
+<Implementation><![CDATA[  return $data(vistedCache(object))
 ]]></Implementation>
 </Method>
 </Class>
@@ -1804,34 +1777,46 @@ Takes an %DynamicAbstractObject and serializes it while writing back to the curr
 This method is not supposed to be used manually.</Description>
 <Internal>1</Internal>
 <ClassMethod>1</ClassMethod>
-<FormalSpec>dynamic:%DynamicAbstractObject,depth:%String=1,propertyFormatter:Frontier.PropertyFormatter=""</FormalSpec>
+<FormalSpec>dynamic:%DynamicAbstractObject,depth:%String=0,propertyFormatter:Frontier.PropertyFormatter="",maxDepth:%Integer=7,indentBy:%Integer=0,fromKey:%Boolean=0</FormalSpec>
 <ReturnType>%Status</ReturnType>
 <Implementation><![CDATA[
+  #define NewLineIf if indentBy > 0 write $c(10)
+  #define SpaceIf  $select(indentBy > 0 : " ", 1: "")
+  
   set sc = $$$OK
   set results = ""
-  set isArray = ##class(Frontier.Types).IsDynamicArray($classname(dynamic))
+  
+  set isArray = ##class(Frontier.Types).IsDynamicArray($classname(dynamic))  
 
   if isArray {
     write "["
   } else {
     write "{"
   }
-
+  
   set iterator = dynamic.%GetIterator()
   set comma = ""
+  
+  set depth = depth + 1
+  
+  if dynamic.%Size() > 0 $$$NewLineIf  
 
-  while iterator.%GetNext(.key, .value) {
+  while iterator.%GetNext(.key, .value) {    
     write comma
-    set comma = ","
+    if comma = "," $$$NewLineIf
+    
+    set comma = ","        
     set propertyName = key
     set type = dynamic.%GetTypeOf(key)
 
     if $isobject(propertyFormatter) {
       set propertyName = propertyFormatter.Format(propertyName, depth)
     }
+    
+    do ..SetIndentation(depth * indentBy)
 
-    if 'isArray {
-      write $$$ZENJSONPROP(propertyName, "s")_":"
+    if 'isArray {      
+      write $$$ZENJSONPROP(propertyName, "s")_":"_$$$SpaceIf
     }    
 
     if value = "null" || (type = "null" && (value = "")) {
@@ -1841,29 +1826,32 @@ This method is not supposed to be used manually.</Description>
     } elseif $isobject(value) {
       set type = $classname(value)
       if ##class(Frontier.Types).IsDynamic(type) {
-        set sc = $$$ADDSC(sc, ..Serialize(value, depth, propertyFormatter))
+        $$$ReturnOnError(..Serialize(value, depth, propertyFormatter, maxDepth, indentBy, 1))
       } elseif ##class(Frontier.Types).IsStream(type) {
         write $c(34)
         do WriteEscaped(value)
         write $c(34)
       } elseif ##class(Frontier.Types).IsSQLProvider(type) {
-        if 'value.StatementExecuted set sc = value.Execute()
-        if $$$ISERR(sc) quit
-        $$$ThrowOnError(##class(Frontier.SQL.Serializer).Serialize(value.Results, value.Metadata, depth, propertyFormatter))
+        if 'value.StatementExecuted $$$ReturnOnError(value.Execute())        
+        $$$ReturnOnError(##class(Frontier.SQL.Serializer).Serialize(value.Results, value.Metadata, depth, propertyFormatter, indentBy))
+      } elseif ##class(Frontier.Types).IsInstantiable(type) {
+        set child = value
+        set value = ""
+        $$$ReturnOnError(##class(Frontier.Dynamic.Marshaller).MarshalDirect(child, .value, maxDepth - depth))        
+        $$$ReturnOnError(..Serialize(value, depth, propertyFormatter, maxDepth, indentBy))
       }
-    } elseif type = "string" {
-      write $$$ZENJSONSTR(value, "s")
-    } elseif type = "number" {
-      write $$$ZENJSNUM(value)
     } else {
-      write $$$ZENJSONVALUE(value, "s")
-    }
+      if type = "string" { write $$$ZENJSONSTR(value, "s") }
+      elseif type = "number" { write $$$ZENJSNUM(value) }
+      else { write $$$ZENJSONVALUE(value, "s") } 
+       
+    }    
+    if $$$ISERR(sc) quit                 
   }
-
-  $$$QuitOnError(sc)
-
+  set depth = depth - 1
+  if dynamic.%Size() > 0 $$$NewLineIf do ..SetIndentation(depth * indentBy)
   if isArray write "]"
-  else  write "}"
+  else  write "}"  
 
   return sc
 
@@ -2233,8 +2221,8 @@ If $$$OK the 'result' is populated with the generated instance.</Description>
 <Implementation><![CDATA[
   set result = $System.OBJ.OpenId(type, value)
 
-  if '$isobject(result) && (result '= "") {
-    return $$$ERROR($$$GeneralError, $$$FormatText("Invalid id for property '%1', typed as '%2'.", name, type))
+  if '$isobject(result) && (value '= "") {
+    return $$$ERROR($$$GeneralError, $$$FormatText("Invalid id for property '%1' from '%2'.", name, type))
   }
 
   return $$$OK
@@ -3019,7 +3007,6 @@ AssertContentTypeMatch(multi)
 
  set filePath = ..MakeFilePath("", fileName, "", destination, extension)
  
- set ^mtempFrontier = $lb(extension, fileName, destination)
  if '..MatchFilters(filters, fileName, extension, stream, .sc) return sc
 
  return ..StoreToFS("", "", destination, filePath, stream)
@@ -3140,7 +3127,7 @@ AssertContentTypeMatch(multi)
     do BuildFilter(filters.extensions, ..#EXTENSIONNOTALLOWEDMSG, .extensions)
     set match = 0
     for i=0:1:extensions.value.%Size() - 1 {
-      if extensions.value.%Get(i) = extension {
+      if $$$ucase(extensions.value.%Get(i)) = $$$ucase(extension) {
         set match = 1
         quit
       }
@@ -3691,10 +3678,10 @@ BuildFilter(filter, templateMsg, normalizedFilter)
   set io = $io
   merge methodArguments = ..Arguments
   set returnType = ..MethodDescriptor.ReturnType
-  
+    
   use $$$NULL
   
-  new $estack   
+  new $estack
 
   try {
     if methodArguments > 0 {
@@ -3711,6 +3698,27 @@ BuildFilter(filter, templateMsg, normalizedFilter)
   return sc
 ]]></Implementation>
 </Method>
+</Class>
+
+
+<Class name="Frontier.Parameters">
+<Super>%RegisteredObject</Super>
+<TimeCreated>65260,39956.842461</TimeCreated>
+
+<Property name="INDENTSIZE">
+<Type>%Integer</Type>
+<InitialExpression>0</InitialExpression>
+</Property>
+
+<Property name="MAXIMUMDEPTH">
+<Type>%Integer</Type>
+<InitialExpression>7</InitialExpression>
+</Property>
+
+<Property name="DIRECTWRITE">
+<Type>%Integer</Type>
+<InitialExpression>1</InitialExpression>
+</Property>
 </Class>
 
 
@@ -3832,10 +3840,27 @@ BuildFilter(filter, templateMsg, normalizedFilter)
 <Super>%RegisteredObject</Super>
 <TimeCreated>64537,40798.410075</TimeCreated>
 
+<Property name="IncludedCodes">
+<Type>%List</Type>
+<Internal>1</Internal>
+<Private>1</Private>
+<Transient>1</Transient>
+</Property>
+
+<Property name="ExcludedCodes">
+<Type>%List</Type>
+<Internal>1</Internal>
+<Private>1</Private>
+<Transient>1</Transient>
+</Property>
+
 <Method name="%OnNew">
 <FormalSpec>configuration:%DynamicObject</FormalSpec>
 <ReturnType>%Status</ReturnType>
-<Implementation><![CDATA[  $$$ThrowStatus($$$ERROR($$$MethodNotImplemented, "%OnNew"))
+<Implementation><![CDATA[
+  do ..PopulateList(configuration, "include")
+  do ..PopulateList(configuration, "exclude")
+  return $$$OK
 ]]></Implementation>
 </Method>
 
@@ -3850,6 +3875,149 @@ BuildFilter(filter, templateMsg, normalizedFilter)
 <FormalSpec>context:Frontier.Context</FormalSpec>
 <ReturnType>%Status</ReturnType>
 <Implementation><![CDATA[  $$$ThrowStatus($$$ERROR($$$MethodNotImplemented, "Report"))
+]]></Implementation>
+</Method>
+
+<Method name="IsReportable">
+<Final>1</Final>
+<FormalSpec>context:Frontier.Context</FormalSpec>
+<ReturnType>%Boolean</ReturnType>
+<Implementation><![CDATA[
+  if $ll(i%IncludedCodes) > 0 && ($lf(i%IncludedCodes, context.Exception.Code) > 0) return 1  
+  if $ll(i%IncludedCodes) = 0 && ($ll(i%ExcludedCodes) > 0) {
+     if $lf(i%ExcludedCodes, context.Exception.Code) > 0 return 0
+  }  
+  return 1
+]]></Implementation>
+</Method>
+
+<Method name="PopulateList">
+<Final>1</Final>
+<FormalSpec>configuration:%DynamicArray,key:%String</FormalSpec>
+<Private>1</Private>
+<ReturnType>%Status</ReturnType>
+<Implementation><![CDATA[
+  if 'configuration.%IsDefined(key) return $$$OK
+  set iterator = configuration.%Get(key).%GetIterator()
+  
+  while iterator.%GetNext(,.value) { 
+    if key = "include" set $list(i%IncludedCodes, *+1) = value 
+    else  set $list(i%ExcludedCodes, +1) = value
+  }
+  
+  return $$$OK
+]]></Implementation>
+</Method>
+</Class>
+
+
+<Class name="Frontier.Reporter.Discord">
+<Description>
+This reporter can be used to send a message using a bot to Discord.
+
+It must be feed with at least two parameters:
+
+webhookId - 18 digit code.
+token - An alphanumeric string.
+
+Check the example on the end see how it works.
+
+It's possible to identify the application by providing a 'name'.
+This is useful for situations where this reporter is used for several applications.
+Its initial value is 'Default'.
+
+It's also possible to filter which types of error should be reported or not with 'include' or 'exclude'.
+
+Usage example:
+
+set discordReporter = ##class(Frontier.Reporter.Discord).%New({
+  "name": "MyApp",
+  "webhookId": 103849505938375836,
+  "token": "a valid discord token",
+  "exclude": [($$$GeneralError)]
+})
+
+do %frontier.Reporter.Manager.AddReporter(discordReporter)</Description>
+<Super>Frontier.Reporter</Super>
+<TimeCreated>65259,38428.508488</TimeCreated>
+
+<Property name="Name">
+<Type>%String</Type>
+<InitialExpression>"Default"</InitialExpression>
+<Private>1</Private>
+</Property>
+
+<Property name="WebhookId">
+<Type>%String</Type>
+<Private>1</Private>
+</Property>
+
+<Property name="Token">
+<Type>%String</Type>
+<Private>1</Private>
+</Property>
+
+<Method name="%OnNew">
+<FormalSpec>configuration:%DynamicObject={{ "include": [($$$CacheError)] }}</FormalSpec>
+<ReturnType>%Status</ReturnType>
+<Implementation><![CDATA[
+  $$$QuitOnError(##super(configuration))
+  
+  if configuration.%IsDefined("name") set ..Name = configuration.name
+  do ..AssertWebhookCredentials(configuration)
+  return $$$OK
+]]></Implementation>
+</Method>
+
+<Method name="AssertWebhookCredentials">
+<FormalSpec>configuration:%DynamicObject</FormalSpec>
+<Private>1</Private>
+<Implementation><![CDATA[
+  if 'configuration.%IsDefined("webhookId") {
+    $$$ThrowStatus($$$ERROR($$$GeneralError, "'webhookId' was not provided."))    
+  }
+  
+  if 'configuration.%IsDefined("token") {
+    $$$ThrowStatus($$$ERROR($$$GeneralError, "'token' was not provided."))
+  }
+  
+  set ..WebhookId = configuration.webhookId
+  set ..Token = configuration.token
+]]></Implementation>
+</Method>
+
+<Method name="Report">
+<FormalSpec>context:Frontier.Context</FormalSpec>
+<ReturnType>%Status</ReturnType>
+<Implementation><![CDATA[
+ 
+  do ##class(Frontier.Shared.Utilities).CreateSSLConfigurationIfNoneExists("Discord Webhook SSL")
+  
+  set http = ##class(%Net.HttpRequest).%New()
+  set http.Server = "discordapp.com"
+  set http.SSLConfiguration = "Discord Webhook SSL"
+  set http.Https = 1
+    
+  set payload = ##class(Frontier.Exception).ToDynamicObject(context.Exception)
+  $$$QuitOnError(##class(Frontier.Dynamic.Serializer).SerializeToStream(.str, payload, 0, context.PropertyFormatter, context.Parameters.MAXIMUMDEPTH, 2))
+  set message = str.Read()
+  do http.InsertFormData("content", $$$FormatText("Error report received from *%1:*%7%7**Message:** %7```json%7%2%7```%7**Path:** %3.%7**Http Method:** %4.%7**Dispatch Method:** %5.%7**Arguments:** %6%7**Class:** %8%7%7", ..Name, message, context.RequestURL, context.Request.Method, context.Method, $$SerializeArguments(), $c(10), context.ClassName))
+  do http.Post($$$FormatText("api/webhooks/%1/%2", ..WebhookId, ..Token))
+  
+  return $$$OK
+  
+SerializeArguments()
+  set list = ""
+  
+  for i=1:1:context.ArgumentValues {
+    set value = context.ArgumentValues(i)
+    if $isobject(value) {
+      if value.%Extends("%Persistent") { set value = value.%Id() }
+      elseif value.%Extends("%DynamicAbstractObject") { set value = "<payload>" }
+    }
+    set $list(list, *+1) = value
+  }
+  return "["_$lts(list, ", ")_"]"
 ]]></Implementation>
 </Method>
 </Class>
@@ -3911,20 +4079,6 @@ BuildFilter(filter, templateMsg, normalizedFilter)
 <Type>%DateTime</Type>
 </Property>
 
-<Property name="IncludedCodes">
-<Type>%List</Type>
-<Internal>1</Internal>
-<Private>1</Private>
-<Transient>1</Transient>
-</Property>
-
-<Property name="ExcludedCodes">
-<Type>%List</Type>
-<Internal>1</Internal>
-<Private>1</Private>
-<Transient>1</Transient>
-</Property>
-
 <Property name="Limit">
 <Type>%Integer</Type>
 <Internal>1</Internal>
@@ -3937,28 +4091,10 @@ BuildFilter(filter, templateMsg, normalizedFilter)
 <FormalSpec>configuration:%DynamicObject={{ "include": [($$$CacheError)] }}</FormalSpec>
 <ReturnType>%Status</ReturnType>
 <Implementation><![CDATA[
+  $$$QuitOnError(##super(configuration))  
   if 'configuration.%IsDefined("limit") set ..Limit = ..#DEFAULTLIMIT
   else  set ..Limit = configuration.limit
-  
-  do ..PopulateList(configuration, "include")
-  do ..PopulateList(configuration, "exclude")
-  return $$$OK
-]]></Implementation>
-</Method>
-
-<Method name="PopulateList">
-<FormalSpec>configuration:%DynamicArray,key:%String</FormalSpec>
-<Private>1</Private>
-<ReturnType>%Status</ReturnType>
-<Implementation><![CDATA[
-  if 'configuration.%IsDefined(key) return $$$OK
-  set iterator = configuration.%Get(key).%GetIterator()
-  
-  while iterator.%GetNext(,.value) { 
-    if key = "include" set $list(i%IncludedCodes, *+1) = value 
-    else  set $list(i%ExcludedCodes, +1) = value
-  }
-  
+ 
   return $$$OK
 ]]></Implementation>
 </Method>
@@ -4033,9 +4169,7 @@ SerializeArguments()
 <Method name="Report">
 <FormalSpec>context:Frontier.Context</FormalSpec>
 <ReturnType>%Status</ReturnType>
-<Implementation><![CDATA[
-  if '$lf(i%IncludedCodes, context.Exception.Code) || $lf(i%ExcludedCodes, context.Exception.Code) return $$$OK
-  return ..CreateLog(context)
+<Implementation><![CDATA[  return ..CreateLog(context)
 ]]></Implementation>
 </Method>
 
@@ -4123,6 +4257,12 @@ This holds the current instance of the class Frontier.Context.</Description>
 <Private>1</Private>
 </Property>
 
+<Property name="Reported">
+<Type>%Boolean</Type>
+<InitialExpression>0</InitialExpression>
+<Private>1</Private>
+</Property>
+
 <Method name="%OnNew">
 <FormalSpec>context:Frontier.Context</FormalSpec>
 <ReturnType>%Status</ReturnType>
@@ -4148,16 +4288,26 @@ Iterates over the queue calling the Report method for each. Each call is impleme
 <ReturnType>%Status</ReturnType>
 <Implementation><![CDATA[
   set sc = $$$OK
+  
   if '$isobject(..Context.Exception) return $$$OK
+  if ..Context.AuthenticationManager.IsChallengeSet return $$$OK
+  if ..Reported return $$$OK
+  
+  #dim reporter As Frontier.Reporter
   
   try {
     for i=1:1:..Reporters.Count() {
       set reporter = ..Reporters.GetAt(i)
-      set sc = $$$ADDSC(sc, reporter.Report(..Context))
+      
+      if reporter.IsReportable(..Context) {
+        set sc = $$$ADDSC(sc, reporter.Report(..Context))
+      }
     }
   } catch ex {
     set sc = ex.AsStatus()
   }
+  
+  set ..Reported = 1
   return sc
 ]]></Implementation>
 </Method>
@@ -4406,7 +4556,7 @@ MakeString(list)
             } else {
               // Auth is enabled AND the route requests for a specific strategy to be used.              
               $$$ThrowOnError(%frontier.AuthenticationManager.VerifyUsing(authStrategy, .user, resourceScope))
-            }
+            }            
             
             if '%frontier.AuthenticationManager.Verified {
               set %response.Status = ..#HTTP401UNAUTHORIZED
@@ -4486,9 +4636,9 @@ MakeString(list)
     }
     
     return $$$OK       
-  } catch ex {    
+  } catch ex {       
     set exceptionPayload = ..HandleException(ex)
-    do ##class(Frontier.Dynamic.Serializer).Serialize(exceptionPayload, 1, %frontier.PropertyFormatter)
+    do ##class(Frontier.Dynamic.Serializer).Serialize(exceptionPayload,, %frontier.PropertyFormatter, %frontier.Parameters.MAXIMUMDEPTH, %frontier.Parameters.INDENTSIZE)
   }
   return $$$OK
   
@@ -4558,6 +4708,14 @@ ValidateRouteOrigin()
 <Private>1</Private>
 <ReturnType>%DynamicObject</ReturnType>
 <Implementation><![CDATA[
+ 
+  set %frontier.Exception = exception
+  set maybeException = ..OnExceptionCaught(exception)
+  
+  if $isobject(maybeException) && maybeException.%IsA("Frontier.Exception") {
+     set exception = maybeException
+  }
+  
   set responseCode = +$piece(%response.Status, " ")
     
   // There might have cases where we get a success HTTP status, we need to normalize forcing it to be a 500 error.
@@ -4568,8 +4726,7 @@ ValidateRouteOrigin()
     
   set exceptionJSON = ##class(Exception).ToDynamicObject(exception)
   set exceptionJSON.responseCode = responseCode  
-    
-  set %frontier.Exception = exception  
+      
   set %response.OutputSessionToken = 0
   
   return exceptionJSON
@@ -4590,10 +4747,6 @@ ValidateRouteOrigin()
     set type = $classname(returnedData)    
     $$$QuitOnError($$AssertClassNamespaceAvailability(type))    
     
-    if ##class(Frontier.Types).IsStream(type) && %frontier.IsRaw() {
-      return returnedData.OutputToDevice()
-    }    
-    
     set isCollection = ##class(Types).IsCollection(type)
     set isSQLProvider = ##class(Types).IsSQLProvider(type)
     set isStream = ##class(Types).IsStream(type)
@@ -4602,16 +4755,17 @@ ValidateRouteOrigin()
     set isMarshallable = isCollection || isDynamic || isStream || isSQLProvider || ('isSystemType && ##class(Types).IsInstantiable(type))
     if isMarshallable {
       if isStream {
+        if %frontier.IsRaw() return returnedData.OutputToDevice()
         set stream = returnedData set returnedData = response
         set response.content = stream
       } elseif isSQLProvider {
         set provider = returnedData
-        set response.results = provider
+        set response.results = provider      
+      } elseif isDynamic {
+        set response = returnedData
       } else {
-        $$$QuitOnError(##class(Frontier.Dynamic.Marshaller).MarshalDirect(returnedData, .response))
+        $$$QuitOnError(##class(Frontier.Dynamic.Marshaller).MarshalDirect(returnedData, .response, %frontier.Parameters.MAXIMUMDEPTH))
       }
-    } elseif returnedData.%IsA("Frontier.Dynamic.Marshaller") {
-      $$$QuitOnError(returnedData.Marshal(.response))
     } else {
       return $$$ERROR($$$GeneralError, "Cannot serialize system class instances.")
     }
@@ -4624,10 +4778,10 @@ ValidateRouteOrigin()
   
   // We must use a custom serializer because the current %ToJSON implementation cannot serialize
   // mixed instances.
-  if %frontier.DirectWrite = 1 {
-    return ##class(Frontier.Dynamic.Serializer).Serialize(response, 1, %frontier.PropertyFormatter)
+  if %frontier.Parameters.DIRECTWRITE = 1 {
+    return ##class(Frontier.Dynamic.Serializer).Serialize(response,, %frontier.PropertyFormatter, %frontier.Parameters.MAXIMUMDEPTH, %frontier.Parameters.INDENTSIZE)
   } else {
-    $$$QuitOnError(##class(Frontier.Dynamic.Serializer).SerializeToStream(.stream, response, 1, %frontier.PropertyFormatter))
+    $$$QuitOnError(##class(Frontier.Dynamic.Serializer).SerializeToStream(.stream, response,, %frontier.PropertyFormatter, %frontier.Parameters.MAXIMUMDEPTH, %frontier.Parameters.INDENTSIZE))
     do stream.OutputToDevice()
   }
   return $$$OK
@@ -4652,6 +4806,14 @@ AssertClassNamespaceAvailability(className)
 <FormalSpec>data:%DynamicObject</FormalSpec>
 <ReturnType>%Status</ReturnType>
 <Implementation><![CDATA[  return $$$OK
+]]></Implementation>
+</Method>
+
+<Method name="OnExceptionCaught">
+<ClassMethod>1</ClassMethod>
+<FormalSpec>exception:%Exception.AbstractException</FormalSpec>
+<ReturnType>Frontier.Exception</ReturnType>
+<Implementation><![CDATA[  return $$$ERROR($$$MethodNotImplemented, "OnExceptionCaught")
 ]]></Implementation>
 </Method>
 
@@ -5266,34 +5428,48 @@ AddParameter(newparam)
 
 <Method name="Serialize">
 <ClassMethod>1</ClassMethod>
-<FormalSpec>results:%SQL.Statement,metadata:%SQL.StatementMetadata,depth:%Integer=1,propertyFormatter:Frontier.PropertyFormatter=""</FormalSpec>
+<FormalSpec>results:%SQL.Statement,metadata:%SQL.StatementMetadata,depth:%Integer=0,propertyFormatter:Frontier.PropertyFormatter="",indentBy:%Integer=0</FormalSpec>
 <ReturnType>%Status</ReturnType>
 <Implementation><![CDATA[
      
+  #define NewLineIf write $select(indentBy > 0 : $char(10), 1: "")
+  #define SpaceIf $select(indentBy > 0: " ", 1: "")
+  
   set sc = $$$OK
   $$$QuitOnError(..FetchColumnMetadatas(metadata, .columnMetadata))  
   
   set data = ##class(%Stream.GlobalCharacter).%New()
   
+  if depth > 1 do ..SetIndentation(depth * indentBy)
   write "["
+  set depth = depth + 1
   
   set itemComma = ""
-  set propertyComma = ""
+  set propertyComma = ""   
   
   try {               
     while results.%Next(.sc) {
       $$$ThrowOnError(sc)
       
-      write itemComma
-      
+      write itemComma      
+            
       set itemComma = ","
       set propertyComma = ""
       
-      write "{"         
+      if itemComma = "," $$$NewLineIf
+      
+      do ..SetIndentation(depth * indentBy)
+      write "{"
+      set depth = depth + 1
+      $$$NewLineIf
       
       for c=1:1:columnMetadata {
         write propertyComma
+        
+        if propertyComma = "," $$$NewLineIf
         set propertyComma = ","
+                        
+        do ..SetIndentation(depth * indentBy)
         
         set columnName = columnMetadata(c)
         set columnType = columnMetadata(c, "type")
@@ -5305,7 +5481,7 @@ AddParameter(newparam)
           set columnName = propertyFormatter.Format(columnName, depth)
         }
         
-        write $$$ZENJSONPROP(columnName, "s")_":"
+        write $$$ZENJSONPROP(columnName, "s")_":"_$$$SpaceIf
         
         if isList = 1 {
           set delimiter = columnMetadata(c, "list_delimiter")
@@ -5322,29 +5498,50 @@ AddParameter(newparam)
           else  write value
         } else {
           write $$$ZENJSONVALUE(value, "s")
-        }                               
+        }                                      
       }
+      
+      $$$NewLineIf
+      set depth = depth - 1
+      if depth > 1 do ..SetIndentation(depth * indentBy)
       write "}"
-    }   
-    write "]"
+    }
+    
+    set depth = depth - 1    
+    $$$NewLineIf
+    do ..SetIndentation(depth * indentBy)
+    write "]"    
+    
   } catch ex {
     set sc = ex.AsStatus()
   }
   return sc
   
 ListToJSONArray(value, delimiter, string)
+  #define IsList(%value) $lv(%value) && $ll(%value)
   write "["
   
-  set comma = ""  
-  set length = $length(value, delimiter)
+  set depth = depth + 1
+  
+  set comma = ""
+  set isList = $select($lv(value) && $ll(value) : 1, 1: 0)
+  set length = $select(isList : $ll(value), 1: $length(value, ","))
   
   for i=1:1:length {
     write comma
-    if string write $$$ZENJSONSTR($piece(value, delimiter, i), "s")
-    else  write $$$ZENJSNUM($piece(value, delimiter, i))
+    if isList {
+      if string write $$$ZENJSONSTR($lg(value, i), "s")
+      else  write $$$ZENJSNUM($lg(value, i))
+    } else {
+      if string write $$$ZENJSONSTR($piece(value, delimiter, i), "s")
+      else  write $$$ZENJSNUM($piece(value, delimiter, i))      
+    }
     set comma = ","
+    $$$NewLineIf
+    do ..SetIndentation(depth * indentBy)
   }
   
+  set depth = depth - 1
   write "]"
 ]]></Implementation>
 </Method>
@@ -5817,13 +6014,12 @@ Called when we have finished processing this request</Description>
   
   set str = ##class(%Stream.GlobalCharacter).%New()
   set alreadyRedirected = ##class(%Device).ReDirectIO()
-  set oldMnemonic = "^"_##class(%Device).GetMnemonicRoutine()
+  set oldMnemonic = ##class(%Device).GetMnemonicRoutine()
   set initIO = $io  
   
   try {   
     use $io::("^"_$zname)    
     do ##class(%Device).ReDirectIO(1)
-    set isRedirected = 1    
     if $isobject(object) set sc = $method(object, method, args...)
     else  set class = object set sc = $classmethod(class, method, args...)
     do str.Rewind()
@@ -5833,7 +6029,7 @@ Called when we have finished processing this request</Description>
   }     
   
   if oldMnemonic '= "" {
-    use initIO::(oldMnemonic)
+    use initIO::("^"_oldMnemonic)
   } else {
     use oldMnemonic
   }
@@ -5849,6 +6045,38 @@ wff Do str.Write($char(13,10,13,10)) Quit
 wtab(n) Do str.Write($c(9)) Quit
 rstr(len,time) Quit ""
 rchr(time) Quit ""
+]]></Implementation>
+</Method>
+
+<Method name="CreateSSLConfigurationIfNoneExists">
+<ClassMethod>1</ClassMethod>
+<FormalSpec>name:%String</FormalSpec>
+<Private>1</Private>
+<Implementation><![CDATA[
+   new $namespace
+   set $namespace = "%SYS"
+      
+   do ##class(Security.SSLConfigs).Get("Discord Webhook SSL", .p)
+   if $data(p) quit   
+   
+   set p("CipherList")="ALL:!aNULL:!eNULL:!EXP:!SSLv2"
+   set p("CAFile")=""
+   set p("CAPath")=""
+   set p("CRLFile")=""
+   set p("CertificateFile")=""
+   set p("CipherList")="ALL:!aNULL:!eNULL:!EXP:!SSLv2"
+   set p("Description")=""
+   set p("Enabled")=1
+   set p("PrivateKeyFile")=""
+   set p("PrivateKeyPassword")=""
+   set p("PrivateKeyType")=2
+   set p("Protocols")=24
+   set p("SNIName")=""
+   set p("Type")=0
+   set p("VerifyDepth")=9
+   set p("VerifyPeer")=0
+   
+   do ##class(Security.SSLConfigs).Create(name, .p)
 ]]></Implementation>
 </Method>
 </Class>
@@ -6199,13 +6427,12 @@ rchr(time) Quit ""
 <AverageFieldSize>1.1</AverageFieldSize>
 </Property>
 <Property name="Active">
-<Selectivity>10.0000%</Selectivity>
-<OutlierSelectivity>.9:1</OutlierSelectivity>
+<Selectivity>50.0000%</Selectivity>
 <AverageFieldSize>1</AverageFieldSize>
 </Property>
 <Property name="Adress">
 <Selectivity>10.0000%</Selectivity>
-<AverageFieldSize>16.2</AverageFieldSize>
+<AverageFieldSize>17.8</AverageFieldSize>
 </Property>
 <Property name="BirthDate">
 <Selectivity>10.0000%</Selectivity>
@@ -6225,11 +6452,11 @@ rchr(time) Quit ""
 </Property>
 <Property name="Name">
 <Selectivity>10.0000%</Selectivity>
-<AverageFieldSize>16.8</AverageFieldSize>
+<AverageFieldSize>15</AverageFieldSize>
 </Property>
 <Property name="PeriodEnd">
 <Selectivity>10.0000%</Selectivity>
-<AverageFieldSize>4.6</AverageFieldSize>
+<AverageFieldSize>4.7</AverageFieldSize>
 </Property>
 <Property name="PeriodStart">
 <Selectivity>10.0000%</Selectivity>
@@ -6286,7 +6513,6 @@ rchr(time) Quit ""
 <Route Url="/arguments/no-weak-typed" Method="GET" Call="TestGETNoWeakTypedArgs"/>
 <Route Url="/methods/no-weak-typed" Method="GET" Call="TestGETNoWeakTypedMethods" />
 <Route Url="/custom-auth" Method="GET" AuthStrategy="BasicSystemLogin" Call="TestGETCustomAuth" />
-<Route Url="/x-www-urlencoded" Method="POST" Call="TestXWWWUrlEncoded" />
 <Map Prefix="/map/A/:param1" Forward="Frontier.UnitTest.Router.Map.A" />
 <Map Prefix="/map/B/:param1/:param2" Forward="Frontier.UnitTest.Router.Map.B" />
 <Map Prefix="/map/C" Forward="Frontier.UnitTest.Router.Map.C" />
@@ -6317,16 +6543,24 @@ This method is reserved for setting up configurations.</Description>
 <ReturnType>%Status</ReturnType>
 <Implementation><![CDATA[
   
+  //set %frontier.Parameters.DIRECTWRITE = 1
+  
   // Add reporters to notify the developers about ongoing errors.
   // This one creates a new entry into the Frontier.Reporter.Log table.
   set logReporter = ##class(Frontier.Reporter.Log).%New({
     // We want to log any abnormal error.
-    "include": [($$$CacheError), ($$$InvalidUsernameOrPassword)],
-    /// But we don't want to log custom errors.
-    "exclude": [($$$GeneralError)]
+    "include": [($$$CacheError), ($$$InvalidUsernameOrPassword)]
   })  
   
-  $$$QuitOnError(%frontier.ReporterManager.AddReporter(logReporter)) 
+  $$$QuitOnError(%frontier.ReporterManager.AddReporter(logReporter))
+  
+  // Prettifies JSON by indenting it based on two spaces.
+  // Leave it as 0 for inline output.
+  set %frontier.Parameters.INDENTSIZE = 2
+  
+  // Defines how deep should the object be serialized.
+  // WARNING: The higher the value the longer will be the wait, which could cause a Gateway Timeout.
+  set %frontier.Parameters.MAXIMUMDEPTH = 7
 
   set cookieStrategy = ##class(Frontier.Authentication.CookieStrategy).%New({
     "secret": "shhh",
@@ -6351,7 +6585,7 @@ This method is reserved for setting up configurations.</Description>
   // This provides a way to check if the current user is authenticated using Basic scheme.
   $$$QuitOnError(%frontier.AuthenticationManager.AddStrategy(basicStrategy))
   $$$QuitOnError(%frontier.AuthenticationManager.AddStrategy(systemBasicStrategy))
-
+   
   set %frontier.Response.GzipOutput = 1
   do %frontier.CORS.Default()
    
@@ -6368,15 +6602,17 @@ curl -H "Content-Type: application/json" 'localhost:57772/api/frontier/test/rout
 <ClassMethod>1</ClassMethod>
 <FormalSpec>class:Frontier.UnitTest.Fixtures.Class</FormalSpec>
 <ReturnType>%Status</ReturnType>
-<Implementation><![CDATA[  return class
+<Implementation><![CDATA[
+ 
+  return class
 ]]></Implementation>
 </Method>
 
 <Method name="TestGETRouteParamsWhereId">
 <Description><![CDATA[
-This follows the same principle as the TestGETRouteParams example, however IDWHERE allows the developer to search
+This follows the same principle as the TestGETRouteParams example, however WHEREID allows the developer to search
 for the id using alternative sources other than relying straight to route parameters.
-ID WHERE is useful for avoiding the object id from being exposed to the world by masking it with contextual data.
+It is useful for avoiding the object id from being exposed.
 The format is close to a SQL where, however supporting :placeholders.
 Placeholders are checked using the following order:
 :name -> %frontier.RouteParameters("name") (obligatory)
@@ -6632,7 +6868,7 @@ curl -H "Content-Type: application/json" http://localhost:57772/api/frontier/tes
 <ClassMethod>1</ClassMethod>
 <FormalSpec>class:Frontier.UnitTest.Fixtures.Class</FormalSpec>
 <ReturnType>%DynamicArray</ReturnType>
-<Implementation><![CDATA[  return [ (class) ]
+<Implementation><![CDATA[  return [(class)]
 ]]></Implementation>
 </Method>
 
@@ -6696,7 +6932,7 @@ found, the id will be searched inside the payload. Note that when the id is not 
 incorrect PUT usage.
 curl -H "Content-Type: application/json" -X POST -d '{"Plate": "R-2948","Students": [{"Name": "Rubens","BirthDate": "04/21/1970","SomeValue": 0}]}' 'http://localhost:57772/api/frontier/unmarshall/15'</Description>
 <ClassMethod>1</ClassMethod>
-<FormalSpec>class:Frontier.UnitTest.Fixtures.Class</FormalSpec>
+<FormalSpec>classId:%String,class:Frontier.UnitTest.Fixtures.Class(UNMARSHAL=1,WHEREID="ID = :classId")</FormalSpec>
 <ReturnType>Frontier.UnitTest.Fixtures.Student</ReturnType>
 <Implementation><![CDATA[
   $$$ThrowOnError(class.%Save())
@@ -7004,14 +7240,6 @@ The purpose is to show that custom authentication strategies can be used exclusi
   set expires = ##class(%CSP.StreamServer).ToHTTPDate(exp)
   do %frontier.Response.SetCookie("__fc", ##class(Frontier.Security.CookieSignature).Sign(credential, "shhh"), expires, %frontier.Request.Application,,,1)
   return ""
-]]></Implementation>
-</Method>
-
-<Method name="TestXWWWUrlEncoded">
-<ClassMethod>1</ClassMethod>
-<FormalSpec>name:%String,birthDate:%String</FormalSpec>
-<ReturnType>%String</ReturnType>
-<Implementation><![CDATA[  return { "name": (name), "birthDate": (birthDate) }
 ]]></Implementation>
 </Method>
 </Class>
@@ -7324,5 +7552,6 @@ The purpose is to show that custom authentication strategies can be used exclusi
 #define AssertClassExists(%o) return:'$isobject(%o) $$$ERROR($$$ClassDoesNotExist, %o)
 #define NULL $s($$$isWINDOWS : "//./nul", 1: "/dev/null")
 #define ObjectOrNull(%obj) $select($isobject(%obj) : %obj, 1: "null")
+#define ReturnOnError(%sc) s sc = %sc return:$$$ISERR(sc) sc
 ]]></Routine>
 </Export>
