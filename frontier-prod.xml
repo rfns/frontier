@@ -1346,6 +1346,7 @@ Holds a positive integer value that specifies the maximum depth the marshalling 
 <Description>
 A string that represents the path from concatenated property names, used to filter which properties to include.</Description>
 <Type>%String</Type>
+<InitialExpression><![CDATA["<root>"]]></InitialExpression>
 <Private>1</Private>
 </Property>
 
@@ -1353,6 +1354,7 @@ A string that represents the path from concatenated property names, used to filt
 <FormalSpec>maxDepth:%Integer=7</FormalSpec>
 <ReturnType>%Status</ReturnType>
 <Implementation><![CDATA[
+  if maxDepth <= 0 set maxDepth = 1
   set ..MaxDepth = maxDepth
   return $$$OK
 ]]></Implementation>
@@ -1395,14 +1397,14 @@ This method uses the configuration provided from %New which includes an optional
   set type = $classname(object)      
   if ##class(Frontier.Types).IsCollection(type) set sc = ..MakeDynamicCollection(object, .dynamicObject)
   if ##class(Frontier.Types).IsDynamic(type) set sc = ..Traverse(object, .dynamicObject)
-  if ##class(Frontier.Types).IsPersistent(type) set sc = ..MakeDynamicObject(object, .dynamicObject) 
+  if ##class(Frontier.Types).IsPersistent(type) || ##class(Frontier.Types).IsSerial(type) set sc = ..MakeDynamicObject(object, .dynamicObject) 
   
   set parentSc = $$$ERROR($$$GeneralError, $$$FormatText("Failed to marshal instance of '%1'. Path: %2", $classname(object), ..Path))
   
   if $$$ISERR(sc) { 
-    set sc = $$$EMBEDSC(parentSc, sc) 
+    set sc = $$$EMBEDSC(parentSc, sc)
   } elseif '$isobject(dynamicObject) {
-    set sc = $$$EMBEDSC(parentSc, $$$ERROR($$$GeneralError, "Object to unmarshall is not dynamic, neither a collection nor persistable."))
+    set sc = $$$EMBEDSC(parentSc, $$$ERROR($$$GeneralError, "Object to unmarshal is not dynamic, neither a collection nor persistable."))
   }
   
   return sc
@@ -3678,7 +3680,8 @@ BuildFilter(filter, templateMsg, normalizedFilter)
   set io = $io
   merge methodArguments = ..Arguments
   set returnType = ..MethodDescriptor.ReturnType
-    
+  
+  open $$$NULL
   use $$$NULL
   
   new $estack
@@ -3693,8 +3696,9 @@ BuildFilter(filter, templateMsg, normalizedFilter)
     do ##class(Frontier.Exception).CaptureStack(.stack)
     set sc = ex.AsStatus()
   }
-  
+    
   use io 
+  close $$$NULL
   return sc
 ]]></Implementation>
 </Method>
@@ -3996,11 +4000,12 @@ do %frontier.Reporter.Manager.AddReporter(discordReporter)</Description>
   set http = ##class(%Net.HttpRequest).%New()
   set http.Server = "discordapp.com"
   set http.SSLConfiguration = "Discord Webhook SSL"
-  set http.Https = 1
-    
+  set http.Https = 1  
+  
   set payload = ##class(Frontier.Exception).ToDynamicObject(context.Exception)
   $$$QuitOnError(##class(Frontier.Dynamic.Serializer).SerializeToStream(.str, payload, 0, context.PropertyFormatter, context.Parameters.MAXIMUMDEPTH, 2))
   set message = str.Read()
+  
   do http.InsertFormData("content", $$$FormatText("Error report received from *%1:*%7%7**Message:** %7```json%7%2%7```%7**Path:** %3.%7**Http Method:** %4.%7**Dispatch Method:** %5.%7**Arguments:** %6%7**Class:** %8%7%7", ..Name, message, context.RequestURL, context.Request.Method, context.Method, $$SerializeArguments(), $c(10), context.ClassName))
   do http.Post($$$FormatText("api/webhooks/%1/%2", ..WebhookId, ..Token))
   
@@ -4287,10 +4292,9 @@ Iterates over the queue calling the Report method for each. Each call is impleme
 <Internal>1</Internal>
 <ReturnType>%Status</ReturnType>
 <Implementation><![CDATA[
-  set sc = $$$OK
+  set sc = $$$OK 
   
   if '$isobject(..Context.Exception) return $$$OK
-  if ..Context.AuthenticationManager.IsChallengeSet return $$$OK
   if ..Reported return $$$OK
   
   #dim reporter As Frontier.Reporter
@@ -6051,7 +6055,6 @@ rchr(time) Quit ""
 <Method name="CreateSSLConfigurationIfNoneExists">
 <ClassMethod>1</ClassMethod>
 <FormalSpec>name:%String</FormalSpec>
-<Private>1</Private>
 <Implementation><![CDATA[
    new $namespace
    set $namespace = "%SYS"
@@ -6317,7 +6320,7 @@ rchr(time) Quit ""
 </Property>
 <Property name="Plate">
 <Selectivity>10.0000%</Selectivity>
-<AverageFieldSize>4.9</AverageFieldSize>
+<AverageFieldSize>4.7</AverageFieldSize>
 </Property>
 <SQLMap name="IDKEY">
 <BlockCount>-4</BlockCount>
@@ -6432,7 +6435,7 @@ rchr(time) Quit ""
 </Property>
 <Property name="Adress">
 <Selectivity>10.0000%</Selectivity>
-<AverageFieldSize>17.8</AverageFieldSize>
+<AverageFieldSize>17.4</AverageFieldSize>
 </Property>
 <Property name="BirthDate">
 <Selectivity>10.0000%</Selectivity>
@@ -6452,11 +6455,11 @@ rchr(time) Quit ""
 </Property>
 <Property name="Name">
 <Selectivity>10.0000%</Selectivity>
-<AverageFieldSize>15</AverageFieldSize>
+<AverageFieldSize>16.6</AverageFieldSize>
 </Property>
 <Property name="PeriodEnd">
 <Selectivity>10.0000%</Selectivity>
-<AverageFieldSize>4.7</AverageFieldSize>
+<AverageFieldSize>4.8</AverageFieldSize>
 </Property>
 <Property name="PeriodStart">
 <Selectivity>10.0000%</Selectivity>
@@ -6602,9 +6605,7 @@ curl -H "Content-Type: application/json" 'localhost:57772/api/frontier/test/rout
 <ClassMethod>1</ClassMethod>
 <FormalSpec>class:Frontier.UnitTest.Fixtures.Class</FormalSpec>
 <ReturnType>%Status</ReturnType>
-<Implementation><![CDATA[
- 
-  return class
+<Implementation><![CDATA[  return class
 ]]></Implementation>
 </Method>
 
