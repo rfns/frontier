@@ -438,7 +438,8 @@ Method Invoke(Output methodReturn = "", Output stack As %Stream.Object = "") As 
   set io = $io
   merge methodArguments = ..Arguments
   set returnType = ..MethodDescriptor.ReturnType
-    
+  
+  open $$$NULL
   use $$$NULL
   
   new $estack
@@ -453,8 +454,9 @@ Method Invoke(Output methodReturn = "", Output stack As %Stream.Object = "") As 
     do ##class(Frontier.Exception).CaptureStack(.stack)
     set sc = ex.AsStatus()
   }
-  
+    
   use io 
+  close $$$NULL
   return sc
 }
 
