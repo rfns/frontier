@@ -21,10 +21,11 @@ Property JSONDataFormatsCache As %CacheString [ Internal, MultiDimensional, Priv
 Property MaxDepth As %Integer [ InitialExpression = 7, Private ];
 
 /// A string that represents the path from concatenated property names, used to filter which properties to include.
-Property Path As %String [ Private ];
+Property Path As %String [ InitialExpression = "<root>", Private ];
 
 Method %OnNew(maxDepth As %Integer = 7) As %Status
 {
+  if maxDepth <= 0 set maxDepth = 1
   set ..MaxDepth = maxDepth
   return $$$OK
 }
@@ -57,14 +58,14 @@ Method Marshal(object As %RegisteredObject, Output dynamicObject As %DynamicAbst
   set type = $classname(object)      
   if ##class(Frontier.Types).IsCollection(type) set sc = ..MakeDynamicCollection(object, .dynamicObject)
   if ##class(Frontier.Types).IsDynamic(type) set sc = ..Traverse(object, .dynamicObject)
-  if ##class(Frontier.Types).IsPersistent(type) set sc = ..MakeDynamicObject(object, .dynamicObject) 
+  if ##class(Frontier.Types).IsPersistent(type) || ##class(Frontier.Types).IsSerial(type) set sc = ..MakeDynamicObject(object, .dynamicObject) 
   
   set parentSc = $$$ERROR($$$GeneralError, $$$FormatText("Failed to marshal instance of '%1'. Path: %2", $classname(object), ..Path))
   
   if $$$ISERR(sc) { 
-    set sc = $$$EMBEDSC(parentSc, sc) 
+    set sc = $$$EMBEDSC(parentSc, sc)
   } elseif '$isobject(dynamicObject) {
-    set sc = $$$EMBEDSC(parentSc, $$$ERROR($$$GeneralError, "Object to unmarshall is not dynamic, neither a collection nor persistable."))
+    set sc = $$$EMBEDSC(parentSc, $$$ERROR($$$GeneralError, "Object to unmarshal is not dynamic, neither a collection nor persistable."))
   }
   
   return sc
