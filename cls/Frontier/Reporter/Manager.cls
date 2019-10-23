@@ -28,10 +28,9 @@ Method AddReporter(reporter As Frontier.Reporter) As %Status
 /// Iterates over the queue calling the Report method for each. Each call is implementation dependent.
 Method Report() As %Status [ Internal ]
 {
-  set sc = $$$OK
+  set sc = $$$OK 
   
   if '$isobject(..Context.Exception) return $$$OK
-  if ..Context.AuthenticationManager.IsChallengeSet return $$$OK
   if ..Reported return $$$OK
   
   #dim reporter As Frontier.Reporter
