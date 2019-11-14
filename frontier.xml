@@ -1201,6 +1201,7 @@ The Content-Type header is overwritten to 'text/plain'.</Description>
 <ReturnType>%Status</ReturnType>
 <Implementation><![CDATA[
   set ..RawMode = 1
+  do ..Response.SetHeader("Content-Type", "text/plain")
   return $$$OK
 ]]></Implementation>
 </Method>
@@ -2173,7 +2174,7 @@ If $$$OK the 'result' is populated with the generated instance.</Description>
 </Method>
 
 <Method name="ResolvePrimitive">
-<FormalSpec>type:%String,name:%String,object:%RegisteredObject,value,*result:%String=""</FormalSpec>
+<FormalSpec>type:%String,name:%String,className:%RegisteredObject,value,*result:%String=""</FormalSpec>
 <Private>1</Private>
 <ReturnType>%Status</ReturnType>
 <Implementation><![CDATA[
@@ -2195,20 +2196,20 @@ If $$$OK the 'result' is populated with the generated instance.</Description>
     } elseif type = "%Library.TimeStamp" || (type = "%Library.DateTime") {
       set value = $translate(value, "Z", "")
     } elseif type = "%Library.Date" || (type = "%Library.Time") {
-      set value = ##class(Frontier.Shared.Utilities).SafeMethodCallAndReturn(.sc, object, name_"DisplayToLogical", value)
+      set value = ##class(Frontier.Shared.Utilities).SafeMethodCallAndReturn(.sc, className, name_"DisplayToLogical", value)
       $$$ThrowOnError(sc)
     }
 
-    set valid = ##class(Frontier.Shared.Utilities).SafeMethodCallAndReturn(.sc, object, name_"IsValid", value)
+    set valid = ##class(Frontier.Shared.Utilities).SafeMethodCallAndReturn(.sc, className, name_"IsValid", value)
     $$$ThrowOnError(sc)
 
-    set value = ##class(Frontier.Shared.Utilities).SafeMethodCallAndReturn(.sc, object, name_"Normalize", value)
+    set value = ##class(Frontier.Shared.Utilities).SafeMethodCallAndReturn(.sc, className, name_"Normalize", value)
     if value = "error" $$$ThrowOnError($$$ERROR($$$GeneralError, "Internal normalization error"))
     $$$ThrowOnError(sc)
 
     if valid = 1 set result = value
   } catch {
-    set error = $$$ERROR($$$GeneralError, $$$FormatText("Validation error: Invalid primitive value for property '%1' of type '%2' in class '%3'. Value: %4", name, type, $classname(object), inputValue))
+    set error = $$$ERROR($$$GeneralError, $$$FormatText("Validation error: Invalid primitive value for property '%1' of type '%2' in class '%3'. Value: %4", name, type, className, inputValue))
     set sc = error
   }
 
@@ -2261,9 +2262,9 @@ If $$$OK the 'result' is populated with the generated instance.</Description>
       set sc = ..GetSerialObject(property.Type, value, .result)
     } elseif type = "collection"  {
       set result = $property(object, property.Name)
-      set sc = ..UnmarshalCollection(value, .result)
+      set sc = ..UnmarshalCollection(value, .result, className)
     } elseif type = "datatype" {
-      set sc = ..ResolvePrimitive(property.Type, property.Name, object, value, .result)
+      set sc = ..ResolvePrimitive(property.Type, property.Name, $classname(object), value, .result)
     } else {
       set sc = $$$ERROR($$$GeneralError, $$$FormatText("Invalid input type for key '%1' from '%2'", key, className))
     }
@@ -2317,7 +2318,18 @@ If $$$OK the 'result' is populated with the generated instance.</Description>
     set collection = $System.OBJ.New(collectionClass)
   }
 
-  set elementType = $case(className, "": collection.ElementType, : className)
+  set elementType = ""
+  set propertyName = ""
+  
+  if collection.ElementType [ ":" {
+    set propertyName = $piece(collection.ElementType, ":", 2)
+    set elementType = ##class(%Dictionary.CompiledProperty).%OpenId($replace(collection.ElementType, ":", "||")).Type    
+  } elseif className '= "" && (collection.ElementType [ "%") {
+    set elementType = className
+  } else {
+    set elementType = collection.ElementType
+  }
+  
   set iterator = dynamicCollection.%GetIterator()
   set isPersistentItem = ##class(Frontier.Types).IsPersistent(elementType)
 
@@ -2340,6 +2352,10 @@ If $$$OK the 'result' is populated with the generated instance.</Description>
         1: $$$ERROR($$$GeneralError, "Cannot unmarshal items that aren't dynamic.")
       )
       if item = "" continue
+    } elseif propertyName '= "" {
+      set sc = ..ResolvePrimitive(elementType, propertyName, className, dynamicItem, .primitive)  
+      if $$$ISERR(sc) quit
+      set item = primitive
     } else {
       set item = dynamicItem
     }
@@ -3419,7 +3435,7 @@ BuildFilter(filter, templateMsg, normalizedFilter)
       set shouldUnmarshall = (methodArgument.Parameters.GetAt("UNMARSHAL") = 1)
       set whereId = methodArgument.Parameters.GetAt("WHEREID")
       set isDynamic = ##class(Frontier.Types).IsDynamic(methodArgument.Type)
-      set isPersistable = ##class(Frontier.Types).IsPersistent(methodArgument.Type)
+      set isPersistable = ##class(Frontier.Types).IsPersistent(methodArgument.Type) || ##class(Frontier.Types).IsSerial(methodArgument.Type)
 
       if whereId '= "" {
         set sc = ..ResolveWhereId(whereId, methodArgument.Name,  methodArgument.Type, .resolvedId)
@@ -3574,7 +3590,7 @@ BuildFilter(filter, templateMsg, normalizedFilter)
     for m=1:1:methodArgumentsLength {
       set methodArgument = ..MethodArguments.GetAt(m)
       set isDynamic = ##class(Frontier.Types).IsDynamic(methodArgument.Type)
-      set isPersistent = ##class(Frontier.Types).IsPersistent(methodArgument.Type)
+      set isPersistent = ##class(Frontier.Types).IsPersistent(methodArgument.Type) || ##class(Frontier.Types).IsSerial(methodArgument.Type)
       set shouldUnmarshal = (methodArgument.Parameters.GetAt("UNMARSHAL") = 1)
       set isPayloadArgument = isDynamic || (isPersistent && shouldUnmarshal)
       if methodArgument.Type = "" set $list(weakTypedArgs, *+1) = methodArgument.Name
@@ -5974,7 +5990,7 @@ Called when we have finished processing this request</Description>
   set ret = ""
   
   try {
-    set ret = $method(instance, method, args...)
+    set ret = $select($isobject(instance) : $method(instance, method, args...), 1: $classmethod(instance, method, args...))
     if $extract(ret, 1, 2) = "0 " && $lv($p(ret, " ", 2)) {
       set errcode = $$$GETERRORCODE(ret)
       if errcode '= "" {
@@ -6059,7 +6075,7 @@ rchr(time) Quit ""
    new $namespace
    set $namespace = "%SYS"
       
-   do ##class(Security.SSLConfigs).Get("Discord Webhook SSL", .p)
+   do ##class(Security.SSLConfigs).Get(name, .p)
    if $data(p) quit   
    
    set p("CipherList")="ALL:!aNULL:!eNULL:!EXP:!SSLv2"
@@ -6320,7 +6336,7 @@ rchr(time) Quit ""
 </Property>
 <Property name="Plate">
 <Selectivity>10.0000%</Selectivity>
-<AverageFieldSize>4.7</AverageFieldSize>
+<AverageFieldSize>4.8</AverageFieldSize>
 </Property>
 <SQLMap name="IDKEY">
 <BlockCount>-4</BlockCount>
@@ -6435,7 +6451,7 @@ rchr(time) Quit ""
 </Property>
 <Property name="Adress">
 <Selectivity>10.0000%</Selectivity>
-<AverageFieldSize>17.4</AverageFieldSize>
+<AverageFieldSize>17.2</AverageFieldSize>
 </Property>
 <Property name="BirthDate">
 <Selectivity>10.0000%</Selectivity>
@@ -6455,15 +6471,15 @@ rchr(time) Quit ""
 </Property>
 <Property name="Name">
 <Selectivity>10.0000%</Selectivity>
-<AverageFieldSize>16.6</AverageFieldSize>
+<AverageFieldSize>16.1</AverageFieldSize>
 </Property>
 <Property name="PeriodEnd">
 <Selectivity>10.0000%</Selectivity>
-<AverageFieldSize>4.8</AverageFieldSize>
+<AverageFieldSize>5</AverageFieldSize>
 </Property>
 <Property name="PeriodStart">
 <Selectivity>10.0000%</Selectivity>
-<AverageFieldSize>5</AverageFieldSize>
+<AverageFieldSize>4.8</AverageFieldSize>
 </Property>
 <Property name="SomeValue">
 <Selectivity>100.0000%</Selectivity>
@@ -8378,7 +8394,7 @@ The purpose is to show that custom authentication strategies can be used exclusi
 ]]></Routine>
 
 
-<Project name="frontier" LastModified="2019-10-22 09:21:51.437397" TargetType="2" HttpServer="http://localhost:57772">
+<Project name="frontier" LastModified="2019-10-31 08:40:04.093764" TargetType="2" HttpServer="http://localhost:57772">
   <Items>
     <ProjectItem name="Frontier.AbstractSerializer" type="CLS"></ProjectItem>
     <ProjectItem name="Frontier.ArgumentDescription" type="CLS"></ProjectItem>

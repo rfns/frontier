@@ -112,7 +112,6 @@ ClassMethod OnSetup() As %Status
 /// {"Plate":"O5397","Students":[{"Name":"Drabek,Peter T.","__id__":"20"}],"__id__":"6"}
 ClassMethod TestGETRouteParams(class As Frontier.UnitTest.Fixtures.Class) As %Status
 {
- 
   return class
 }
 
@@ -535,7 +534,7 @@ ClassMethod TestGETNoWeakTypedMethods()
   return $$$OK
 }
 
-/// This method can be retrieved only if the user logs with the CachÃ© credentials.
+/// This method can be retrieved only if the user logs with the Caché credentials.
 /// The purpose is to show that custom authentication strategies can be used exclusively.
 ClassMethod TestGETCustomAuth() As %String
 {
