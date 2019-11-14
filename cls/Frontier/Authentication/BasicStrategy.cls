@@ -35,6 +35,8 @@ Method Verify(session As %CSP.Session, request As %CSP.Request, response As %CSP
   set found = 0
   set httpStatus = ""
   set authHeader = request.GetCgiEnv("HTTP_AUTHORIZATION")
+  
+  if $$$ucase(authHeader) [ "BEARER" return $$$OK
 
   if authHeader = "" {
     // Let the manager call the next strategy, if that's the last one than the error is

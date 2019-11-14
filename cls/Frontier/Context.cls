@@ -114,6 +114,7 @@ Method %OnNew(session As %CSP.Session, request As %CSP.Request, response As %CSP
 Method Raw() As %Status
 {
   set ..RawMode = 1
+  do ..Response.SetHeader("Content-Type", "text/plain")
   return $$$OK
 }
 

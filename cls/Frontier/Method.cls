@@ -190,7 +190,7 @@ Method Sequentialize(ByRef mergedArguments = 0, propertyFormatter As Frontier.Pr
       set shouldUnmarshall = (methodArgument.Parameters.GetAt("UNMARSHAL") = 1)
       set whereId = methodArgument.Parameters.GetAt("WHEREID")
       set isDynamic = ##class(Frontier.Types).IsDynamic(methodArgument.Type)
-      set isPersistable = ##class(Frontier.Types).IsPersistent(methodArgument.Type)
+      set isPersistable = ##class(Frontier.Types).IsPersistent(methodArgument.Type) || ##class(Frontier.Types).IsSerial(methodArgument.Type)
 
       if whereId '= "" {
         set sc = ..ResolveWhereId(whereId, methodArgument.Name,  methodArgument.Type, .resolvedId)
@@ -341,7 +341,7 @@ Method MergeArguments(ByRef routeArguments As %String = 0, ByRef requestArgument
     for m=1:1:methodArgumentsLength {
       set methodArgument = ..MethodArguments.GetAt(m)
       set isDynamic = ##class(Frontier.Types).IsDynamic(methodArgument.Type)
-      set isPersistent = ##class(Frontier.Types).IsPersistent(methodArgument.Type)
+      set isPersistent = ##class(Frontier.Types).IsPersistent(methodArgument.Type) || ##class(Frontier.Types).IsSerial(methodArgument.Type)
       set shouldUnmarshal = (methodArgument.Parameters.GetAt("UNMARSHAL") = 1)
       set isPayloadArgument = isDynamic || (isPersistent && shouldUnmarshal)
       if methodArgument.Type = "" set $list(weakTypedArgs, *+1) = methodArgument.Name
