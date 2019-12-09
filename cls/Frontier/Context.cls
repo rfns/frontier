@@ -6,6 +6,8 @@ Include (%occErrors, %occStatus)
 Class Frontier.Context Extends %RegisteredObject
 {
 
+Parameter VERSION = "5.1.2";
+
 /// This holds the reference for the %session object.
 Property Session As %CSP.Session [ Private ];
 
