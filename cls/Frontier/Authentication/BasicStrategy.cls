@@ -35,18 +35,14 @@ Method Verify(session As %CSP.Session, request As %CSP.Request, response As %CSP
   set found = 0
   set httpStatus = ""
   set authHeader = request.GetCgiEnv("HTTP_AUTHORIZATION")
-  
-  if $$$ucase(authHeader) [ "BEARER" return $$$OK
+
+  set authType = $$$trim($$$ucase($piece(authHeader, " ", 1)))
 
   if authHeader = "" {
     // Let the manager call the next strategy, if that's the last one than the error is
     // fired by the router class.
     return $$$OK
-  } elseif authHeader '= "" && ($$$ucase($extract(authHeader, 1, 5)) '= "BASIC") {
-    // Specific errors can overwrite the return with something other than $$$OK.
-    set sc = $$$ERROR($$$GeneralError, "Malformed authentication header.")
-    set response.Status = "400 Bad Request"
-  } else {
+  } elseif authType = "BASIC" {
     set credentials = $System.Encryption.Base64Decode($$$trim($piece(authHeader, " ", 2)))
     set userName = $piece(credentials, ":")
     set password = $piece(credentials, ":", 2)
