@@ -81,13 +81,9 @@ Method InitializeObject(className As %String, dynamicObject As %DynamicAbstractO
     set initialObject = $System.OBJ.OpenId(className, dynamicObject."__id__")
     if '$isobject(initialObject) return $$$ERROR($$$GeneralError, "Invalid id for '"_className_"'.")
   } else {
-    set id = ..AtemptToFindIdUsingIndices(className, dynamicObject)
-    if id '= "" {
-      set dynamicObject."__id__" = id
-      return ..InitializeObject(className, dynamicObject, .initialObject)
-    }
-    set initialObject = $System.OBJ.New(className)
-  }
+  	set initialObject = $System.OBJ.New(className)  	
+  } 
+  
   return $$$OK
 }
 
@@ -115,9 +111,11 @@ Method AtemptToFindIdUsingIndices(className As %String, dynamicObject As %Dynami
     for i=1:1:$listlength(idMembers) {
       set idProperty = $listget(idMembers, i)
       set value = dynamicObject.%Get(idProperty)
-      if value '= "" set $piece(id, "||", *+1) = value
+      if value '= ""  set $list(id, *+1) = value    
     }
   }
+  
+  set id = $lts(id, "||")
   if $length(id, "||") = $listlength(idMembers) return id
   return ""
 }
@@ -219,7 +217,7 @@ ClassMethod GetSerialObject(type As %String, value, Output serial As %SerialObje
   return $$$OK
 }
 
-Method ResolvePrimitive(type As %String, name As %String, className As %RegisteredObject, value, Output result As %String = "") As %Status [ Private ]
+Method ResolvePrimitive(type As %String, name As %String, object As %RegisteredObject, value, Output result As %String = "") As %Status [ Private ]
 {
   #define BoolToBin(%v) $case(%v, "true" : 1, 1: 1, : 0)
   #define DateISOString(%d) (%d?4N1"-"2N1"-"2N1"T"2N1":"2N1":"2N1"."3N1"Z" = 1)
@@ -239,20 +237,20 @@ Method ResolvePrimitive(type As %String, name As %String, className As %Register
     } elseif type = "%Library.TimeStamp" || (type = "%Library.DateTime") {
       set value = $translate(value, "Z", "")
     } elseif type = "%Library.Date" || (type = "%Library.Time") {
-      set value = ##class(Frontier.Shared.Utilities).SafeMethodCallAndReturn(.sc, className, name_"DisplayToLogical", value)
+      set value = ##class(Frontier.Shared.Utilities).SafeMethodCallAndReturn(.sc, object, name_"DisplayToLogical", value)
       $$$ThrowOnError(sc)
     }
 
-    set valid = ##class(Frontier.Shared.Utilities).SafeMethodCallAndReturn(.sc, className, name_"IsValid", value)
+    set valid = ##class(Frontier.Shared.Utilities).SafeMethodCallAndReturn(.sc, object, name_"IsValid", value)
     $$$ThrowOnError(sc)
 
-    set value = ##class(Frontier.Shared.Utilities).SafeMethodCallAndReturn(.sc, className, name_"Normalize", value)
+    set value = ##class(Frontier.Shared.Utilities).SafeMethodCallAndReturn(.sc, object, name_"Normalize", value)
     if value = "error" $$$ThrowOnError($$$ERROR($$$GeneralError, "Internal normalization error"))
     $$$ThrowOnError(sc)
 
     if valid = 1 set result = value
   } catch {
-    set error = $$$ERROR($$$GeneralError, $$$FormatText("Validation error: Invalid primitive value for property '%1' of type '%2' in class '%3'. Value: %4", name, type, className, inputValue))
+    set error = $$$ERROR($$$GeneralError, $$$FormatText("Validation error: Invalid primitive value for property '%1' of type '%2' in class '%3'. Value: %4", name, type, $classname(object), inputValue))
     set sc = error
   }
 
@@ -297,9 +295,9 @@ Method UnmarshalObject(className As %String, dynamicObject As %DynamicAbstractOb
       set sc = ..GetSerialObject(property.Type, value, .result)
     } elseif type = "collection"  {
       set result = $property(object, property.Name)
-      set sc = ..UnmarshalCollection(value, .result, className)
+      set sc = ..UnmarshalCollection(value, .result)
     } elseif type = "datatype" {
-      set sc = ..ResolvePrimitive(property.Type, property.Name, $classname(object), value, .result)
+      set sc = ..ResolvePrimitive(property.Type, property.Name, object, value, .result)
     } else {
       set sc = $$$ERROR($$$GeneralError, $$$FormatText("Invalid input type for key '%1' from '%2'", key, className))
     }
@@ -349,18 +347,7 @@ Method UnmarshalCollection(dynamicCollection As %DynamicAbstractObject, ByRef co
     set collection = $System.OBJ.New(collectionClass)
   }
 
-  set elementType = ""
-  set propertyName = ""
-  
-  if collection.ElementType [ ":" {
-    set propertyName = $piece(collection.ElementType, ":", 2)
-    set elementType = ##class(%Dictionary.CompiledProperty).%OpenId($replace(collection.ElementType, ":", "||")).Type    
-  } elseif className '= "" && (collection.ElementType [ "%") {
-    set elementType = className
-  } else {
-    set elementType = collection.ElementType
-  }
-  
+  set elementType = $case(className, "": collection.ElementType, : className)
   set iterator = dynamicCollection.%GetIterator()
   set isPersistentItem = ##class(Frontier.Types).IsPersistent(elementType)
 
@@ -383,10 +370,6 @@ Method UnmarshalCollection(dynamicCollection As %DynamicAbstractObject, ByRef co
         1: $$$ERROR($$$GeneralError, "Cannot unmarshal items that aren't dynamic.")
       )
       if item = "" continue
-    } elseif propertyName '= "" {
-      set sc = ..ResolvePrimitive(elementType, propertyName, className, dynamicItem, .primitive)  
-      if $$$ISERR(sc) quit
-      set item = primitive
     } else {
       set item = dynamicItem
     }

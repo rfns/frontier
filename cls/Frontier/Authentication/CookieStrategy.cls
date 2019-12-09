@@ -51,18 +51,18 @@ Method Verify(session As %CSP.Session, request As %CSP.Request, response As %CSP
     set response.Status = "401 Forbidden"
     return $$$ERROR($$$InvalidUsernameOrPassword)
   }
-  
+
   set found = 0
   set httpStatus = "200 OK"
   set sc = ##class(Frontier.Shared.Utilities).SafeClassMethodCall(..Validator, payload, .found, .httpStatus, .user)
-  
+
   if found = 1 {
     set ..Verified = 1
   } else {
     if httpStatus '= "" set response.Status = httpStatus
     else  set httpStatus = "401 Forbidden"
-  }  
-  
+  }
+
   $$$QuitOnError(sc)
   return $$$OK
 }
