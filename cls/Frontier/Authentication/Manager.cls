@@ -127,18 +127,18 @@ Method VerifyUsing(namedStrategy As %String, Output user, resourceScope As %Stri
 /// in the Route element's Scope property.
 Method CheckResourceScope(resourceScope As %String = "", authenticationScope As %DynamicObject = {{}}) As %Boolean [ Internal ]
 {
-  if resourceScope [ " " {    
+  if resourceScope [ " " {
     set resourceScope = $lfs(resourceScope, " ")
-    set isMatch = 0    
-    
-    for i=1:1:$ll(resourceScope) {      
+    set isMatch = 0
+
+    for i=1:1:$ll(resourceScope) {
       set oneScope = $zstrip($lg(resourceScope, i), "<>W")
       set modifier = $extract(oneScope, 1)
       if $extract(modifier)?1AN = 1 set modifier = "+"
-      
+
       if modifier = "-" set mustMatch = 0
       else  set mustMatch = 1
-      
+
       set oneScope = $translate(oneScope, "+-", "")
       set isMatch = ..CheckResourceScope(oneScope, authenticationScope)
       if mustMatch && 'isMatch { return 0 }
@@ -154,6 +154,7 @@ Method CheckResourceScope(resourceScope As %String = "", authenticationScope As 
 Method SetChallenge(strategy As Frontier.Authentication.Strategy) [ Private ]
 {
   set sc = strategy.GetChallenge(..Session, ..Request, ..Response, .challenge)
+
   if challenge '= "" do ..Response.SetHeader("WWW-Authenticate", challenge)
   $$$ThrowOnError(sc)
 }

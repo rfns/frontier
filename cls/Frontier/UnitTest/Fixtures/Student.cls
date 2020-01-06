@@ -78,7 +78,7 @@ Storage Default
 <Selectivity>50.0000%</Selectivity>
 </Property>
 <Property name="Adress">
-<AverageFieldSize>17.2</AverageFieldSize>
+<AverageFieldSize>16.3</AverageFieldSize>
 <Selectivity>10.0000%</Selectivity>
 </Property>
 <Property name="BirthDate">
@@ -95,10 +95,10 @@ Storage Default
 </Property>
 <Property name="LastPresentDate">
 <AverageFieldSize>5</AverageFieldSize>
-<Selectivity>10.0000%</Selectivity>
+<Selectivity>11.1111%</Selectivity>
 </Property>
 <Property name="Name">
-<AverageFieldSize>16.1</AverageFieldSize>
+<AverageFieldSize>15.8</AverageFieldSize>
 <Selectivity>10.0000%</Selectivity>
 </Property>
 <Property name="PeriodEnd">
@@ -106,7 +106,7 @@ Storage Default
 <Selectivity>10.0000%</Selectivity>
 </Property>
 <Property name="PeriodStart">
-<AverageFieldSize>4.8</AverageFieldSize>
+<AverageFieldSize>4.7</AverageFieldSize>
 <Selectivity>10.0000%</Selectivity>
 </Property>
 <Property name="SomeValue">

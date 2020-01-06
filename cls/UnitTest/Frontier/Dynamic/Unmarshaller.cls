@@ -15,7 +15,7 @@ Method TestUnmarshalErrors() As %Status
     "Plate": "TST-002", 
     "Students": [
       { "Name": "Juan", "Enrollment": "2-10-01T12::10.000Z" }
-    ]    
+    ]
   }  
   set sc = ##class(Frontier.Dynamic.Unmarshaller).Unmarshal("Frontier.UnitTest.Fixtures.Class", o, .i)
   do $$$AssertStatusNotOK(sc, "throws a validation error when the property fails to validate")

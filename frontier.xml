@@ -2001,9 +2001,9 @@ If $$$OK the 'result' is populated with the generated instance.</Description>
     set initialObject = $System.OBJ.OpenId(className, dynamicObject."__id__")
     if '$isobject(initialObject) return $$$ERROR($$$GeneralError, "Invalid id for '"_className_"'.")
   } else {
-  	set initialObject = $System.OBJ.New(className)  	
-  } 
-  
+  	set initialObject = $System.OBJ.New(className)
+  }
+
   return $$$OK
 ]]></Implementation>
 </Method>
@@ -2014,37 +2014,6 @@ If $$$OK the 'result' is populated with the generated instance.</Description>
 <Implementation><![CDATA[
   if pathComponent '="" set $piece(i%Path, ".", *+1) = pathComponent
   else  set ..Path = $piece(..Path, ".", 1, *-1)
-]]></Implementation>
-</Method>
-
-<Method name="AtemptToFindIdUsingIndices">
-<FormalSpec>className:%String,dynamicObject:%DynamicObject</FormalSpec>
-<Private>1</Private>
-<ReturnType>%String</ReturnType>
-<Implementation><![CDATA[
-  set idMembers = ""
-  set id = ""
-
-  set definition = ..GetAndCacheDefinition(className)
-  for i=1:1:definition.Indices.Count() {
-    set index = definition.Indices.GetAt(i)
-    if index.IdKey = 1 {
-      set idMembers = $lfs(index.Properties)
-      quit
-    }
-  }
-
-  if idMembers '= "" {
-    for i=1:1:$listlength(idMembers) {
-      set idProperty = $listget(idMembers, i)
-      set value = dynamicObject.%Get(idProperty)
-      if value '= ""  set $list(id, *+1) = value    
-    }
-  }
-  
-  set id = $lts(id, "||")
-  if $length(id, "||") = $listlength(idMembers) return id
-  return ""
 ]]></Implementation>
 </Method>
 
@@ -2102,7 +2071,7 @@ If $$$OK the 'result' is populated with the generated instance.</Description>
     if '$isobject(property) {
       if '..Strict continue
       do ..UpdatePath(candidateKey)
-      set iterationError = $$$ERROR($$$GeneralError, $$$FormatText("Candidate field '%1' is not a property from '%2'", candidateKey, className))
+      set iterationError = $$$ERROR($$$GeneralError, $$$FormatText("Field '%1' is not a property of '%2'", candidateKey, className))
       return 0
     }
 
@@ -2172,7 +2141,7 @@ If $$$OK the 'result' is populated with the generated instance.</Description>
 </Method>
 
 <Method name="ResolvePrimitive">
-<FormalSpec>type:%String,name:%String,object:%RegisteredObject,value,*result:%String=""</FormalSpec>
+<FormalSpec>type:%String,name:%String,className:%RegisteredObject,value,*result:%String=""</FormalSpec>
 <Private>1</Private>
 <ReturnType>%Status</ReturnType>
 <Implementation><![CDATA[
@@ -2194,20 +2163,20 @@ If $$$OK the 'result' is populated with the generated instance.</Description>
     } elseif type = "%Library.TimeStamp" || (type = "%Library.DateTime") {
       set value = $translate(value, "Z", "")
     } elseif type = "%Library.Date" || (type = "%Library.Time") {
-      set value = ##class(Frontier.Shared.Utilities).SafeMethodCallAndReturn(.sc, object, name_"DisplayToLogical", value)
+      set value = ##class(Frontier.Shared.Utilities).SafeMethodCallAndReturn(.sc, className, name_"DisplayToLogical", value)
       $$$ThrowOnError(sc)
     }
 
-    set valid = ##class(Frontier.Shared.Utilities).SafeMethodCallAndReturn(.sc, object, name_"IsValid", value)
+    set valid = ##class(Frontier.Shared.Utilities).SafeMethodCallAndReturn(.sc, className, name_"IsValid", value)
     $$$ThrowOnError(sc)
 
-    set value = ##class(Frontier.Shared.Utilities).SafeMethodCallAndReturn(.sc, object, name_"Normalize", value)
+    set value = ##class(Frontier.Shared.Utilities).SafeMethodCallAndReturn(.sc, className, name_"Normalize", value)
     if value = "error" $$$ThrowOnError($$$ERROR($$$GeneralError, "Internal normalization error"))
     $$$ThrowOnError(sc)
 
     if valid = 1 set result = value
   } catch {
-    set error = $$$ERROR($$$GeneralError, $$$FormatText("Validation error: Invalid primitive value for property '%1' of type '%2' in class '%3'. Value: %4", name, type, $classname(object), inputValue))
+    set error = $$$ERROR($$$GeneralError, $$$FormatText("Validation error: Invalid primitive value for property '%1' of type '%2' in class '%3'. Value: %4", name, type, className, inputValue))
     set sc = error
   }
 
@@ -2260,9 +2229,9 @@ If $$$OK the 'result' is populated with the generated instance.</Description>
       set sc = ..GetSerialObject(property.Type, value, .result)
     } elseif type = "collection"  {
       set result = $property(object, property.Name)
-      set sc = ..UnmarshalCollection(value, .result)
+      set sc = ..UnmarshalCollection(value, .result, className)
     } elseif type = "datatype" {
-      set sc = ..ResolvePrimitive(property.Type, property.Name, object, value, .result)
+      set sc = ..ResolvePrimitive(property.Type, property.Name, $classname(object), value, .result)
     } else {
       set sc = $$$ERROR($$$GeneralError, $$$FormatText("Invalid input type for key '%1' from '%2'", key, className))
     }
@@ -2316,7 +2285,18 @@ If $$$OK the 'result' is populated with the generated instance.</Description>
     set collection = $System.OBJ.New(collectionClass)
   }
 
-  set elementType = $case(className, "": collection.ElementType, : className)
+  set elementType = ""
+  set propertyName = ""
+  
+  if collection.ElementType [ ":" {
+    set propertyName = $piece(collection.ElementType, ":", 2)
+    set elementType = ##class(%Dictionary.CompiledProperty).%OpenId($replace(collection.ElementType, ":", "||")).Type    
+  } elseif className '= "" && (collection.ElementType [ "%") {
+    set elementType = className
+  } else {
+    set elementType = collection.ElementType
+  }
+  
   set iterator = dynamicCollection.%GetIterator()
   set isPersistentItem = ##class(Frontier.Types).IsPersistent(elementType)
 
@@ -2339,6 +2319,9 @@ If $$$OK the 'result' is populated with the generated instance.</Description>
         1: $$$ERROR($$$GeneralError, "Cannot unmarshal items that aren't dynamic.")
       )
       if item = "" continue
+    } elseif propertyName '= "" {
+      $$$ReturnOnError(..ResolvePrimitive(elementType, propertyName, className, dynamicItem, .primitive))
+      set item = primitive
     } else {
       set item = dynamicItem
     }
@@ -6319,7 +6302,7 @@ rchr(time) Quit ""
 </Property>
 <Property name="Plate">
 <Selectivity>10.0000%</Selectivity>
-<AverageFieldSize>5</AverageFieldSize>
+<AverageFieldSize>4.8</AverageFieldSize>
 </Property>
 <SQLMap name="IDKEY">
 <BlockCount>-4</BlockCount>
@@ -6434,7 +6417,7 @@ rchr(time) Quit ""
 </Property>
 <Property name="Adress">
 <Selectivity>10.0000%</Selectivity>
-<AverageFieldSize>15.9</AverageFieldSize>
+<AverageFieldSize>16.3</AverageFieldSize>
 </Property>
 <Property name="BirthDate">
 <Selectivity>10.0000%</Selectivity>
@@ -6449,20 +6432,20 @@ rchr(time) Quit ""
 <AverageFieldSize>1</AverageFieldSize>
 </Property>
 <Property name="LastPresentDate">
-<Selectivity>10.0000%</Selectivity>
+<Selectivity>11.1111%</Selectivity>
 <AverageFieldSize>5</AverageFieldSize>
 </Property>
 <Property name="Name">
 <Selectivity>10.0000%</Selectivity>
-<AverageFieldSize>17.8</AverageFieldSize>
+<AverageFieldSize>15.8</AverageFieldSize>
 </Property>
 <Property name="PeriodEnd">
 <Selectivity>10.0000%</Selectivity>
-<AverageFieldSize>4.9</AverageFieldSize>
+<AverageFieldSize>5</AverageFieldSize>
 </Property>
 <Property name="PeriodStart">
 <Selectivity>10.0000%</Selectivity>
-<AverageFieldSize>5</AverageFieldSize>
+<AverageFieldSize>4.7</AverageFieldSize>
 </Property>
 <Property name="SomeValue">
 <Selectivity>100.0000%</Selectivity>
@@ -8379,7 +8362,7 @@ The purpose is to show that custom authentication strategies can be used exclusi
 ]]></Routine>
 
 
-<Project name="frontier" LastModified="2019-11-19 14:51:00.604777" TargetType="2" HttpServer="http://localhost:57772">
+<Project name="frontier" LastModified="2019-12-11 11:47:10.08201" TargetType="2" HttpServer="http://localhost:57772">
   <Items>
     <ProjectItem name="Frontier.AbstractSerializer" type="CLS"></ProjectItem>
     <ProjectItem name="Frontier.ArgumentDescription" type="CLS"></ProjectItem>
@@ -8435,5 +8418,8 @@ The purpose is to show that custom authentication strategies can be used exclusi
     <ProjectItem name="UnitTest.Frontier.Types" type="CLS"></ProjectItem>
     <ProjectItem name="frontier.INC" type="MAC"></ProjectItem>
   </Items>
+  <BreakPoints>
+    <BreakPoint Routine="Doty.API.v1.Company.TimeClock.CLS" Offset="CreateTimeClock+1"></BreakPoint>
+  </BreakPoints>
 </Project>
 </Export>
