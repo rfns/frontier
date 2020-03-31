@@ -136,11 +136,9 @@ Method Serve(config As %DynamicObject) As %Status
       return ..Context.ThrowException("File does not exist.", "404 Not Found")
     } elseif config.root '= "" {
       set requestDirectory = ##class(%File).NormalizeFilename(config.root_"/"_config.redirect404To)
-      if ##class(%File).Exists(requestDirectory) return ..Context.ThrowException("File does not exist.", "404 Not Found")
+      if '##class(%File).Exists(requestDirectory) return ..Context.ThrowException("File does not exist.", "404 Not Found")
     }
   }
-
-  $$$ThrowOnError(..GetFileServerConfig(.appConfig))
 
   set fileName = $piece(requestDirectory, $$$OSSlash, *)
   set extension = $piece(fileName, ".", *)
@@ -197,6 +195,8 @@ Method Serve(config As %DynamicObject) As %Status
 Method GetContentConfiguration(extension As %String, config As %DynamicObject) As %DynamicObject [ Private ]
 {
 
+  if 'config.%IsDefined("extensions") set config.extensions = {}
+  
   set globalCharsetOverwrite = config.charset
   set extensionConfig = $property(config.extensions, extension)
 
@@ -233,21 +233,6 @@ Method IsCacheHit(stream As %Stream.Object, validator As %String) As %Boolean [ 
   set ifNoneMatch = ..Context.Request.GetCgiEnv("HTTP_IF_NONE_MATCH")
   if ifNoneMatch '= "" && (ifNoneMatch = ..MakeETag(stream, validator)) return 1
   return 0
-}
-
-Method GetFileServerConfig(Output config As %DynamicObject = {{}}) As %Status [ Private ]
-{
-  new $namespace
-  set $namespace = "%SYS"
-  set appPath = $extract(..Context.Request.Application, 1, *-1)
-
-  set application = ##class(Security.Applications).%OpenId(appPath)
-  if '$isobject(application) return $$$ERROR($$$GeneralError, "Application not found.")
-  if application.ServeFiles '= 1 return $$$ERROR($$$GeneralError, "The application is not configured to serve files.")
-
-  set config.ServeFilesTimeout = application.ServeFilesTimeout
-
-  return $$$OK
 }
 
 }
