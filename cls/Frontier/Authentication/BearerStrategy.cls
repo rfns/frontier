@@ -40,7 +40,7 @@ Method Verify(session As %CSP.Session, request As %CSP.Request, response As %CSP
     // Let the manager call the next strategy, if that's the last one, then the error is
     // fired by the router class.
     return $$$OK
-  } else {
+  } elseif authType = "BEARER" {
     set token = $$$trim($extract(authHeader, 7, *))
     set sc = ##class(Frontier.Shared.Utilities).SafeClassMethodCall(..Validator, token, .found, .httpStatus, .user)
     if 'found  set ..ChallengeScope = $replace(resourceScope, ",", " ")
@@ -49,6 +49,8 @@ Method Verify(session As %CSP.Session, request As %CSP.Request, response As %CSP
       if httpStatus '= "" set response.Status = httpStatus
       else  set response.Status = "500 Internal Server Error"
     }
+  } else {
+   return $$$OK 
   }
 
   if $$$ISOK(sc) && (found = 0) {
