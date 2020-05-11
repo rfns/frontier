@@ -52,6 +52,8 @@ Method Verify(session As %CSP.Session, request As %CSP.Request, response As %CSP
       if httpStatus '= "" set response.Status = httpStatus
       else  set response.Status = "500 Internal Server Error"
     }
+  } else {
+    return $$$OK
   }
 
   if $$$ISOK(sc) && (found = 0) {
