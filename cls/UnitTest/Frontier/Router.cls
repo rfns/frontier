@@ -1,9 +1,13 @@
-Class UnitTest.Frontier.Router Extends Port.UnitTest.TestCase
+Class UnitTest.Frontier.Router Extends %UnitTest.TestCase
 {
 
 Parameter TESTSERVER = "localhost";
 
 Parameter TESTSERVERPORT = 57772;
+
+Property Context As Frontier.Context;
+
+Property Session As %CSP.Session;
 
 Property Request As %Net.HttpRequest;
 
@@ -14,6 +18,8 @@ Property Student As Frontier.UnitTest.Fixtures.Student;
 Property WebApplicationName As %String [ InitialExpression = {$e(##class(Frontier.UnitTest.WebApplicationInstaller).#NAME, 2, *)} ];
 
 Property Agent As Forgery.Agent;
+
+Property Workspace As %String;
 
 Method OnBeforeAllTests() As %Status [ PublicList = %session ]
 {
@@ -30,14 +36,34 @@ Method OnBeforeAllTests() As %Status [ PublicList = %session ]
   set ..Student = ##class(Frontier.UnitTest.Fixtures.Student).%OpenId(studentId)
   set ..Agent = ##class(Forgery.Agent).%New()
 
-  set %session = ##class(%CSP.Session).%New("t3st1ng")
+  set ..Session = ##class(%CSP.Session).%New("t3st1ng", -1)
+  
+  set ..Context = ##class(Frontier.Context).%New(
+  	..Session,
+  	..Request,
+  	##class(%CSP.Response).%New()
+  )
+  
+  set ..Context.Parameters.INDENTSIZE = 2
+  
+	#if ##class(%Dictionary.CompiledClass).%ExistsId("Port.Configuration")
+		set ..Workspace = ##class(Port.Configuration).GetWorkspace("frontier")
+	#else 
+		set ..Workspace = ..Manager.UserFields.GetAt("TESTPARAM_WORKSPACE")
+	#endif
 
   return $$$OK
 }
 
+Method GetTestDirectory(subdir As %String) As %String
+{
+	return ##class(%File).NormalizeFilename(subdir, ..Workspace_"/tests")
+}
+
 Method OnAfterAllTests() As %Status [ PublicList = %session ]
 {
-  kill %session
+	do ..Session.Unlock()
+	set ..Session.EndSession = 1
   do ##class(%File).RemoveDirectoryTree(..GetTestDirectory("../fixtures"))
   return $$$OK
 }
@@ -62,7 +88,7 @@ Method AssertRequest(resource As %String, expected As %DynamicAbstractObject = "
   set responseText = response.Read()
   set expectedText = expected
 
-  set firstByte = $extract(responseText)
+  set firstByte = $extract(responseText)  
 
   if $extract(firstByte)?1(1"{",1"[") {
     set response = ##class(%DynamicObject).%FromJSON(responseText)
@@ -70,7 +96,7 @@ Method AssertRequest(resource As %String, expected As %DynamicAbstractObject = "
       if ##class(Frontier.Types).IsDynamicObject(response) && (response.errors '= ""){
         return ##class(Frontier.UnitTest.Util).MergeErrors(response.errors)
       } elseif ##class(Frontier.Types).IsDynamic($classname(expected)) {
-        $$$QuitOnError(##class(Frontier.Dynamic.Serializer).SerializeToStream(.str, expected,,,,2))
+        $$$QuitOnError(##class(Frontier.Dynamic.Serializer).SerializeToStream(.str, ..Context, expected))
         set expectedText = str.Read()
       }
     }
@@ -221,15 +247,11 @@ Method TestGETAliasedQueryParameter()
 
 Method TestGETDynamicSQLResult()
 {
-  set resource = $$$FormatText("%1sql/dynamic", ..WebApplicationName)
+  set resource = $$$FormatText("%1sql/dynamic", ..WebApplicationName)  
+  set provider = ..Context.SQL.Prepare("SELECT *, %VID as Index FROM (SELECT * FROM FRONTIER_UNITTEST_FIXTURES.STUDENT) WHERE %VID BETWEEN ? AND ?").Parameters(1, 5).Mode(2)
+  do provider.Execute()
 
-  set sd = ##class(%SQL.Statement).%New()
-  set sd.%SelectMode = 2
-  do sd.%Prepare("SELECT *, %VID as Index FROM (SELECT * FROM FRONTIER_UNITTEST_FIXTURES.STUDENT) WHERE %VID BETWEEN ? AND ?")
-  set mt = sd.%Metadata
-  set rd = sd.%Execute(1, 5)
-
-  set sc = ##class(Frontier.SQL.Serializer).SerializeToStream(.s, rd, mt,,,2)
+  set sc = ##class(Frontier.SQL.Serializer).SerializeToStream(.s, ..Context, provider)
   set array =  {}.%FromJSON(.s)
   set expected = {"results":(array)}
 
@@ -239,14 +261,10 @@ Method TestGETDynamicSQLResult()
 Method TestGETQuerySQLResult()
 {
   set resource = $$$FormatText("%1sql/query", ..WebApplicationName)
+  set provider = ..Context.SQL.Prepare("Frontier.UnitTest.Fixtures.Student:PaginatedStudents").Parameters(1, 5).Mode(2) 
+  do provider.Execute()
 
-  set sd = ##class(%SQL.Statement).%New()
-  set sd.%SelectMode = 2
-  do sd.%PrepareClassQuery("Frontier.UnitTest.Fixtures.Student", "PaginatedStudents")
-  set mt = sd.%Metadata
-  set rd = sd.%Execute(1, 5)
-
-  set sc = ##class(Frontier.SQL.Serializer).SerializeToStream(.s, rd, mt,,,2)
+  set sc = ##class(Frontier.SQL.Serializer).SerializeToStream(.s, ..Context, provider)
   set array =  {}.%FromJSON(.s)
   set expected = {"results":(array)}
   return $$$AssertStatusOK(..AssertRequest(resource, expected), $$$FormatText("can retrieve the expected data from the resource %1", resource))
@@ -332,8 +350,8 @@ Method TestGETNoWeakTypedMethods()
 
 Method TestPOSTFileUpload()
 {
-  set filePath = ##class(%File).NormalizeFilename(
-    ##class(Port.Configuration).GetWorkspace("frontier")_"/"_
+  set filePath = ##class(%File).NormalizeFilename(  	
+    ..Workspace_"/"_
     "cls/Frontier/Router.cls"
   )
   set file = ##class(%File).%New(filePath)
@@ -356,8 +374,9 @@ Method TestPOSTFileUpload()
 
 Method TestPOSTSingleFileUpload()
 {
-  set filePath = ##class(%File).NormalizeFilename(
-    ##class(Port.Configuration).GetWorkspace("frontier")_"/"_
+  
+  set filePath = ##class(%File).NormalizeFilename(  
+    ..Workspace_"/"_
     "cls/Frontier/Router.cls"
   )
 
@@ -376,7 +395,7 @@ Method TestPOSTSingleFileUpload()
 Method TestGETStaticFile()
 {
   for i = "README.md", "LICENSE.md", "CONTRIBUTING.md" {
-    set filePath = ##class(%File).NormalizeFilename(##class(Port.Configuration).GetWorkspace("frontier")_"/"_i)
+    set filePath = ..Workspace_"/"_i
     set file = ##class(%Stream.FileCharacter).%New()
     set file.TranslateTable = "UTF8"
     do file.LinkToFile(filePath)

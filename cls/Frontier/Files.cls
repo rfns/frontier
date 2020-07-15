@@ -66,7 +66,7 @@ Method ServeFrom(root As %String) As %Stream.Object
 {
   return ..Serve({
     "root": (root),
-    "etag": "weak",    
+    "etag": "weak",
     "index": "index.html index.htm",
     "extensions": {
       "md": {
@@ -126,10 +126,10 @@ Method Serve(config As %DynamicObject) As %Status
 
     for i=1:1:$length(virtualPath, " ") {
       set virtualFileName = $piece(virtualPath, " ", i)
-      set requestDirectory = ##class(%File).NormalizeFilename(virtualFileName, directory)      
+      set requestDirectory = ##class(%File).NormalizeFilename(virtualFileName, directory)
       if ##class(%File).Exists(requestDirectory) set fileExists = 1 quit
     }
-  }   
+  }
 
   if 'fileExists {
     if 'config.%IsDefined("redirect404To") {
@@ -197,6 +197,11 @@ Method Serve(config As %DynamicObject) As %Status
 Method GetContentConfiguration(extension As %String, config As %DynamicObject) As %DynamicObject [ Private ]
 {
 
+<<<<<<< Updated upstream
+=======
+  if 'config.%IsDefined("extensions") set config.extensions = {}
+
+>>>>>>> Stashed changes
   set globalCharsetOverwrite = config.charset
   set extensionConfig = $property(config.extensions, extension)
 

@@ -35,23 +35,23 @@ Method Verify(session As %CSP.Session, request As %CSP.Request, response As %CSP
   set found = 0
   set httpStatus = ""
   set authHeader = request.GetCgiEnv("HTTP_AUTHORIZATION")
-
   set authType = $$$trim($$$ucase($piece(authHeader, " ", 1)))
 
-  if authHeader = "" {
+  if authType '= "BASIC" {
     // Let the manager call the next strategy, if that's the last one than the error is
     // fired by the router class.
     return $$$OK
-  } elseif authType = "BASIC" {
-    set credentials = $System.Encryption.Base64Decode($$$trim($piece(authHeader, " ", 2)))
-    set userName = $piece(credentials, ":")
-    set password = $piece(credentials, ":", 2)
-    set sc = ##class(Frontier.Shared.Utilities).SafeClassMethodCall(..Validator, userName, password, .found, .httpStatus, .user)
-    set ..Verified = found
-    if $$$ISERR(sc) {
-      if httpStatus '= "" set response.Status = httpStatus
-      else  set response.Status = "500 Internal Server Error"
-    }
+  }
+  
+  set credentials = $System.Encryption.Base64Decode($$$trim($piece(authHeader, " ", 2)))
+  set userName = $piece(credentials, ":")
+  set password = $piece(credentials, ":", 2)
+  set sc = ##class(Frontier.Shared.Utilities).SafeClassMethodCall(..Validator, userName, password, .found, .httpStatus, .user)
+  set ..Verified = found
+  
+  if $$$ISERR(sc) {
+    if httpStatus '= "" set response.Status = httpStatus
+    else  set response.Status = "500 Internal Server Error"
   }
 
   if $$$ISOK(sc) && (found = 0) {

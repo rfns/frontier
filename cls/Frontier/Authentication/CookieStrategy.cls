@@ -36,7 +36,7 @@ Method Verify(session As %CSP.Session, request As %CSP.Request, response As %CSP
 {
   set failed = 0
   #define ExpireCookie  do response.SetCookie(..Key,"",$zdt("0,0", 2)_" GMT", ..Path)
-  #define AssertPropertyDefined(%jp,%ip) if $p($this, %ip) = "" $$$ExpireCookie return $$$ERROR($$$GeneralError, $$$FormatText("Strategy '%1' requires '%1' property to be specified.", ..Name, %jp))
+  #define AssertPropertyDefined(%jp,%ip) if $property($this, %ip) = "" $$$ExpireCookie return $$$ERROR($$$GeneralError, $$$FormatText("Strategy '%1' requires '%1' property to be specified.", ..Name, %jp))
 
   $$$AssertPropertyDefined("validator", "Validator")
   $$$AssertPropertyDefined("key", "Key")

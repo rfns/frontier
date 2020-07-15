@@ -1,9 +1,14 @@
 Class Frontier.SQL.Serializer Extends Frontier.AbstractSerializer
 {
 
-ClassMethod Serialize(results As %SQL.Statement, metadata As %SQL.StatementMetadata, depth As %Integer = 0, propertyFormatter As Frontier.PropertyFormatter = "", indentBy As %Integer = 0) As %Status
+ClassMethod Serialize(context As Frontier.Context, provider As Frontier.SQL.Provider, depth As %Integer = 0) As %Status
 {
-     
+	
+	set results = provider.Results
+	set metadata = provider.Metadata
+	set propertyFormatter = context.PropertyFormatter
+	set indentBy = context.Parameters.INDENTSIZE
+	     
   #define NewLineIf write $select(indentBy > 0 : $char(10), 1: "")
   #define SpaceIf $select(indentBy > 0: " ", 1: "")
   

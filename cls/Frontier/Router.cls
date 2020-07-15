@@ -142,6 +142,7 @@ ClassMethod DispatchRequest(url As %String, httpMethod As %String, forwarded As 
   set isResourceMatch = 0
   set isHttpMethodMatch = 0
   
+  set %frontier.ClassName = $classname()
   set %frontier.Method = "DispatchRequest"
   
   // Normalize the HTTP method.
@@ -291,7 +292,7 @@ ClassMethod DispatchRequest(url As %String, httpMethod As %String, forwarded As 
     return $$$OK       
   } catch ex {       
     set exceptionPayload = ..HandleException(ex)
-    do ##class(Frontier.Dynamic.Serializer).Serialize(exceptionPayload,, %frontier.PropertyFormatter, %frontier.Parameters.MAXIMUMDEPTH, %frontier.Parameters.INDENTSIZE)
+    do ##class(Frontier.Dynamic.Serializer).Serialize(%frontier, exceptionPayload)
   }
   return $$$OK
   
@@ -403,7 +404,7 @@ ClassMethod DispatchResponse(returnedData As %CacheString) As %Status [ Private 
         set response.content = stream
       } elseif isSQLProvider {
         set provider = returnedData
-        set response.results = provider      
+        set response.results = provider
       } elseif isDynamic {
         set response = returnedData
       } else {
@@ -422,9 +423,9 @@ ClassMethod DispatchResponse(returnedData As %CacheString) As %Status [ Private 
   // We must use a custom serializer because the current %ToJSON implementation cannot serialize
   // mixed instances.
   if %frontier.Parameters.DIRECTWRITE = 1 {
-    return ##class(Frontier.Dynamic.Serializer).Serialize(response,, %frontier.PropertyFormatter, %frontier.Parameters.MAXIMUMDEPTH, %frontier.Parameters.INDENTSIZE)
+    return ##class(Frontier.Dynamic.Serializer).Serialize(%frontier, response)
   } else {
-    $$$QuitOnError(##class(Frontier.Dynamic.Serializer).SerializeToStream(.stream, response,, %frontier.PropertyFormatter, %frontier.Parameters.MAXIMUMDEPTH, %frontier.Parameters.INDENTSIZE))
+    $$$QuitOnError(##class(Frontier.Dynamic.Serializer).SerializeToStream(.stream, %frontier, response))
     do stream.OutputToDevice()
   }
   return $$$OK

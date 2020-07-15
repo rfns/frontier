@@ -26,7 +26,7 @@ Property Context As Frontier.Context [ Private ];
 Method %OnNew(context As Frontier.Context, RESTMethodArguments As %String = 0, ByRef matches As %String = 0) As %Status [ Private ]
 {
   set requestQueryParams = 0
-  set strictQueryParameters = context.StrictQueryParameters
+  set strictQueryParameters = context.Parameters.STRICTQUERYPARAMETERS
   set propertyFormatter = context.PropertyFormatter
   set request = context.Request
 

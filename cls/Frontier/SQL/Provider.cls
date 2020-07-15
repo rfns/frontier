@@ -21,6 +21,8 @@ Property Results As %SQL.StatementResult [ Internal, ReadOnly ];
 
 Property Metadata As %SQL.StatementMetadata [ Internal, ReadOnly ];
 
+Property EnforceArray As %Boolean [ InitialExpression = 0 ];
+
 Method %OnNew(statement As %String = "") As %Status
 {
   if statement '= "" do ..ResolveStatement(statement)

@@ -67,7 +67,7 @@ Property PropertyFormatter As Frontier.PropertyFormatter;
 
 /// By default Frontier won't allow the usage of query parameters that aren't arguments from the classmethod that will be called.
 /// Setting this flag to 0 will disable this check.
-Property StrictQueryParameters As %Boolean [ InitialExpression = 1 ];
+Property StrictQueryParameters As %Boolean [ InitialExpression = 0 ];
 
 /// This is plain text version from the route parameters. It's useful when its equivalent argument resolved to an object due to its type.
 /// Each route parameters is keyed by its name.
@@ -105,7 +105,7 @@ Method %OnNew(session As %CSP.Session, request As %CSP.Request, response As %CSP
   set i%CORS = ##class(Frontier.CORS).%New($this)
   set i%Parameters = ##class(Frontier.Parameters).%New()
   set i%ArgumentValues = 0
-  set i%OutputDevice = $io
+  set i%OutputDevice = $io  
   set ..Data = {}
   set ..Response.ContentType = "application/json"
   return $$$OK
@@ -179,7 +179,15 @@ Method ThrowException(message As %String, httpStatus As %String = "500 Internal 
 Method DirectWriteSet(value As %Boolean) As %Status
 {
   set ..Parameters.DIRECTWRITE = 1
+  set i%DirectWrite = value
   return $$$OK
+}
+
+Method StrictQueryParametersSet(value) As %Status
+{
+	set ..Parameters.STRICTQUERYPARAMETERS = value
+	set i%StriactQueryParameters = value
+	return $$$OK
 }
 
 }

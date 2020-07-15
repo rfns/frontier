@@ -7,10 +7,15 @@ Class Frontier.Dynamic.Serializer Extends Frontier.AbstractSerializer
 
 /// Takes an %DynamicAbstractObject and serializes it while writing back to the current device.
 /// This method is not supposed to be used manually.
-ClassMethod Serialize(dynamic As %DynamicAbstractObject, depth As %String = 0, propertyFormatter As Frontier.PropertyFormatter = "", maxDepth As %Integer = 7, indentBy As %Integer = 0, fromKey As %Boolean = 0) As %Status [ Internal ]
+ClassMethod Serialize(context As Frontier.Context, dynamic As %DynamicAbstractObject, depth As %String = 0) As %Status [ Internal ]
 {
+ 
   #define NewLineIf if indentBy > 0 write $c(10)
   #define SpaceIf  $select(indentBy > 0 : " ", 1: "")
+  
+  set propertyFormatter = context.PropertyFormatter
+  set maxDepth = context.Parameters.MAXIMUMDEPTH
+  set indentBy = context.Parameters.INDENTSIZE
   
   set sc = $$$OK
   set results = ""
@@ -23,6 +28,7 @@ ClassMethod Serialize(dynamic As %DynamicAbstractObject, depth As %String = 0, p
     write "{"
   }
   
+  break:dynamic.%IsA("Frontier.Context")
   set iterator = dynamic.%GetIterator()
   set comma = ""
   
@@ -55,19 +61,19 @@ ClassMethod Serialize(dynamic As %DynamicAbstractObject, depth As %String = 0, p
     } elseif $isobject(value) {
       set type = $classname(value)
       if ##class(Frontier.Types).IsDynamic(type) {
-        $$$ReturnOnError(..Serialize(value, depth, propertyFormatter, maxDepth, indentBy, 1))
+        $$$ReturnOnError(..Serialize(context, value, depth))
       } elseif ##class(Frontier.Types).IsStream(type) {
         write $c(34)
         do WriteEscaped(value)
         write $c(34)
       } elseif ##class(Frontier.Types).IsSQLProvider(type) {
         if 'value.StatementExecuted $$$ReturnOnError(value.Execute())        
-        $$$ReturnOnError(##class(Frontier.SQL.Serializer).Serialize(value.Results, value.Metadata, depth, propertyFormatter, indentBy))
+        $$$ReturnOnError(##class(Frontier.SQL.Serializer).Serialize(context, value, depth))
       } elseif ##class(Frontier.Types).IsInstantiable(type) {
         set child = value
         set value = ""
         $$$ReturnOnError(##class(Frontier.Dynamic.Marshaller).MarshalDirect(child, .value, maxDepth - depth))        
-        $$$ReturnOnError(..Serialize(value, depth, propertyFormatter, maxDepth, indentBy))
+        $$$ReturnOnError(..Serialize(context, value, depth))
       }
     } else {
       if type = "string" { write $$$ZENJSONSTR(value, "s") }
